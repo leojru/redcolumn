@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars.
+// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots.
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
@@ -116,6 +116,7 @@ import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { ClassicToolbars } from './components/fork/ClassicToolbars';
+import { vectorSnapshotOf, withMarkupsInside } from './fork/snapshot';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
 import { commandPolicy } from './commands/commandPolicy';
 import { comboOf, formatCombo, keyMap } from './commands/keys';
@@ -1195,7 +1196,8 @@ export function App() {
   const formFieldRef = useRef<(pane: Pane, w: FormWidgetHit) => void>(() => {});
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
   /** The last Snapshot taken: its picture's pixel size and the image markup it pastes as. */
-  const lastSnapshot = useRef<{ width: number; height: number; markup: Markup } | null>(null);
+  // Fork change: `markups` is the snapshot and, for a vector snapshot, the markups copied with it.
+  const lastSnapshot = useRef<{ width: number; height: number; markups: Markup[] } | null>(null);
   const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean, polygon?: Point[]) => Promise<void>>(async () => {});
   const pasteImageRef = useRef<(file: Blob, at?: { pane: Pane; x: number; y: number }) => void>(() => {});
   /** Images dropped on an open document, at a point on screen (Preferences › Images › Image Drag/Drop Behaviour). */
@@ -5411,8 +5413,12 @@ export function App() {
     const { o } = paneParts(pane);
     if (!o) return Promise.resolve();
     return (async () => {
-      // The resolution set in Preferences › Snapshot, within 4096 px on the longest side.
-      const region = await renderRegion(o, pageIndex, rect, (w, h) => Math.min(settings.get().snapshotDpi / 72, 4096 / Math.max(w, h)), withMarkups);
+      // Fork change: the page content as vector graphics when it can be (the picture is then only its
+      // on-screen look, so it leaves the markups out: they are copied as markups instead).
+      const vector = settings.get().vectorSnapshots ? await vectorSnapshotOf(o.doc, pageIndex, rect, polygon) : null;
+      // The resolution set in Preferences › Snapshot (at least 300 dpi for a vector one's preview), within 4096 px on the longest side.
+      const dpi = vector ? Math.max(300, settings.get().snapshotDpi) : settings.get().snapshotDpi;
+      const region = await renderRegion(o, pageIndex, rect, (w, h) => Math.min(dpi / 72, 4096 / Math.max(w, h)), withMarkups && !vector);
       if (!region) return;
       const { x0, y0, w, h } = region;
       let canvas = region.canvas;
@@ -5433,17 +5439,22 @@ export function App() {
       if (!blob) return;
       const now = Date.now();
       const markup: Markup = { id: 'snapshot', type: 'image', pageIndex, points: [[x0, y0], [x0 + w, y0 + h]], style: { ...DEFAULT_STYLES.image }, image: canvas.toDataURL('image/png'), subject: 'Snapshot', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
+      // A vector snapshot's PDF content goes with the picture it was captured with (export checks the pair).
+      if (vector) Object.assign(markup, { vector, vectorImage: markupDigest({ image: markup.image } as Markup) });
+      const markups = vector && withMarkups ? withMarkupsInside(markup, o.store.forPage(pageIndex)) : [markup];
       // Also on the app's own clipboard, so pasting works where the system clipboard is off limits.
-      clipboard.current = [markup];
+      clipboard.current = markups;
       // Pasted back from the system clipboard, the picture is recognised by its pixel size and placed
       // at the size it was captured, not at a size that depends on the zoom.
-      lastSnapshot.current = { width: canvas.width, height: canvas.height, markup };
-      setClipboardCount(1);
+      lastSnapshot.current = { width: canvas.width, height: canvas.height, markups };
+      setClipboardCount(markups.length);
+      const kind = vector ? 'Vector snapshot' : 'Snapshot';
+      const pastesAs = vector ? (markups.length > 1 ? `the drawing (vector) with ${markups.length - 1} markup${markups.length > 2 ? 's' : ''}` : 'the drawing (vector)') : 'an image';
       try {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-        setNotice('Snapshot copied to the clipboard. Ctrl+V pastes it as an image.');
+        setNotice(`${kind} copied to the clipboard. Ctrl+V pastes ${pastesAs}.`);
       } catch {
-        setNotice('Snapshot copied. Ctrl+V pastes it as an image here.');
+        setNotice(`${kind} copied. Ctrl+V pastes ${pastesAs} here.`);
       }
     })().catch((err) => setError(`Snapshot failed: ${err instanceof Error ? err.message : String(err)}`));
   };
@@ -5463,7 +5474,7 @@ export function App() {
       const viewer = c.viewer;
       const at = lastPointer.current?.viewer === viewer ? lastPointer.current : null;
       const page = at ? viewer.pageNearClient(at.x, at.y) : viewer.currentPageIndex;
-      c.tools.paste([snap.markup], page, at ? viewer.clientToPage(at.x, at.y, page) : null);
+      c.tools.paste(snap.markups, page, at ? viewer.clientToPage(at.x, at.y, page) : null);
       return true;
     })()
       .catch(() => false)

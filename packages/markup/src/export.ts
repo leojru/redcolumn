@@ -1,4 +1,5 @@
-import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
+// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content.
+import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
@@ -21,6 +22,7 @@ import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
 import { importViewports } from './bluebeam';
+import { vectorSnapshotBytes } from './vectorSnapshot';
 import { isGeoViewport } from './geo';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
@@ -254,6 +256,8 @@ interface Ctx {
   fonts: Map<StandardFonts, PDFFont>;
   /** Embedded markup images (signatures) by data URL. */
   images: Map<string, PDFImage>;
+  /** Fork addition: embedded vector snapshots (Markup.vector) by data URL. */
+  vectors?: Map<string, PDFEmbeddedPage>;
   scale: Scale;
   /** Every markup being exported and each page's scale, for legends. */
   all: readonly Markup[];
@@ -263,6 +267,11 @@ interface Ctx {
   pages: PDFPage[];
   /** Named destination written for each Place, by Place id. */
   placeNames: Map<string, string>;
+}
+
+/** Fork addition: whether a markup is a vector snapshot whose picture is still the one captured with it. */
+function vectorOf(m: Markup): boolean {
+  return m.type === 'image' && !!m.vector && !!m.image && m.vectorImage === markupDigest({ image: m.image } as Markup);
 }
 
 /** Embeds a PNG or JPEG data URL; null for anything else. */
@@ -479,7 +488,15 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.Font = { F0: font.ref };
   }
 
-  const image = (isImageType(m.type) || m.type === 'attachment') && m.image ? ctx.images.get(m.image) : undefined;
+  // Fork addition: a vector snapshot draws its PDF content, scaled into the box, instead of its picture.
+  const vector = vectorOf(m) ? ctx.vectors?.get(m.vector!) : undefined;
+  const image = !vector && (isImageType(m.type) || m.type === 'attachment') && m.image ? ctx.images.get(m.image) : undefined;
+  if (vector) {
+    const b = boundsOf(m.points);
+    // Form space has y up from the sheet's lower left; page space is y down.
+    ops.push('q /GS1 gs', `${fmt(b.w / vector.width)} 0 0 ${fmt(-b.h / vector.height)} ${fmt(b.x)} ${fmt(b.y + b.h)} cm`, '/Fm0 Do', 'Q');
+    resources.XObject = { Fm0: vector.ref };
+  }
   if (image) {
     const b = boundsOf(m.points);
     // Image space is a unit square with y up; page space is y down.
@@ -1988,6 +2005,20 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     const img = await embedDataUrl(doc, src);
     if (img) images.set(src, img);
   }
+  // Fork addition: each vector snapshot's PDF content, embedded once.
+  const vectors = new Map<string, PDFEmbeddedPage>();
+  for (const m of written) {
+    const url = vectorOf(m) ? m.vector! : null;
+    if (!url || vectors.has(url)) continue;
+    const bytes = vectorSnapshotBytes(url);
+    if (!bytes) continue;
+    try {
+      const [page] = await doc.embedPdf(bytes, [0]);
+      if (page) vectors.set(url, page);
+    } catch {
+      // Unreadable: the picture is drawn instead.
+    }
+  }
   const placeNames = addPlaces(doc, pages, options.places ?? []);
   if (options.bookmarks) writeOutline(doc, pages, options.bookmarks, placeNames);
   if (options.pageLabels?.some((l) => l)) writePageLabels(doc, options.pageLabels);
@@ -2008,7 +2039,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     const page = pages[pageIndex];
     if (!page) continue;
     const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
-    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames };
+    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, vectors, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames };
     const build = (m: Markup, orig?: PDFDict) => {
       const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.

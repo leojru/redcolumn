@@ -94,3 +94,6 @@ export { BTX_TYPES, writeBhx, writeBlx, writeBpx, writeBtx } from './revuWrite';
 export type { Dropped } from './diagnostics';
 export { markupSnapPoints } from './snapPoints';
 export * from './cad';
+
+// Fork addition (leojru/redcolumn): vector snapshots.
+export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES } from './vectorSnapshot';

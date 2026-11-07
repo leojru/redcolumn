@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Vector Snapshots preference.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
@@ -569,6 +570,8 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ))}
           </select>
         </Row>
+        {/* Fork addition. */}
+        <C>{check('vectorSnapshots', 'Vector Snapshots (keep drawings as vector graphics)', { title: 'Snapshot and Cut Content copy the page content as vector graphics, and the markups in the area as markups. Off: one picture of both, at the Snapshot Resolution.' })}</C>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
       </Grid>
     ),

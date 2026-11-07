@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots).
 import { expandArcs, isMeasureKind, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
 import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
@@ -369,6 +370,13 @@ export interface Markup {
   fields?: Record<string, string>;
   /** Image drawn in the markup's box (images, signatures, other tools' attachments): a PNG or JPEG data URL. */
   image?: string;
+  /**
+   * Fork addition (leojru/redcolumn): a vector snapshot's PDF content, a one-page PDF data URL the size
+   * of the box (vectorSnapshot.ts). Saved PDFs draw it instead of `image`, which stays the on-screen picture.
+   */
+  vector?: string;
+  /** Fork addition: fingerprint (markupDigest) of the `image` captured with `vector`; once the picture is changed (Change Colours) the picture is saved instead. */
+  vectorImage?: string;
   signature?: SignatureInfo;
   /** Locked markups cannot be moved, reshaped, restyled or deleted; their status and comments stay editable. */
   locked?: boolean;

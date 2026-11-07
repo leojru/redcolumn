@@ -37,7 +37,8 @@ export interface Saved {
 }
 
 /** Imperial feet unless a spec asks otherwise (test.use({ settings: ... })). */
-const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft' };
+// Fork change: picture snapshots (as upstream) unless a spec turns vector snapshots on.
+const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft', vectorSnapshots: false };
 
 /** Same first-run state everywhere: a fixed author and known settings (apps/web/src/settings/settings.ts). */
 function seed({ settings, toolbar }: { settings: Record<string, unknown>; toolbar: string }) {

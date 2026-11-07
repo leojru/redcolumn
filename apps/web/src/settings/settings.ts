@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): vectorSnapshots setting.
 import { useSyncExternalStore } from 'react';
 import type { ThemeChoice } from '../theme/themes';
 import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
@@ -235,6 +236,8 @@ export interface Settings {
   hiddenRibbonGroups: string[];
   /** Snapshot: resolution of the picture it copies, in dots per inch. */
   snapshotDpi: number;
+  /** Fork addition: Snapshot and Cut Content keep the page content as vector graphics (with the markups copied as markups), not as a picture. */
+  vectorSnapshots: boolean;
   /** Advanced › Experimental: an application embedding RedColumn may set the library id of files it launches and turn commands off (desktop/embedHost.ts). */
   embedHostHooks: boolean;
 
@@ -463,6 +466,7 @@ export const DEFAULT_SETTINGS: Settings = {
   startTips: true,
   hiddenRibbonGroups: [],
   snapshotDpi: 200,
+  vectorSnapshots: true,
   embedHostHooks: false,
 
   tabTruncation: 'end',
