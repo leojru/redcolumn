@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): new profiles' right-hand panels.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -37,7 +38,8 @@ test('a file that is not a backup is refused', () => {
 
 test('the panels docked on the right are saved with the profile, and older profiles dock everything left', () => {
   const p = profiles.create('Docked', 'default');
-  assert.deepEqual(p.state.rightPanels, []);
+  // Fork change: new profiles dock measuring, properties and search on the right (the classic layout).
+  assert.deepEqual(p.state.rightPanels, ['measurements', 'properties', 'search']);
   profiles.update((s) => ({ ...s, rightPanels: ['files', 'properties'] }));
   const copy = profiles.importJson(profiles.exportJson(p.id));
   assert.deepEqual(copy.state.rightPanels, ['files', 'properties']);

@@ -1,4 +1,5 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+// Modified in the leojru/redcolumn fork (revu-layout): compact classic status bar (leading, middle, compact).
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { formatLatLon, formatLength, geoAt, type GeoRegion, type Scale } from '@nb/measure';
 import type { PagePoint, TileViewer } from '../viewer/TileViewer';
 import { settings, useSettings } from '../settings/settings';
@@ -37,6 +38,14 @@ interface Props {
   tool: Tool;
   /** Back to the Select tool (clicking the tool's name). */
   onSelectTool: () => void;
+  /** Fork addition (classic layout): controls at the far left, before the toggles. */
+  leading?: ReactNode;
+  /** Fork addition (classic layout): the page strip, between the toggles' sides. */
+  middle?: ReactNode;
+  /** Fork addition (classic layout): shorter toggle names; Polar, Track, Rulers, Crosshair and Draw to Scale stay in the View and Tools menus. */
+  compact?: boolean;
+  /** Fork addition (classic layout): controls just before the pointer position. */
+  trailing?: ReactNode;
 }
 
 function Toggle({
@@ -72,7 +81,7 @@ function Toggle({
  * the page's scale) on the right. It follows the pointer itself so moving the mouse does not
  * re-render the rest of the app.
  */
-export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapContent, onSnapContent, disabled, sync, onSync, onOpenSettings, tool, onSelectTool }: Props) {
+export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapContent, onSnapContent, disabled, sync, onSync, onOpenSettings, tool, onSelectTool, leading, middle, compact, trailing }: Props) {
   const prefs = useSettings();
   const online = useOnline();
   const assistantOn = useSyncExternalStore(subscribeAssistant, assistantIsOn, () => false);
@@ -104,9 +113,11 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
   const geo = onPage ? geoAt(geoRegions(), cursor.pageIndex, cursor.point) : null;
 
   return (
-    <div className="statusbar">
+    <div className={`statusbar${compact ? ' classic' : ''}`}>
+      {leading && <div className="status-group status-leading">{leading}</div>}
+      {middle}
       <div className="status-group">
-        {tool !== 'select' && (
+        {tool !== 'select' && !compact && (
           <>
             <button type="button" className="status-toggle on status-tool" title="The active tool. Click (or press Esc) to go back to Select." onClick={onSelectTool}>
               {shortcut ? `${toolLabel(tool)} (${shortcut})` : toolLabel(tool)}
@@ -115,17 +126,21 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
           </>
         )}
         <Toggle label="Grid" title="Show Grid (Shift+F9)" on={prefs.showGrid} onChange={(v) => settings.set({ showGrid: v })} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label="Snap Grid" title="Snap to Grid (Ctrl+Shift+F9)" on={prefs.snapToGrid} onChange={(v) => settings.set({ snapToGrid: v })} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label="Snap Content" title="Snap to Content (Ctrl+Shift+F8): drawing lines, ends and intersections" on={snapContent} onChange={onSnapContent} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label="Snap Markup" title="Snap to Markup (Ctrl+Shift+F7): corners, sides, centres and vertices of other markups" on={prefs.snapToMarkup} onChange={(v) => settings.set({ snapToMarkup: v })} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label="Polar" title={`Polar Tracking (Ctrl+Shift+F10): line up at multiples of ${prefs.polarAngle}° from the last point`} on={prefs.polarTracking} onChange={(v) => settings.set({ polarTracking: v })} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label="Track" title="Object Snap Tracking (Ctrl+Shift+F11): rest on a snap point to pick it up, then line up with it" on={prefs.objectSnapTracking} onChange={(v) => settings.set({ objectSnapTracking: v })} disabled={disabled} {...at('general', 'grid')} />
-        <span className="status-sep" />
-        <Toggle label="Rulers" title="Rulers (Ctrl+R)" on={prefs.showRulers} onChange={(v) => settings.set({ showRulers: v })} disabled={disabled} {...at('interface', 'display')} />
-        <Toggle label="Crosshair" title="Full-Screen Crosshair" on={prefs.crosshair} onChange={(v) => settings.set({ crosshair: v })} disabled={disabled} {...at('general', 'options')} />
+        <Toggle label={compact ? 'Snap' : 'Snap Grid'} title="Snap to Grid (Ctrl+Shift+F9)" on={prefs.snapToGrid} onChange={(v) => settings.set({ snapToGrid: v })} disabled={disabled} {...at('general', 'grid')} />
+        <Toggle label={compact ? 'Content' : 'Snap Content'} title="Snap to Content (Ctrl+Shift+F8): drawing lines, ends and intersections" on={snapContent} onChange={onSnapContent} disabled={disabled} {...at('general', 'grid')} />
+        <Toggle label={compact ? 'Markup' : 'Snap Markup'} title="Snap to Markup (Ctrl+Shift+F7): corners, sides, centres and vertices of other markups" on={prefs.snapToMarkup} onChange={(v) => settings.set({ snapToMarkup: v })} disabled={disabled} {...at('general', 'grid')} />
+        {!compact && <Toggle label="Polar" title={`Polar Tracking (Ctrl+Shift+F10): line up at multiples of ${prefs.polarAngle}° from the last point`} on={prefs.polarTracking} onChange={(v) => settings.set({ polarTracking: v })} disabled={disabled} {...at('general', 'grid')} />}
+        {!compact && <Toggle label="Track" title="Object Snap Tracking (Ctrl+Shift+F11): rest on a snap point to pick it up, then line up with it" on={prefs.objectSnapTracking} onChange={(v) => settings.set({ objectSnapTracking: v })} disabled={disabled} {...at('general', 'grid')} />}
+        {!compact && (
+          <>
+            <span className="status-sep" />
+            <Toggle label="Rulers" title="Rulers (Ctrl+R)" on={prefs.showRulers} onChange={(v) => settings.set({ showRulers: v })} disabled={disabled} {...at('interface', 'display')} />
+            <Toggle label="Crosshair" title="Full-Screen Crosshair" on={prefs.crosshair} onChange={(v) => settings.set({ crosshair: v })} disabled={disabled} {...at('general', 'options')} />
+          </>
+        )}
         <span className="status-sep" />
         <Toggle label="Reuse" title="Reuse: keep the markup tool active after placing a markup (off: back to Select)" on={prefs.reuseTool} onChange={(v) => settings.set({ reuseTool: v })} {...at('tools', 'markup')} />
-        <Toggle label="Draw to Scale" title="Draw to Scale: type exact lengths, angles and sizes while drawing, and edit a selected line's, rectangle's or polyline's sizes in the toolbar" on={prefs.sketchToScale} onChange={(v) => settings.set({ sketchToScale: v })} {...at('tools', 'sketch')} />
+        {!compact && <Toggle label="Draw to Scale" title="Draw to Scale: type exact lengths, angles and sizes while drawing, and edit a selected line's, rectangle's or polyline's sizes in the toolbar" on={prefs.sketchToScale} onChange={(v) => settings.set({ sketchToScale: v })} {...at('tools', 'sketch')} />}
         {sync !== undefined && onSync && (
           <Toggle label="Sync" title="Synchronise the split panes: they pan, zoom and turn pages together (View → Synchronise)" on={!!sync} onChange={(v) => onSync(v ? 'document' : null)} />
         )}
@@ -146,6 +161,7 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
             View {turns * 90}°
           </button>
         )}
+        {trailing}
         {geo ? (
           <span
             className="status-coords"

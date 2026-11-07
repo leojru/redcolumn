@@ -1,5 +1,6 @@
 // Added in the leojru/redcolumn fork (revu-layout). The classic toolbars (Window › Toolbar Display):
-// a main row of file commands and tools, and a Properties row that follows the context.
+// a main row of file commands and tools, and a Properties row that follows the context; and the
+// classic panel layout (icon rails both sides, Tool Library open, Markups list closed).
 import { expect, test } from '../support/app.ts';
 
 test.describe('classic toolbars', () => {
@@ -42,5 +43,57 @@ test.describe('classic toolbars', () => {
     await app.cmd('window.classicToolbars');
     await expect(app.page.locator('.classic-toolbars')).toBeVisible();
     expect((await app.command('window.classicToolbars')).checked).toBe(true);
+  });
+});
+
+test.describe('classic layout', () => {
+  test.use({ toolbar: 'classic', classicLayout: true });
+
+  test('icon rails on both sides, the Tool Library open, the Markups list closed until toggled', async ({ app }) => {
+    await app.open('plan.pdf');
+    const left = app.page.locator('.rail.left');
+    const right = app.page.locator('.rail.right');
+    // Icons only: the rails are not labelled.
+    await expect(left).not.toHaveClass(/labelled/);
+    await expect(right).not.toHaveClass(/labelled/);
+    // Opening a document leaves the Tool Library open (it does not switch to Thumbnails).
+    expect((await app.command('window.toolchest')).checked).toBe(true);
+    // Measuring, properties and search are docked on the right, which starts closed.
+    for (const id of ['measurements', 'properties', 'search']) await expect(right.locator(`[data-panel="${id}"]`)).toBeVisible();
+    expect((await app.command('window.rightPanel')).checked).toBe(false);
+    await right.locator('[data-panel="measurements"]').click();
+    expect((await app.command('window.rightPanel')).checked).toBe(true);
+    expect((await app.command('window.measurements')).checked).toBe(true);
+    // The Markups list opens from the foot of the left rail, and closes again.
+    expect((await app.command('window.bottomPanel')).checked).toBe(false);
+    await left.locator('[data-rail-markups]').click();
+    expect((await app.command('window.bottomPanel')).checked).toBe(true);
+    await left.locator('[data-rail-markups]').click();
+    expect((await app.command('window.bottomPanel')).checked).toBe(false);
+  });
+
+  test('one status bar: the view splits, the page strip, the toggles and the pointer position', async ({ app }) => {
+    await app.open('plan.pdf');
+    const bar = app.page.locator('.statusbar.classic');
+    // The page strip is in the status bar, not under the drawing.
+    await expect(bar.locator('.pagenav')).toHaveCount(1);
+    await expect(app.page.locator('.pagenav')).toHaveCount(1);
+    await expect(bar.locator('.pagenav')).toContainText('of 3');
+    // Imperial units (the e2e settings): the page size in inches, as 17.00 × 11.00 in.
+    await expect(bar.locator('.pagenav')).toContainText(/\d+\.\d\d × \d+\.\d\d in/);
+    for (const label of ['Grid', 'Snap', 'Content', 'Markup', 'Reuse']) await expect(bar.getByRole('button', { name: label, exact: true })).toBeVisible();
+    // Split from the status bar, and back to a single view.
+    // Split asks for the document to show beside this one.
+    const chooser = app.page.waitForEvent('filechooser');
+    await bar.locator('[data-status-command="view.split"]').click();
+    await (await chooser).setFiles(app.fixture('plan-rev1.pdf'));
+    await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
+    await expect(bar.locator('[data-status-command="view.split"]')).toHaveAttribute('aria-pressed', 'true');
+    await bar.locator('[data-status-command="view.unsplit"]').click();
+    await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
+    // The pointer's position on the page.
+    const c = await app.at([200, 200]);
+    await app.page.mouse.move(c.x, c.y, { steps: 3 });
+    await expect(bar.locator('.status-coords')).toContainText(/X .+ Y .+/);
   });
 });

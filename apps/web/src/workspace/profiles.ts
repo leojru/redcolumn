@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): 'classic' toolbar style, the default for new profiles, with a fuller default toolbar and Leo's shortcuts.
+// Modified in the leojru/redcolumn fork (revu-layout): 'classic' toolbar style, the default for new profiles, with a fuller default toolbar and Leo's shortcuts; classic panel layout.
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
@@ -96,6 +96,11 @@ export interface WorkspaceState {
   rightPanels: string[];
   /** The Markups list is docked in a side panel (the side is `rightPanels`') instead of the bottom dock. */
   markupsDocked: boolean;
+  /**
+   * Fork addition: the classic layout's starting state: icon-only panel rails, the Tool Library open on
+   * the left at a slimmer width, the right side panel closed, and the Markups list closed until toggled.
+   */
+  classicLayout?: boolean;
   showToolbar: boolean;
   /** The top toolbar: a ribbon of tabs (Word, AutoCAD) or the one-row simplified toolbar. */
   toolbarStyle: ToolbarStyle;
@@ -160,9 +165,11 @@ export function defaultWorkspace(): WorkspaceState {
     ],
     toolbarTools: [...DEFAULT_TOOLBAR_TOOLS],
     hiddenPanels: [],
-    panelOrder: [],
-    rightPanels: [],
+    // Fork change: the classic arrangement. Pages and tools on the left; measuring, properties and search on the right.
+    panelOrder: ['files', 'pages', 'layers', 'toolchest', 'signatures', 'bookmarks', 'sets', 'forms', 'geospatial'],
+    rightPanels: ['measurements', 'properties', 'search'],
     markupsDocked: false,
+    classicLayout: true,
     showToolbar: true,
     // Fork change: new profiles start with the classic toolbars; the ribbon and the simplified toolbar stay under Window.
     toolbarStyle: 'classic',
@@ -192,7 +199,9 @@ interface Saved {
 /** Fills fields added since a profile was saved. */
 function upgrade(state: Partial<WorkspaceState>): WorkspaceState {
   const d = defaultWorkspace();
-  const next: WorkspaceState = { ...d, ...state, list: { ...d.list, ...state.list } };
+  // Fork change: profiles saved before the classic layout keep the panel layout they had; only new ones start classic.
+  const legacy: Partial<WorkspaceState> = { panelOrder: [], rightPanels: [], classicLayout: false };
+  const next: WorkspaceState = { ...d, ...legacy, ...state, list: { ...d.list, ...state.list } };
   if ('customColors' in state) next.customColors = cleanCustomColors(state.customColors);
   return next;
 }

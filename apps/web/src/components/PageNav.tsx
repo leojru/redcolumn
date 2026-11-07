@@ -1,4 +1,6 @@
+// Modified in the leojru/redcolumn fork (revu-layout): page size in inches when the units are imperial; foldOrder.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useSettings } from '../settings/settings';
 
 interface Props {
   pageIndex: number;
@@ -30,12 +32,18 @@ interface Props {
   onForward?: () => void;
   canBack?: boolean;
   canForward?: boolean;
+  /** Fork addition: what folds first when the strip is too narrow (default FOLD_ORDER). */
+  foldOrder?: readonly Fold[];
 }
 
-/** PDF points → centimetres (72 pt = 1 in). */
-function formatPageSize(widthPt: number, heightPt: number) {
+/** PDF points → centimetres (72 pt = 1 in). Fork change: inches first (as 36.00 × 24.00 in) when the app's units are imperial. */
+function formatPageSize(widthPt: number, heightPt: number, imperial = false) {
   const cm = (pt: number) => ((pt / 72) * 2.54).toFixed(1);
   const inch = (pt: number) => (pt / 72).toFixed(1);
+  if (imperial) {
+    const in2 = (pt: number) => (pt / 72).toFixed(2);
+    return { short: `${in2(widthPt)} × ${in2(heightPt)} in`, long: `${in2(widthPt)} × ${in2(heightPt)} in (${cm(widthPt)} × ${cm(heightPt)} cm)` };
+  }
   return { short: `${cm(widthPt)} × ${cm(heightPt)} cm`, long: `${cm(widthPt)} × ${cm(heightPt)} cm (${inch(widthPt)} × ${inch(heightPt)} in)` };
 }
 
@@ -44,7 +52,7 @@ function formatPageSize(widthPt: number, heightPt: number) {
  * page box, ›) always stays.
  */
 const FOLD_ORDER = ['sheet', 'size', 'history', 'layout', 'fit', 'ends', 'scale', 'zoom'] as const;
-type Fold = (typeof FOLD_ORDER)[number];
+export type Fold = (typeof FOLD_ORDER)[number];
 
 /** True when any part of the strip is wider than the room it has. */
 function overflowing(el: HTMLElement) {
@@ -57,6 +65,7 @@ function overflowing(el: HTMLElement) {
  * of it, the least used controls fold into a ⌃ menu at the right-hand end instead of overlapping.
  */
 export function PageNav(p: Props) {
+  const foldOrder = p.foldOrder ?? FOLD_ORDER;
   const { pageIndex, pageCount, disabled } = p;
   const [draft, setDraft] = useState(String(pageIndex + 1));
   useEffect(() => setDraft(pageCount ? String(pageIndex + 1) : ''), [pageIndex, pageCount]);
@@ -75,7 +84,8 @@ export function PageNav(p: Props) {
     setZoomDraft(null);
     if (Number.isFinite(n) && n > 0) p.onZoomTo?.(n / 100);
   };
-  const size = p.pageWidthPt != null && p.pageHeightPt != null ? formatPageSize(p.pageWidthPt, p.pageHeightPt) : null;
+  const imperial = useSettings().unitSystem === 'imperial';
+  const size = p.pageWidthPt != null && p.pageHeightPt != null ? formatPageSize(p.pageWidthPt, p.pageHeightPt, imperial) : null;
 
   // How many of FOLD_ORDER are folded away. Back to none whenever the room or the content changes,
   // then one more per layout pass (before paint) until everything fits.
@@ -95,12 +105,12 @@ export function PageNav(p: Props) {
   useLayoutEffect(() => setFolded(0), [width, content]);
   useLayoutEffect(() => {
     const el = navRef.current;
-    if (el && folded < FOLD_ORDER.length && overflowing(el)) setFolded((n) => n + 1);
+    if (el && folded < foldOrder.length && overflowing(el)) setFolded((n) => n + 1);
   });
-  const hidden = new Set<Fold>(FOLD_ORDER.slice(0, folded));
+  const hidden = new Set<Fold>(foldOrder.slice(0, folded));
   const show = (f: Fold) => !hidden.has(f);
   // Folded groups that have something to show in the menu.
-  const inMenu = FOLD_ORDER.filter((f) => hidden.has(f) && (f !== 'sheet' || p.sheetLabel) && (f !== 'size' || size) && (f !== 'history' || p.onBack || p.onForward));
+  const inMenu = foldOrder.filter((f) => hidden.has(f) && (f !== 'sheet' || p.sheetLabel) && (f !== 'size' || size) && (f !== 'history' || p.onBack || p.onForward));
   useEffect(() => {
     if (!inMenu.length) setMenuOpen(false);
   }, [inMenu.length]);

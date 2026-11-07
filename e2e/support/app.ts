@@ -1,6 +1,6 @@
 // The `app` fixture: a fresh redcolumn (a Chromium page on the dev server, or the Electron app with
 // its own profile folder) plus the driver in driver.ts. Specs use it the same way in both projects.
-// Modified in the leojru/redcolumn fork (revu-layout): the toolbar style and built-in shortcuts are always seeded explicitly.
+// Modified in the leojru/redcolumn fork (revu-layout): the toolbar style, built-in shortcuts and panel layout are always seeded explicitly.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -41,7 +41,7 @@ export interface Saved {
 const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft', vectorSnapshots: false };
 
 /** Same first-run state everywhere: a fixed author and known settings (apps/web/src/settings/settings.ts). */
-function seed({ settings, toolbar }: { settings: Record<string, unknown>; toolbar: string }) {
+function seed({ settings, toolbar, classicLayout }: { settings: Record<string, unknown>; toolbar: string; classicLayout: boolean }) {
   try {
     // Once per tab, so a setting a test changes survives a reload.
     if (sessionStorage.getItem('e2e.seeded')) return;
@@ -51,7 +51,9 @@ function seed({ settings, toolbar }: { settings: Record<string, unknown>; toolba
     // Most specs use the one-row toolbar; the ribbon is taller and so shifts the drawing. Always set the
     // style explicitly (fork change: the default is no longer the ribbon, so ribbon specs must ask for it), and
     // start from the built-in keys (the fork's profile adds its own, which shortcuts.spec would not expect).
-    localStorage.setItem('nb.profiles', JSON.stringify({ profiles: [{ id: 'e2e', name: 'Default', state: { toolbarStyle: toolbar, shortcuts: {} } }], activeId: 'e2e' }));
+    // Fork change: upstream's panel layout too (named rails, panels on the left, the Markups list open).
+    // A spec asking for the classic layout gets a brand-new profile instead (the fork's defaults).
+    if (!classicLayout) localStorage.setItem('nb.profiles', JSON.stringify({ profiles: [{ id: 'e2e', name: 'Default', state: { toolbarStyle: toolbar, shortcuts: {}, classicLayout: false, panelOrder: [], rightPanels: [] } }], activeId: 'e2e' }));
   } catch {}
 }
 
@@ -112,11 +114,12 @@ function collectErrors(page: Page, errors: string[]) {
   page.on('dialog', (d) => void d.accept().catch(() => {}));
 }
 
-export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon' | 'classic' }>({
+export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon' | 'classic'; classicLayout: boolean }>({
   settings: [IMPERIAL, { option: true }],
   toolbar: ['simplified', { option: true }],
+  classicLayout: [false, { option: true }],
   // `page` is only used by the web project (the desktop project's is left blank).
-  app: async ({ page, settings, toolbar }, use, testInfo) => {
+  app: async ({ page, settings, toolbar, classicLayout }, use, testInfo) => {
     const errors: string[] = [];
     if (testInfo.project.name === 'desktop') {
       const profile = mkdtempSync(join(tmpdir(), 'rc-e2e-'));
@@ -189,7 +192,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
         };
         collectErrors(win, errors);
         await win.waitForSelector('.menubar', { timeout: 30_000 });
-        await win.evaluate(seed, { settings, toolbar });
+        await win.evaluate(seed, { settings, toolbar, classicLayout });
         await win.reload();
         await win.waitForSelector('.menubar', { timeout: 30_000 });
         await win.waitForFunction(() => !!window.__nb?.commands);
@@ -214,7 +217,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
     }
     // Select Text and Copy write to the clipboard; the tests read it back.
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-    await page.addInitScript(seed, { settings, toolbar });
+    await page.addInitScript(seed, { settings, toolbar, classicLayout });
     await page.addInitScript(stubSavePicker);
     await page.addInitScript(stubPrintFrame);
     collectErrors(page, errors);

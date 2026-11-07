@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots.
+// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar.
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
@@ -116,6 +116,7 @@ import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { ClassicToolbars } from './components/fork/ClassicToolbars';
+import { StatusCommands } from './components/fork/StatusCommands';
 import { vectorSnapshotOf, withMarkupsInside } from './fork/snapshot';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
 import { commandPolicy } from './commands/commandPolicy';
@@ -927,12 +928,14 @@ export function App() {
   const [measureDefaults, setMeasureDefaults] = useState<MeasureDefaults>({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
-  const [leftTab, setLeftTab] = useState<LeftTab>(() => (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
+  // Fork change: the classic layout (profile.classicLayout) starts on the Tool Library, slimmer, with the right panel closed.
+  const classicLayout = !!profiles.active().state.classicLayout;
+  const [leftTab, setLeftTab] = useState<LeftTab>(() => (classicLayout && panelSide('toolchest') === 'left' ? 'toolchest' : panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
   const [leftOpen, setLeftOpen] = useState(() => !narrowScreen());
-  const [leftWidth, setLeftWidth] = useState(440);
+  const [leftWidth, setLeftWidth] = useState(classicLayout ? 340 : 440);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => firstPanelOn('right') ?? 'properties');
-  const [rightOpen, setRightOpen] = useState(() => !!firstPanelOn('right'));
+  const [rightOpen, setRightOpen] = useState(() => !classicLayout && !!firstPanelOn('right'));
   const [rightWidth, setRightWidth] = useState(360);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
@@ -941,9 +944,10 @@ export function App() {
       try {
         // The right rail once shared the left's setting, so it starts from that until set on its own.
         const saved = localStorage.getItem(railLabelsKey(side)) ?? localStorage.getItem(railLabelsKey('left'));
-        return saved !== '0';
+        // Fork change: the classic layout shows icons only until the names are asked for.
+        return classicLayout ? saved === '1' : saved !== '0';
       } catch {
-        return true;
+        return !classicLayout;
       }
     };
     return { left: read('left'), right: read('right') };
@@ -995,7 +999,8 @@ export function App() {
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
   // On a phone the Markups list is a drawer over the drawing, so it starts closed there.
-  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked);
+  // Fork change: in the classic layout the list starts closed (the button at the foot of the left rail opens it).
+  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked && !profiles.active().state.classicLayout);
   const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
   const [dockHeight, setDockHeight] = useState(180);
   // Clicking the Markups list's top edge collapses it to a thin strip; clicking the strip opens it again.
@@ -1594,7 +1599,8 @@ export function App() {
       if (pane === 'a') {
         // Stay on Sessions, Sets or Search when opening from them (or joining from an invite link).
         // On narrow screens the panel covers the drawing, so it opens only when asked.
-        revealPanel('pages', (tab) => tab === 'sessions' || tab === 'projects' || tab === 'sets' || tab === 'search', !narrowScreen());
+        // Fork change: the classic layout also stays on the Tool Library.
+        revealPanel('pages', (tab) => tab === 'sessions' || tab === 'projects' || tab === 'sets' || tab === 'search' || (classicLayout && tab === 'toolchest'), !narrowScreen());
       }
     },
     [ctl, ctlB, activateTab, setTabs],
@@ -7710,6 +7716,8 @@ export function App() {
         onForward={goForward}
         canBack={canGoBack}
         canForward={canGoForward}
+        // Fork change: in the classic status bar the page size and scale stay longest, as Revu keeps them.
+        {...(ws.classicLayout ? { foldOrder: ['history', 'layout', 'fit', 'ends', 'sheet', 'zoom', 'size', 'scale'] as const } : {})}
       />
     );
   };
@@ -8589,6 +8597,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         </button>
       ))}
       {!items.length && railDrag && <div className="rail-drop-hint">Dock here</div>}
+      {/* Fork addition: the classic layout's Markups list toggle, at the foot of the left rail. */}
+      {side === 'left' && ws.classicLayout && !ws.markupsDocked && (
+        <button type="button" className={`rail-markups-toggle${bottomOpen ? ' active' : ''}`} data-rail-markups title="Markups list" aria-label="Markups list" aria-pressed={bottomOpen} onClick={toggleBottom}>
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M5.5 3.5h9M5.5 8h9M5.5 12.5h9" />
+            <circle cx="2.5" cy="3.5" r="1" fill="currentColor" />
+            <circle cx="2.5" cy="8" r="1" fill="currentColor" />
+            <circle cx="2.5" cy="12.5" r="1" fill="currentColor" />
+          </svg>
+          <span className="rail-label">Markups list</span>
+        </button>
+      )}
     </nav>
     );
   };
@@ -9530,7 +9550,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   </div>
                 )}
               </main>
-              {pageNav('a')}
+              {!ws.classicLayout && pageNav('a')}
             </div>
             {split && (
               <>
@@ -9578,7 +9598,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       <TextSelectionBar tools={ctlB.tools} length={toolsStateB.textSelection.text.length} readOnly={openB.store.readOnly} onCopy={() => copyMarkups('b')} />
                     )}
                   </main>
-                  {pageNav('b')}
+                  {!ws.classicLayout && pageNav('b')}
                 </div>
               </>
             )}
@@ -9794,6 +9814,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         }}
         disabled={!activeOpen}
         {...(split ? { sync, onSync: setSync } : {})}
+        {...(ws.classicLayout
+          ? {
+              // Fork change: the classic layout's one bottom row: splits, the active pane's page strip, the toggles, dark pages and line weights.
+              compact: true,
+              leading: <StatusCommands commands={commandMap} ids={['view.unsplit', 'view.split', 'view.splitHorizontal']} />,
+              middle: pageNav(paneB ? 'b' : 'a'),
+              trailing: <StatusCommands commands={commandMap} ids={['view.darkPages', 'view.thinLines']} />,
+            }
+          : {})}
       />
       {redactFor && (
         <ApplyRedactionsDialog
