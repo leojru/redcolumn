@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Classic Toolbars in the display menu.
 import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { settings, useSettings } from '../settings/settings';
@@ -1100,6 +1101,8 @@ export function ToolbarDisplayMenu({ commands }: { commands: ReadonlyMap<string,
     { id: 'window.ribbon', label: 'Show Tabs and Commands', hint: 'The full ribbon, always open' },
     { id: 'window.ribbonTabs', label: 'Show Tabs Only', hint: 'Click a tab to show its commands' },
     { id: 'window.simplifiedToolbar', label: 'Simplified Toolbar', hint: 'Tools and style in one row' },
+    // Fork addition.
+    { id: 'window.classicToolbars', label: 'Classic Toolbars', hint: 'A row of tools, and a row for the style below it' },
   ];
   return (
     <div className="rb-display" ref={root}>

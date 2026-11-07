@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): `compact` menu bar for the toolbar layout.
+// Modified in the leojru/redcolumn fork (revu-layout): `compact` menu bar for the toolbar layouts; Classic Toolbars in the Window menu.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
@@ -590,6 +590,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="window.ribbon" />
               <Cmd id="window.ribbonTabs" />
               <Cmd id="window.simplifiedToolbar" />
+              <Cmd id="window.classicToolbars" />
             </Submenu>
             <Cmd id="view.reuse" label="Reuse" />
           </>
@@ -602,6 +603,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="window.ribbon" label="Ribbon: Tabs and Commands" />
               <Cmd id="window.ribbonTabs" label="Ribbon: Tabs Only" />
               <Cmd id="window.simplifiedToolbar" />
+              <Cmd id="window.classicToolbars" />
               <Sep />
               <Cmd id="window.collapseRibbon" />
             </Submenu>

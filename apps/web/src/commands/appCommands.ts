@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Window › Classic Toolbars.
 import { BATCH_LABELS, type BatchKind } from '../components/BatchDialog';
 import { desktop } from '../desktop/host';
 import { applyCommandPolicy } from './commandPolicy';
@@ -551,6 +552,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('window.ribbon', 'Window', 'Ribbon', () => a.setToolbarStyle('ribbon', false), true, s.toolbarStyle === 'ribbon' && !s.ribbonCollapsed),
     cmd('window.ribbonTabs', 'Window', 'Ribbon Tabs Only', () => a.setToolbarStyle('ribbon', true), true, s.toolbarStyle === 'ribbon' && s.ribbonCollapsed),
     cmd('window.simplifiedToolbar', 'Window', 'Simplified Toolbar', () => a.setToolbarStyle('simplified'), true, s.toolbarStyle === 'simplified'),
+    // Fork addition: the main toolbar row plus the context Properties row.
+    cmd('window.classicToolbars', 'Window', 'Classic Toolbars', () => a.setToolbarStyle('classic'), true, s.toolbarStyle === 'classic'),
     cmd('window.collapseRibbon', 'Window', s.ribbonCollapsed ? 'Expand the Ribbon' : 'Collapse the Ribbon', () => a.setToolbarStyle('ribbon', !s.ribbonCollapsed), s.toolbarStyle === 'ribbon', s.toolbarStyle === 'ribbon' && s.ribbonCollapsed),
     cmd('window.leftPanel', 'Window', 'Left Panel', a.toggleLeft, true, s.showLeft),
     cmd('window.rightPanel', 'Window', 'Right Panel', a.toggleRight, s.hasRightPanels, s.showRight),

@@ -1,6 +1,6 @@
 // The `app` fixture: a fresh redcolumn (a Chromium page on the dev server, or the Electron app with
 // its own profile folder) plus the driver in driver.ts. Specs use it the same way in both projects.
-// Modified in the leojru/redcolumn fork (revu-layout): the toolbar style is always seeded explicitly.
+// Modified in the leojru/redcolumn fork (revu-layout): the toolbar style and built-in shortcuts are always seeded explicitly.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -48,8 +48,9 @@ function seed({ settings, toolbar }: { settings: Record<string, unknown>; toolba
     localStorage.setItem('nb.author', 'E2E Tester');
     localStorage.setItem('nb.settings', JSON.stringify(settings));
     // Most specs use the one-row toolbar; the ribbon is taller and so shifts the drawing. Always set the
-    // style explicitly (fork change: the default is no longer the ribbon, so ribbon specs must ask for it).
-    localStorage.setItem('nb.profiles', JSON.stringify({ profiles: [{ id: 'e2e', name: 'Default', state: { toolbarStyle: toolbar } }], activeId: 'e2e' }));
+    // style explicitly (fork change: the default is no longer the ribbon, so ribbon specs must ask for it), and
+    // start from the built-in keys (the fork's profile adds its own, which shortcuts.spec would not expect).
+    localStorage.setItem('nb.profiles', JSON.stringify({ profiles: [{ id: 'e2e', name: 'Default', state: { toolbarStyle: toolbar, shortcuts: {} } }], activeId: 'e2e' }));
   } catch {}
 }
 
@@ -110,7 +111,7 @@ function collectErrors(page: Page, errors: string[]) {
   page.on('dialog', (d) => void d.accept().catch(() => {}));
 }
 
-export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon' }>({
+export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon' | 'classic' }>({
   settings: [IMPERIAL, { option: true }],
   toolbar: ['simplified', { option: true }],
   // `page` is only used by the web project (the desktop project's is left blank).

@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): window.classicToolbars.
 // Every command (apps/web/src/commands/appCommands.ts) and how the end-to-end tests cover it:
 //   { spec: 'measure' }  specs/measure.spec.ts runs it and asserts on the result;
 //   { skip: 'why' }      it can't run unattended (camera, external sites...);
@@ -324,6 +325,8 @@ export const COVERAGE: Record<string, Coverage> = {
   'window.properties': 'todo',
   'window.ribbon': { spec: 'ribbon' },
   'window.ribbonTabs': { spec: 'ribbon' },
+  // Fork addition (leojru/redcolumn).
+  'window.classicToolbars': { spec: 'classic' },
   'window.rightPanel': 'todo',
   'window.search': 'todo',
   'window.sessions': 'todo',

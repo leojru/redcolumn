@@ -1,0 +1,70 @@
+/* Added in the leojru/redcolumn fork (revu-layout): the classic toolbar layout (ClassicToolbars.tsx). */
+
+.classic-toolbars {
+  --measure-tool: #e0782b;
+  border-bottom: 1px solid var(--border);
+}
+
+/* One dense row: small square buttons, hairlines between groups, no wrapping gradient bar. */
+.classic-toolbars .toolbar {
+  border-bottom: none;
+  padding: 2px 8px;
+  gap: 2px;
+}
+
+.classic-toolbars .classic-main {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.classic-toolbars .classic-main .btn.tool {
+  width: 28px;
+  height: 28px;
+}
+
+.classic-toolbars .classic-main .tool-group + .tool-group {
+  margin-left: 4px;
+  padding-left: 4px;
+}
+
+.classic-toolbars .btn.tool.measure:not(.active) {
+  color: var(--measure-tool);
+}
+
+/* The Properties row keeps one height whether it shows the document or style controls, so the drawing does not jump. */
+.classic-toolbars .classic-props {
+  min-height: 34px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border-top: 1px solid var(--tint, var(--border));
+  font-size: 12px;
+}
+
+.classic-toolbars .classic-props > .sep:first-child {
+  display: none;
+}
+
+.classic-docinfo {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.classic-docinfo b {
+  font-weight: 600;
+}
+
+.classic-docinfo b + .classic-docname,
+.classic-docinfo .classic-docname {
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 10px;
+}
+
+.classic-docinfo.muted {
+  color: var(--text-dim, var(--text));
+  opacity: 0.7;
+}

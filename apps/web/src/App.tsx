@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layout.
+// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars.
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
@@ -115,6 +115,7 @@ import { isAbort, runJob, startJob, useJobRunning, type JobContext } from './job
 import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from './components/VisualSearchPanel';
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
+import { ClassicToolbars } from './components/fork/ClassicToolbars';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
 import { commandPolicy } from './commands/commandPolicy';
 import { comboOf, formatCombo, keyMap } from './commands/keys';
@@ -9395,6 +9396,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
           <Ribbon commands={commandMap} toolbar={toolbarProps} collapsed={ws.ribbonCollapsed} onCollapsedChange={(ribbonCollapsed) => updateWorkspace((w) => ({ ...w, ribbonCollapsed }))} displayMenu={displayMenu} />
+        ) : ws.toolbarStyle === 'classic' ? (
+          <ClassicToolbars {...toolbarProps} toolbarMenu={displayMenu} commands={commandMap} docName={activeOpen?.file.name ?? null} pageCount={pageCount} />
         ) : (
           <ToolBar {...toolbarProps} toolbarMenu={displayMenu} />
         );

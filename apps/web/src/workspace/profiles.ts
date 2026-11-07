@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): the toolbar layout is the default for new profiles.
+// Modified in the leojru/redcolumn fork (revu-layout): 'classic' toolbar style, the default for new profiles, with a fuller default toolbar and Leo's shortcuts.
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
@@ -128,7 +128,8 @@ export interface WorkspaceState {
   customColors?: string[];
 }
 
-export type ToolbarStyle = 'simplified' | 'ribbon';
+/** 'classic' (fork addition): a main toolbar row plus a context Properties row (components/fork/ClassicToolbars.tsx). */
+export type ToolbarStyle = 'simplified' | 'ribbon' | 'classic';
 
 export interface Profile {
   id: string;
@@ -140,8 +141,16 @@ const RECENT_ID = 'recent';
 export const RECENT_TOOLS_ID = RECENT_ID;
 const RECENT_LIMIT = 12;
 
-/** The toolbar a new profile starts with; the rest are added from the toolbar's right-click menu. */
-export const DEFAULT_TOOLBAR_TOOLS: Tool[] = ['line', 'polyline', 'rect', 'ellipse', 'cloud', 'cloudPlus', 'pen', 'highlighter', 'text', 'callout', 'stamp'];
+/**
+ * The toolbar a new profile starts with; the rest are added from the toolbar's right-click menu.
+ * Fork change: markup, lines and shapes, the everyday measurements and the text markups.
+ */
+export const DEFAULT_TOOLBAR_TOOLS: Tool[] = [
+  'text', 'highlighter', 'pen', 'callout', 'cloud', 'cloudPlus', 'stamp', 'image', 'snapshot',
+  'line', 'arrow', 'arc', 'polyline', 'dimension', 'rect', 'ellipse', 'polygon',
+  'calibrate', 'length', 'polylength', 'area', 'perimeter', 'count',
+  'textHighlight', 'underline', 'strikeout', 'replaceText',
+];
 
 export function defaultWorkspace(): WorkspaceState {
   return {
@@ -155,13 +164,14 @@ export function defaultWorkspace(): WorkspaceState {
     rightPanels: [],
     markupsDocked: false,
     showToolbar: true,
-    // Fork change: new profiles start with the toolbar layout (Revu-style); the ribbon stays under Window.
-    toolbarStyle: 'simplified',
+    // Fork change: new profiles start with the classic toolbars; the ribbon and the simplified toolbar stay under Window.
+    toolbarStyle: 'classic',
     ribbonCollapsed: false,
     dockFullWidth: false,
     list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true, statusHistory: 'all', statusDetails: true, typeIcons: true },
     columnTemplate: null,
-    shortcuts: {},
+    // Fork change: Leo's everyday keys where they differ from the built-in ones (commands/keys.ts).
+    shortcuts: { 'tool.dimension': ['Shift+D'], 'tool.polyline': ['Shift+L'] },
     stamps: [],
     lastStampId: null,
     lineSets: [],
