@@ -1,0 +1,61 @@
+# Arch Linux package for the leojru/redcolumn fork (Revu-style layout). Added in the fork.
+# Builds the revu-layout branch of the git checkout this file sits in, with electron-builder's
+# unpacked (dir) target: Electron is bundled, no AppImage (so no fuse2 needed).
+#
+#   cd packaging/arch && makepkg -si
+#
+# Maintainer: Leomarini Rodriguez (github.com/leojru)
+
+pkgname=redcolumn-leojru
+_pkgname=redcolumn
+_branch=revu-layout
+pkgver=0.1.18
+pkgrel=1
+pkgdesc='PDF markup and takeoff for construction drawings (leojru fork, Revu-style layout)'
+arch=('x86_64')
+url='https://github.com/leojru/redcolumn'
+license=('Apache-2.0')
+depends=('gtk3' 'nss' 'alsa-lib' 'at-spi2-core' 'libcups' 'libdrm' 'libxkbcommon' 'libxss' 'libxtst' 'mesa' 'xdg-utils')
+makedepends=('git' 'nodejs' 'pnpm' 'python')
+provides=('redcolumn')
+conflicts=('redcolumn')
+options=('!strip' '!debug')
+# The checkout this PKGBUILD lives in (packaging/arch/ inside it).
+_repo="$(git -C "${startdir:-$PWD}" rev-parse --show-toplevel)"
+source=("$_pkgname::git+file://$_repo#branch=$_branch"
+        'redcolumn.desktop'
+        'redcolumn.sh')
+sha256sums=('SKIP'
+            '58219f2d8ee04c80a924658f2dcfbce6437e9604e4114b16cc6369f22befe633'
+            '2996bf1f66ed9a1daac7188ced3418aa6f2a691a5d5e98feafdefbbffcbdb8ec')
+
+pkgver() {
+  cd "$_pkgname"
+  local version
+  version="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' apps/desktop/package.json)"
+  printf '%s.r%s.%s' "$version" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd "$_pkgname"
+  # The version the repo pins (package.json "packageManager"); pnpm switches to it itself.
+  pnpm install --frozen-lockfile
+  pnpm --filter @nb/web build
+  cd apps/desktop
+  pnpm exec tsc -p .
+  node scripts/fetch-assistant-node.mjs --arch=x64
+  pnpm exec electron-builder --linux dir --x64 --publish never
+}
+
+package() {
+  cd "$_pkgname"
+  install -d "$pkgdir/opt/$_pkgname"
+  cp -a apps/desktop/release/linux-unpacked/. "$pkgdir/opt/$_pkgname/"
+  # Chromium's setuid sandbox helper, for systems without unprivileged user namespaces.
+  [ -f "$pkgdir/opt/$_pkgname/chrome-sandbox" ] && chmod 4755 "$pkgdir/opt/$_pkgname/chrome-sandbox"
+
+  install -Dm755 "$srcdir/redcolumn.sh" "$pkgdir/usr/bin/redcolumn"
+  install -Dm644 "$srcdir/redcolumn.desktop" "$pkgdir/usr/share/applications/redcolumn.desktop"
+  install -Dm644 apps/desktop/build/icon.png "$pkgdir/usr/share/pixmaps/redcolumn.png"
+  install -Dm644 LICENSE NOTICE THIRD_PARTY_NOTICES.md -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

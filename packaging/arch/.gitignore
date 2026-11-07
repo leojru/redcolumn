@@ -1,0 +1,6 @@
+# makepkg's working folders and output.
+src/
+pkg/
+redcolumn/
+*.pkg.tar.*
+*.log

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=redcolumn
+GenericName=PDF Markup and Takeoff
+Comment=PDF markup and takeoff for construction drawings
+Exec=redcolumn %F
+Icon=redcolumn
+Terminal=false
+Categories=Office;Viewer;
+MimeType=application/pdf;
+Keywords=pdf;markup;takeoff;drawings;construction;
+StartupNotify=true
+StartupWMClass=redcolumn

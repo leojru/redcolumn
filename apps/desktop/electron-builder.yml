@@ -8,9 +8,10 @@
 # redcolumn-x64.dmg stable download links.
 # publish only writes app-update.yml into the app (where electron-updater looks) and generates
 # latest.yml; the workflow uploads, so electron-builder is always run with publish never.
+# Fork change (leojru/redcolumn): the fork's releases, so Windows builds never update to upstream's.
 publish:
   provider: github
-  owner: ColbyGallagher
+  owner: leojru
   repo: redcolumn
 appId: app.redcolumn.desktop
 productName: redcolumn

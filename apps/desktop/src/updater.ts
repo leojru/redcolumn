@@ -1,10 +1,14 @@
+// Modified in the leojru/redcolumn fork (revu-layout): updates come from the fork's releases.
 import { app } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { UpdateService, canSelfUpdate, updateChannel, type NativeUpdater } from './update-service';
 
-/** The repository whose releases carry the installer. */
-const RELEASES_API = 'https://api.github.com/repos/ColbyGallagher/redcolumn/releases/latest';
-const RELEASE_PAGE_PREFIX = 'https://github.com/ColbyGallagher/redcolumn/releases/';
+/**
+ * The repository whose releases carry the installer. Fork change: the fork's own releases, so a
+ * fork build never offers (or, on Windows, installs) upstream's build over itself.
+ */
+const RELEASES_API = 'https://api.github.com/repos/leojru/redcolumn/releases/latest';
+const RELEASE_PAGE_PREFIX = 'https://github.com/leojru/redcolumn/releases/';
 
 /**
  * Asks GitHub for the newest published release. Releases marked draft or pre-release are not
