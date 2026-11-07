@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layout.
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
@@ -9344,6 +9345,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         panels={{ showLeft: leftOpen, showBottom: bottomOpen, leftTab, bottomTab }}
         stamps={stampLibrary(ws).map((s) => ({ id: s.id, name: s.name }))}
         update={updateState}
+        compact={ws.toolbarStyle !== 'ribbon'}
         on={{
           update: onUpdateButton,
           placeStamp: (id) => {

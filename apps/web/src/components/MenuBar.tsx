@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): `compact` menu bar for the toolbar layout.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
@@ -88,6 +89,11 @@ export interface MenuBarProps {
   stamps: { id: string; name: string }[];
   /** The desktop app's update state; the header shows a button while a newer version exists. */
   update?: UpdateState | null;
+  /**
+   * Fork change: a plain menu bar for the toolbar layout. Leaves out the Help / Technical Support /
+   * Make a Suggestion and Autosave buttons; they stay in the Help menu and Preferences.
+   */
+  compact?: boolean;
   on: {
     /** The update button: opens the release page, or restarts into the downloaded version. */
     update?: () => void;
@@ -218,7 +224,7 @@ export function updateButton(update: UpdateState | null | undefined): { label: s
   return null;
 }
 
-export function MenuBar({ commands, author, onAuthorChange, recents, profiles, activeProfileId, hiddenPanels, panels, stamps, update, on }: MenuBarProps) {
+export function MenuBar({ commands, author, onAuthorChange, recents, profiles, activeProfileId, hiddenPanels, panels, stamps, update, compact, on }: MenuBarProps) {
   const [open, setOpen] = useState<MenuId | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const installed = isStandalone();
@@ -673,27 +679,31 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         </div>
       ))}
       <MenuSearch commands={commandList} onOpenSetting={on.openSetting} />
-      <div className="menubar-help" role="group" aria-label="Help and feedback">
-        {HELP_BUTTONS.map((id) => {
-          const c = commands.get(id);
-          if (!c) return null;
-          const shortcut = shortcutLabel(id);
-          return (
-            <button key={id} type="button" className="menubar-help-btn" title={shortcut ? `${c.label} (${shortcut})` : c.label} disabled={!c.enabled} onClick={c.run}>
-              {c.label}
-            </button>
-          );
-        })}
-      </div>
-      <button
-        type="button"
-        className={`menubar-help-btn autosave-btn${autosave ? ' on' : ''}`}
-        aria-pressed={autosave}
-        title={autosave ? 'Autosave is on: changes are saved to the file a few seconds after you make them. Click to turn off.' : 'Autosave is off. Click to save changes to the file in the background.'}
-        onClick={() => settings.set({ autosave: !autosave })}
-      >
-        Autosave: {autosave ? 'On' : 'Off'}
-      </button>
+      {!compact && (
+        <div className="menubar-help" role="group" aria-label="Help and feedback">
+          {HELP_BUTTONS.map((id) => {
+            const c = commands.get(id);
+            if (!c) return null;
+            const shortcut = shortcutLabel(id);
+            return (
+              <button key={id} type="button" className="menubar-help-btn" title={shortcut ? `${c.label} (${shortcut})` : c.label} disabled={!c.enabled} onClick={c.run}>
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!compact && (
+        <button
+          type="button"
+          className={`menubar-help-btn autosave-btn${autosave ? ' on' : ''}`}
+          aria-pressed={autosave}
+          title={autosave ? 'Autosave is on: changes are saved to the file a few seconds after you make them. Click to turn off.' : 'Autosave is off. Click to save changes to the file in the background.'}
+          onClick={() => settings.set({ autosave: !autosave })}
+        >
+          Autosave: {autosave ? 'On' : 'Off'}
+        </button>
+      )}
       {updateBtn && (
         <button type="button" className={`update-app-btn${updateBtn.busy ? ' busy' : ''}`} title={updateBtn.title} disabled={updateBtn.busy} onClick={on.update}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">

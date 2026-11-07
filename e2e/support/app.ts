@@ -1,5 +1,6 @@
 // The `app` fixture: a fresh redcolumn (a Chromium page on the dev server, or the Electron app with
 // its own profile folder) plus the driver in driver.ts. Specs use it the same way in both projects.
+// Modified in the leojru/redcolumn fork (revu-layout): the toolbar style is always seeded explicitly.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -46,8 +47,9 @@ function seed({ settings, toolbar }: { settings: Record<string, unknown>; toolba
     sessionStorage.setItem('e2e.seeded', '1');
     localStorage.setItem('nb.author', 'E2E Tester');
     localStorage.setItem('nb.settings', JSON.stringify(settings));
-    // The app starts with the ribbon, which is taller and so shifts the drawing; most specs use the one-row toolbar.
-    if (toolbar === 'simplified') localStorage.setItem('nb.profiles', JSON.stringify({ profiles: [{ id: 'e2e', name: 'Default', state: { toolbarStyle: 'simplified' } }], activeId: 'e2e' }));
+    // Most specs use the one-row toolbar; the ribbon is taller and so shifts the drawing. Always set the
+    // style explicitly (fork change: the default is no longer the ribbon, so ribbon specs must ask for it).
+    localStorage.setItem('nb.profiles', JSON.stringify({ profiles: [{ id: 'e2e', name: 'Default', state: { toolbarStyle: toolbar } }], activeId: 'e2e' }));
   } catch {}
 }
 

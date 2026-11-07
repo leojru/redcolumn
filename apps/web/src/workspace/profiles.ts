@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): the toolbar layout is the default for new profiles.
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
@@ -154,7 +155,8 @@ export function defaultWorkspace(): WorkspaceState {
     rightPanels: [],
     markupsDocked: false,
     showToolbar: true,
-    toolbarStyle: 'ribbon',
+    // Fork change: new profiles start with the toolbar layout (Revu-style); the ribbon stays under Window.
+    toolbarStyle: 'simplified',
     ribbonCollapsed: false,
     dockFullWidth: false,
     list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true, statusHistory: 'all', statusDetails: true, typeIcons: true },
