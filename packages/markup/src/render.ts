@@ -10,7 +10,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
-import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, strokeEnds, textColor } from './style';
+import { BLEND_MODES, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, strokeEnds, textColor } from './style';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
 import { connectorLabel } from './flowchart';
 
@@ -318,6 +318,8 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.translate(-cx, -cy);
   }
   ctx.globalAlpha = style.opacity;
+  // Highlighters multiply by default so drawing detail stays visible underneath.
+  ctx.globalCompositeOperation = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
   const lineWidth = Math.max(style.width, 1 / zoom);
   ctx.lineWidth = lineWidth;
   ctx.strokeStyle = style.stroke;
@@ -326,8 +328,6 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   ctx.lineJoin = ends.join;
   ctx.lineCap = ends.cap;
   const dash = style.dashArray ?? dashPattern(style.dash, lineWidth);
-  // Highlighter multiplies so drawing detail stays visible underneath.
-  if (TYPE_INFO[m.type].multiply) ctx.globalCompositeOperation = 'multiply';
   // Fork (leojru/redcolumn): a Length's line breaks around its label rather than a white box hiding it.
   const lengthText = measurementLabel(m, scale);
   const lengthGap = lengthLabelBox(m, lengthText);

@@ -1,8 +1,10 @@
 // Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above), frame and align; text box Shape.
 import { useEffect, useState, type ReactNode } from 'react';
 import {
+  BLEND_MODES,
   CELL_STYLE_KEYS,
   DEFAULT_STYLES,
+  effectiveBlendMode,
   FONT_FAMILIES,
   tableCellFormat,
   tableCellStyle,
@@ -20,6 +22,7 @@ import {
   type MarkupStore,
   type MarkupStyle,
   type Alignment,
+  type BlendMode,
   type MarkupType,
   type StoredHatch,
   type StyleCapabilities,
@@ -485,6 +488,17 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
         <Row label="Opacity">
           <Percent value={style.opacity} onChange={(v) => set('opacity', v)} />
         </Row>
+        {caps.blend && (
+          <Row label="Blend mode" title="How the markup mixes with what is underneath it">
+            <select value={effectiveBlendMode({ type, style })} onChange={(e) => set('blendMode', e.target.value as BlendMode)}>
+              {BLEND_MODES.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </Row>
+        )}
         {caps.fill && (
           <>
             <Row label="Fill color" title="The inside of the shape">
