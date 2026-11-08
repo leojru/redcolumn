@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: inline dimension text breaks the dimension line.
 import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
@@ -7,6 +8,7 @@ import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, o
 import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
+import { cutSegment, dimensionInline, inlineGap } from './dimensionInline';
 import { tableCells, tableLines } from './table';
 import type { LineArt } from './lineStyle';
 
@@ -108,7 +110,7 @@ function baseShape(m: Markup): ShapePart[] {
     case 'note':
       return notePath(boundsOf(points), style.fill);
     case 'dimension':
-      return offsetLine(m, points[0]!, points[points.length - 1]!);
+      return inlineTextGap(m, offsetLine(m, points[0]!, points[points.length - 1]!));
     case 'attachment': {
       // Another tool's attachment draws its own appearance (`image`) in the box.
       if (!m.image) return attachmentPath(boundsOf(points), style.fill);
@@ -341,6 +343,17 @@ export function ellipticalArcPoints(m: Pick<Markup, 'points' | 'arcAngles'>): Po
  */
 function offsetLine(m: Markup, a: Point, b: Point): ShapePart[] {
   return [...leaderLines(m, a, b), ...textRunout(m)];
+}
+
+/** Fork (leojru/redcolumn): with its text inline, a Dimension's line (and any run-out) breaks around the text. */
+function inlineTextGap(m: Markup, parts: ShapePart[]): ShapePart[] {
+  const line = dimensionLine(m);
+  if (!line || !dimensionInline(m)) return parts;
+  const gap = inlineGap(m);
+  return parts.flatMap((part) => {
+    const cut = part.decoration || !part.stroke || part.fill ? null : cutSegment(part.path, line.text, line.dir, gap);
+    return cut ? cut.map((path) => ({ ...part, path })) : [part];
+  });
 }
 
 /** The dimension line run on past an end out to text slid beyond it. */

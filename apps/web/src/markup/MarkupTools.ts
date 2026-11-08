@@ -4608,6 +4608,8 @@ function loadToolStyles(): Record<MarkupType, MarkupStyle> {
     for (const type of Object.keys(styles) as MarkupType[]) {
       const s = saved[type];
       if (s && typeof s.stroke === 'string' && typeof s.width === 'number') styles[type] = s;
+      // Fork (leojru/redcolumn): a Dimension default saved before the text position existed gets inline text.
+      if (type === 'dimension' && s && s.dimText === undefined) styles[type] = { ...styles[type], dimText: 'inline' };
     }
   } catch {
     // Storage unavailable or corrupt: built-in defaults.

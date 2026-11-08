@@ -1,7 +1,8 @@
-// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds).
+// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); inline dimension text.
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
+import { dimensionInline } from './dimensionInline';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
 import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
@@ -236,7 +237,7 @@ export function labelBox(lines: readonly string[], size: number, widthOf: (s: st
  * A dimension's text: centred on its line, just above it, turned to run along it (kept reading
  * left to right). `angle` is in radians, clockwise in page space.
  */
-export function dimensionText(m: Markup): { text: string; at: [number, number]; angle: number; size: number } | null {
+export function dimensionText(m: Markup): { text: string; at: [number, number]; angle: number; size: number; inline?: boolean } | null {
   if (m.type !== 'dimension' || !m.text || m.points.length < 2) return null;
   const [a, b] = [m.points[0]!, m.points[1]!];
   let angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
@@ -245,6 +246,11 @@ export function dimensionText(m: Markup): { text: string; at: [number, number]; 
   const size = m.style.fontSize ?? 10;
   // On the dimension line (moved off its points by any leader offset, slid along by any label offset).
   const [mx, my] = dimensionLine(m)!.text;
+  // Fork (leojru/redcolumn): inline, the baseline sits half a capital below the line, so the text is centred on it.
+  if (dimensionInline(m)) {
+    const down = size * 0.36;
+    return { text: m.text, at: [mx - Math.sin(angle) * down, my + Math.cos(angle) * down], angle, size, inline: true };
+  }
   // Above the line: the left-hand normal of the reading direction. A turned text turns about there.
   const off = size * 0.35 + m.style.width;
   return { text: m.text, at: [mx + Math.sin(angle) * off, my - Math.cos(angle) * off], angle: angle + ((m.style.labelRotation ?? 0) * Math.PI) / 180, size };
@@ -395,7 +401,8 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.font = cssFont(style, dim.size);
     ctx.fillStyle = textColor(style);
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
+    // Inline text is placed by its baseline, as the saved PDF places it.
+    ctx.textBaseline = dim.inline ? 'alphabetic' : 'bottom';
     ctx.fillText(dim.text, 0, 0);
     ctx.restore();
   }

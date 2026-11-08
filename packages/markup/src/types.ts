@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: Dimension text inline by default.
 import type { MarkupStyle, MarkupType } from './model';
 import type { LineEnding, StyleCapabilities } from './style';
 
@@ -177,7 +178,8 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
   // A line with arrows at both ends and typed text along it; not scaled (Length measures).
   dimension: {
     label: 'Dimension',
-    style: line({ stroke: '#1d4ed8', width: 1, fontSize: 10 }),
+    // Fork (leojru/redcolumn): text inline by default, as in Revu.
+    style: line({ stroke: '#1d4ed8', width: 1, fontSize: 10, dimText: 'inline' }),
     draw: 'drag',
     closed: false,
     handles: 'ends',

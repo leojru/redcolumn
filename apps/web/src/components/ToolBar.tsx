@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above).
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
@@ -407,6 +408,16 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
             </label>
           )}
         </>
+      )}
+      {/* Fork (leojru/redcolumn): where a Dimension's text sits. */}
+      {style && styleType === 'dimension' && (
+        <label className="field" title="Dimension text: inline (the line breaks around it) or above the line">
+          Text
+          <select data-dim-text value={style.dimText ?? 'above'} onChange={(e) => tools.setStyle('dimension', { dimText: e.target.value as 'above' | 'inline' })}>
+            <option value="inline">Inline</option>
+            <option value="above">Above</option>
+          </select>
+        </label>
       )}
       {cloudBubble && (
         <label className="field" title="Size of the cloud's bubbles (pt)">

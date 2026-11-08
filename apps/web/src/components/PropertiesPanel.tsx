@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above).
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   CELL_STYLE_KEYS,
@@ -581,6 +582,15 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
           {caps.leader && (
             <Row label="Offset" title="Distance from the measured points to the dimension line, with extension lines (negative flips the side)">
               <NumberField value={style.leader ?? 0} min={-500} max={500} step={1} unit="pt" onChange={(v) => set('leader', v || undefined)} />
+            </Row>
+          )}
+          {/* Fork (leojru/redcolumn): where a Dimension's text sits. */}
+          {type === 'dimension' && (
+            <Row label="Text" title="Inline: on the line, which breaks around it. Above: over the line.">
+              <select value={style.dimText ?? 'above'} onChange={(e) => set('dimText', e.target.value as 'above' | 'inline')}>
+                <option value="inline">Inline</option>
+                <option value="above">Above</option>
+              </select>
             </Row>
           )}
           {caps.leader && (

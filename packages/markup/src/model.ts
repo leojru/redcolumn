@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots).
+// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots); MarkupStyle.dimText (inline dimension text).
 import { expandArcs, isMeasureKind, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
 import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
@@ -203,6 +203,8 @@ export interface MarkupStyle {
   labelOffset?: number;
   /** Length and Dimension: the text's turn in degrees, clockwise, from where it would sit. */
   labelRotation?: number;
+  /** Fork (leojru/redcolumn): a Dimension's text above its line (the default when unset) or inline, the line broken around it. */
+  dimText?: 'above' | 'inline';
 }
 
 /** A file embedded in the PDF (File Attachment markups, sound notes). */
