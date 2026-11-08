@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): vectorSnapshots setting.
+// Modified in the leojru/redcolumn fork (revu-layout): vectorSnapshots setting; Omarchy theme by default.
 import { useSyncExternalStore } from 'react';
 import type { ThemeChoice } from '../theme/themes';
 import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
@@ -408,7 +408,8 @@ export function gridSpacingPoints(s: Pick<Settings, 'gridSize' | 'unitSystem'>):
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: 'system',
+  // Fork change: follow the Omarchy desktop theme (the system's light/dark where there is no Omarchy).
+  theme: 'omarchy',
   unitSystem: 'metric',
   lengthUnit: 'm',
   areaUnit: 'm',

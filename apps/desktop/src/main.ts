@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): follows the Omarchy desktop theme (fork/omarchyTheme.ts).
 import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, screen, session, shell, utilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
@@ -24,6 +25,8 @@ import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
 import { isSmokeRun, lockHeldMessage, smokeUserData } from './smoke';
 import { createUpdater } from './updater';
+// Fork addition (leojru/redcolumn): follow the Omarchy desktop theme.
+import { installOmarchyTheme } from './fork/omarchyTheme';
 
 const earlyOpens = captureEarlyOpens();
 const allowlist = new PathAllowlist();
@@ -325,6 +328,7 @@ async function start() {
     if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return;
     if (process.platform === 'win32') state.win.setTitleBarOverlay({ color: '#00000000', symbolColor: color, height: 36 });
   });
+  installOmarchyTheme();
   ipcMain.on('window:close', (event) => {
     const state = windows.get(event.sender);
     if (!state || !fromApp(event)) return;

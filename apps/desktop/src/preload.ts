@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Omarchy theme palette bridge.
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 const info = ipcRenderer.sendSync('desktop:info') as { nativeFiles: boolean; printMode: 'viewer' | 'verb' | 'images' };
@@ -101,6 +102,13 @@ contextBridge.exposeInMainWorld('redcolumn', {
   },
   setUnsavedChanges: (on: boolean) => ipcRenderer.send('window:unsaved', on === true),
   setTitleBarSymbols: (color: string) => ipcRenderer.send('window:theme-symbols', color),
+  // Fork addition (leojru/redcolumn): the Omarchy desktop theme's palette, and its changes.
+  omarchyPalette: () => call<Record<string, string> | null>('omarchy:palette'),
+  onOmarchyPalette(cb: (palette: Record<string, string> | null) => void) {
+    const listener = (_e: unknown, palette: Record<string, string> | null) => cb(palette);
+    ipcRenderer.on('omarchy:palette-changed', listener);
+    return () => unsubscribe('omarchy:palette-changed', listener as never);
+  },
   onCloseRequest(cb: () => void) {
     const listener = () => cb();
     ipcRenderer.on('window:close-request', listener);

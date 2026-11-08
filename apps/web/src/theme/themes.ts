@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): the 'omarchy' theme choice.
 /**
  * App themes (Preferences › Interface › Display). The colours of each live in themes.css as a block
  * of tokens keyed by the theme's id; this list names them for the picker and gives the browser's
@@ -22,8 +23,12 @@ export const THEMES = [
 
 export type ThemeId = (typeof THEMES)[number]['id'];
 
-/** The Preferences choice: one of the themes, or follow the system's light/dark setting. */
-export type ThemeChoice = 'system' | ThemeId;
+/**
+ * The Preferences choice: one of the themes, or follow the system's light/dark setting.
+ * Fork addition: 'omarchy' follows the Omarchy desktop theme's colours (theme/omarchy.ts), and acts
+ * as 'system' where there is no Omarchy (Windows, the web app).
+ */
+export type ThemeChoice = 'system' | 'omarchy' | ThemeId;
 
 /** Theme used for the system's dark and light preferences. */
 const SYSTEM_DARK: ThemeId = 'navy';

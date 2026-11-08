@@ -1,7 +1,7 @@
 /* Added in the leojru/redcolumn fork (revu-layout): the classic toolbar layout (ClassicToolbars.tsx). */
 
 .classic-toolbars {
-  --measure-tool: #e0782b;
+  --measure-tool: var(--measure-orange, #e0782b);
   border-bottom: 1px solid var(--border);
 }
 

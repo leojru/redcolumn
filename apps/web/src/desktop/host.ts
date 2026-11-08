@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Omarchy theme palette bridge.
 /** The preload bridge. Present only inside the Electron app. */
 
 export interface DesktopToken {
@@ -143,6 +144,10 @@ export interface RedcolumnDesktop {
   setUnsavedChanges?(on: boolean): void;
   /** Colour of the title-bar buttons' symbols (Windows), so they contrast with the active theme. */
   setTitleBarSymbols?(color: string): void;
+  /** Fork addition: the Omarchy desktop theme's palette (colors.toml), null where there is none. */
+  omarchyPalette?(): Promise<Record<string, string> | null>;
+  /** Fork addition: called with the new palette whenever the Omarchy theme changes. */
+  onOmarchyPalette?(cb: (palette: Record<string, string> | null) => void): () => void;
   /** Experimental (read through desktop/embedHost.ts, only with its setting on; asked on every render, so it must be quick): refuses a command an embedding host cannot allow (one that rewrites a document its own records are linked to); null leaves the command as it was. */
   commandPolicy?(id: string): { disabledReason: string } | null;
   /** Closing the window while documents have unsaved changes: the page asks about each, then calls closeWindow. */

@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Vector Snapshots preference.
+// Modified in the leojru/redcolumn fork (revu-layout): Vector Snapshots preference; Omarchy theme choice.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
@@ -527,7 +527,8 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     ),
     display: () => (
       <Grid>
-        {select('theme', 'Theme', [['system', 'Match the system'], ...THEMES.map((t) => [t.id, t.label] as const)])}
+        {/* Fork addition: Omarchy follows the desktop theme's colours (or the system's light/dark without Omarchy). */}
+        {select('theme', 'Theme', [['omarchy', 'Omarchy desktop theme'], ['system', 'Match the system'], ...THEMES.map((t) => [t.id, t.label] as const)])}
         {select('pageFilter', 'Page Colours', [
           ['none', 'As printed'],
           ['dark', 'Dark Mode (inverted)'],
