@@ -5275,7 +5275,10 @@ export function App() {
           ? null
           : selectedTypes.size === 1
             ? [...selectedTypes][0]!
-            : null;
+            : // Fork (leojru/redcolumn): a selected Cloud+ (its cloud and callout) shows the cloud's style (fill, hatch, highlight) with the callout's text.
+              selectedTypes.size === 2 && selectedTypes.has('cloud') && selectedTypes.has('callout')
+              ? 'cloud'
+              : null;
   // A Cloud+ is a cloud with a callout, so selecting or drawing one also offers the callout's text options.
   const textType = styleType === 'cloud' || styleType === null ? (toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedTypes.has('callout')) ? 'callout' : null) : styleType;
   // In select mode the style controls show the selected markup's style, not the tool's defaults. A table's controls are its cells'.

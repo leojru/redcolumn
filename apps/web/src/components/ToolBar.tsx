@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above); Start/End line endings on the toolbar; text box Shape; Dimension Frame and Align.
+// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above); Start/End line endings on the toolbar; text box Shape; Dimension Frame and Align; Highlight (Multiply) toggle.
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { FONT_FAMILIES, HATCH_PATTERNS, LINE_ENDINGS, TEXT_FRAMES, type TextFrame, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
@@ -407,6 +407,23 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
             <ComboField title="Opacity" value={Math.round(style.opacity * 100)} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => tools.setStyle(styleType, { opacity: o / 100 })} />
           </label>
           {styleCapabilities(styleType).hatch && <HatchMenu style={style} disabled={!enabled} onChange={(patch) => tools.setStyle(styleType, patch)} />}
+          {/* Fork (leojru/redcolumn): Revu's Highlight: the shape multiplies with the drawing under it (blend mode Multiply). */}
+          {styleCapabilities(styleType).fill && styleType !== 'highlighter' && (
+            <button
+              type="button"
+              className="highlight-toggle"
+              data-highlight-toggle
+              aria-pressed={style.blendMode === 'multiply'}
+              disabled={!enabled}
+              title="Highlight: the fill and lines multiply with the drawing underneath, so it shows through (blend mode Multiply)"
+              onClick={() => tools.setStyle(styleType, { blendMode: style.blendMode === 'multiply' ? undefined : 'multiply' })}
+            >
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
+                <path d="m9.5 2.5 4 4-6 6H3.5v-4z" />
+                <path d="M2 14.5h7" strokeWidth="2.2" stroke="#e8c33a" />
+              </svg>
+            </button>
+          )}
         </>
       )}
       {style && styleType && (styleType === 'length' || styleType === 'polylength') && (

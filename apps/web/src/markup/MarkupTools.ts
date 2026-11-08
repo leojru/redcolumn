@@ -1657,8 +1657,15 @@ export class MarkupTools implements ViewerOverlay {
       for (const id of this.state.selected) {
         const m = store.get(id);
         if (m && m.type === type && !this.frozen(m)) store.update(id, { style: { ...m.style, ...patch }, ...tableOwnStyleCleared(m, patch) });
+        // Fork (leojru/redcolumn): a Cloud+ reads as one markup: its callout follows the cloud's line colour.
+        if (m && type === 'cloud' && patch.stroke && m.type === 'callout' && !this.frozen(m) && this.cloudPlusCallout(m)) store.update(id, { style: { ...m.style, stroke: patch.stroke } });
       }
     });
+  }
+
+  /** Fork (leojru/redcolumn): whether a callout is a Cloud+'s (grouped with a cloud). */
+  private cloudPlusCallout(m: Markup): boolean {
+    return !!m.groupId && !!this.store?.all().some((o) => o.groupId === m.groupId && o.type === 'cloud');
   }
 
   /**
@@ -4035,8 +4042,9 @@ export class MarkupTools implements ViewerOverlay {
     const groupId = crypto.randomUUID();
     const tip: Point = [b.x + b.w, b.y];
     const callout = this.newMarkup('callout', cloud.pageIndex, calloutPoints(tip, [tip[0] + 40 / zoom, tip[1] - 40 / zoom], CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom));
-    // The callout takes the cloud's colour, so the pair reads as one markup.
-    callout.style = { ...callout.style, stroke: cloud.style.stroke };
+    // The callout takes the cloud's colour, so the pair reads as one markup. Fork (leojru/redcolumn):
+    // and, as Revu's Cloud+, no arrowhead where its leader meets the cloud.
+    callout.style = { ...callout.style, stroke: cloud.style.stroke, startCap: 'none' };
     if (cloud.subject) callout.subject = cloud.subject;
     this.store!.add({ ...cloud, groupId });
     this.store!.add({ ...callout, groupId, createdAt: cloud.createdAt + 1, modifiedAt: cloud.createdAt + 1 });

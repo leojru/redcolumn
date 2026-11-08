@@ -164,3 +164,25 @@
   font-family: system-ui, sans-serif;
   letter-spacing: -0.12em;
 }
+
+/* Highlight (Multiply) on the Properties row: pressed while on. */
+.toolbar .highlight-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.toolbar .highlight-toggle:hover:not(:disabled) {
+  border-color: var(--border-2);
+}
+
+.toolbar .highlight-toggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
