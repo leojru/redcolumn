@@ -186,3 +186,57 @@
   background: var(--accent);
   color: #fff;
 }
+
+/* The Properties row, compact as Revu's: icons without their words (the tooltips keep them) and
+   narrower lists, so a long row (a dimension's) fits more of itself. */
+.classic-toolbars .classic-props .field-label {
+  display: none;
+}
+
+.classic-toolbars .classic-props select {
+  max-width: 8.5em;
+}
+
+.classic-toolbars .classic-props select.line-end-select {
+  max-width: none;
+}
+
+.classic-toolbars .classic-props .field {
+  gap: 3px;
+}
+
+/* What does not fit is reached with the wheel or the arrows at the ends. */
+.classic-props-wrap {
+  position: relative;
+}
+
+.classic-props-scroll {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  z-index: 2;
+  width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.classic-props-scroll:hover {
+  background: var(--surface-hover);
+}
+
+.classic-props-scroll.left {
+  left: 0;
+  box-shadow: 6px 0 8px -4px rgb(0 0 0 / 0.35);
+}
+
+.classic-props-scroll.right {
+  right: 0;
+  box-shadow: -6px 0 8px -4px rgb(0 0 0 / 0.35);
+}

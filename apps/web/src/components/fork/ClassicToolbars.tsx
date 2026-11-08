@@ -1,7 +1,7 @@
 // Added in the leojru/redcolumn fork (revu-layout). The classic toolbar layout: one main row of
 // file commands and tools in groups, and under it a Properties row that follows the context
 // (the open document's name and pages when idle; the style of the tool or selection otherwise).
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Command } from '../../commands/appCommands';
 import { shortcutLabel } from '../../commands/shortcuts';
 import type { Tool } from '../../markup/MarkupTools';
@@ -48,6 +48,41 @@ export function ClassicToolbars(props: ClassicToolbarsProps) {
   const shown = (tool: Tool) => GLYPHS.has(tool) && (!visibleTools || visibleTools.includes(tool));
   const groups = CLASSIC_GROUPS.map((g) => ({ ...g, tools: g.tools.filter(shown) })).filter((g) => g.tools.length);
   const idle = !props.styleType && !props.textType && !props.geometry && state.tool !== 'dynamicFill';
+
+  // The Properties row scrolls sideways when it does not fit: with the wheel, or the arrows at the
+  // ends, which show while there is more that way.
+  const propsRef = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState({ left: false, right: false });
+  const measure = useCallback(() => {
+    const el = propsRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 1;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setOverflow((o) => (o.left === left && o.right === right ? o : { left, right }));
+  }, []);
+  const scrollBy = (dir: 1 | -1) => propsRef.current?.scrollBy({ left: dir * Math.max(200, (propsRef.current.clientWidth ?? 0) * 0.6), behavior: 'smooth' });
+  useEffect(() => {
+    const el = propsRef.current;
+    if (!el) return;
+    const resize = new ResizeObserver(measure);
+    resize.observe(el);
+    // Its contents change with the selection and the tool.
+    const changes = new MutationObserver(measure);
+    changes.observe(el, { childList: true, subtree: true });
+    // An up-and-down wheel scrolls it sideways (it has no up and down).
+    const wheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener('wheel', wheel, { passive: false });
+    measure();
+    return () => {
+      resize.disconnect();
+      changes.disconnect();
+      el.removeEventListener('wheel', wheel);
+    };
+  }, [measure]);
 
   const toolButton = (tool: Tool) => {
     const icon = CLASSIC_TOOL_ICONS[tool] ?? GLYPHS.get(tool);
@@ -99,7 +134,18 @@ export function ClassicToolbars(props: ClassicToolbarsProps) {
           </>
         )}
       </div>
-      <div className="toolbar classic-props" role="toolbar" aria-label="Properties">
+      <div className="classic-props-wrap">
+      {overflow.left && (
+        <button type="button" className="classic-props-scroll left" aria-label="Scroll the properties left" title="More properties" onClick={() => scrollBy(-1)}>
+          ‹
+        </button>
+      )}
+      {overflow.right && (
+        <button type="button" className="classic-props-scroll right" aria-label="Scroll the properties right" title="More properties" onClick={() => scrollBy(1)}>
+          ›
+        </button>
+      )}
+      <div ref={propsRef} className="toolbar classic-props" role="toolbar" aria-label="Properties" onScroll={measure}>
         {idle ? (
           docName ? (
             <span className="classic-docinfo">
@@ -112,6 +158,7 @@ export function ClassicToolbars(props: ClassicToolbarsProps) {
         ) : (
           <StyleControls tools={tools} state={state} styleType={props.styleType} textType={props.textType} textMarkupStyle={props.textMarkupStyle} markups={props.markups} selectedStyle={props.selectedStyle} cloudBubble={props.cloudBubble} geometry={props.geometry} enabled={enabled} />
         )}
+      </div>
       </div>
     </div>
   );
