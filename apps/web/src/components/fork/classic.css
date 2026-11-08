@@ -111,3 +111,39 @@
   min-width: 11em;
   text-align: right;
 }
+
+/* Classic status bar in a narrow window (a tiled half screen): the least used groups give way to the
+   page strip, which folds its own parts into its ⌃ menu. All of them stay in the View menu. */
+.statusbar.classic {
+  container-type: inline-size;
+}
+
+@container (max-width: 1100px) {
+  .statusbar.classic > .status-group:not(.right):not(.status-leading) {
+    display: none;
+  }
+}
+
+@container (max-width: 900px) {
+  .statusbar.classic > .status-leading,
+  .statusbar.classic .status-group.right .status-icon {
+    display: none;
+  }
+}
+
+@container (max-width: 700px) {
+  .statusbar.classic .status-coords {
+    display: none;
+  }
+}
+
+/* The page strip's right side is pushed right with an auto margin rather than flex-end: content that
+   overflows a flex-end box spills off its left edge, which scrollWidth does not count, so the strip
+   never noticed it had run out of room and drew its parts over each other in a narrow window. */
+.statusbar.classic .pagenav-side.right {
+  justify-content: flex-start;
+}
+
+.statusbar.classic .pagenav-side.right > :first-child {
+  margin-left: auto;
+}

@@ -7716,8 +7716,8 @@ export function App() {
         onForward={goForward}
         canBack={canGoBack}
         canForward={canGoForward}
-        // Fork change: in the classic status bar the page size and scale stay longest, as Revu keeps them.
-        {...(ws.classicLayout ? { foldOrder: ['history', 'layout', 'fit', 'ends', 'sheet', 'zoom', 'size', 'scale'] as const } : {})}
+        // Fork change: in the classic status bar, zoom and scale stay longest (the page size goes to the ⌃ menu first).
+        {...(ws.classicLayout ? { foldOrder: ['history', 'layout', 'fit', 'ends', 'sheet', 'size', 'zoom', 'scale'] as const } : {})}
       />
     );
   };
