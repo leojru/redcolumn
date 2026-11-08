@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above).
+// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above), frame and align; text box Shape.
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   CELL_STYLE_KEYS,
@@ -28,6 +28,8 @@ import {
   labelPatch,
   markupLabel,
   ROTATABLE,
+  TEXT_FRAMES,
+  type TextFrame,
 } from '@nb/markup';
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, type Scale, type Slope } from '@nb/measure';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
@@ -593,6 +595,28 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
               </select>
             </Row>
           )}
+          {type === 'dimension' && (
+            <Row label="Frame" title="A shape around the text">
+              <select value={style.dimFrame ?? ''} onChange={(e) => set('dimFrame', (e.target.value || undefined) as TextFrame | undefined)}>
+                <option value="">None</option>
+                {TEXT_FRAMES.map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          )}
+          {type === 'dimension' && (
+            <Row label="Text align" title="How several lines of text line up. Auto: off the line to the right of its leader, from the left; to the left, from the right; else centred.">
+              <select value={style.textAlign ?? ''} onChange={(e) => set('textAlign', (e.target.value || undefined) as TextAlign | undefined)}>
+                <option value="">Auto</option>
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </Row>
+          )}
           {caps.leader && (
             <Row label="Text slide" title="How far the text sits along the dimension line from its middle (drag the text's yellow knob); past an end the line runs out to it">
               <NumberField value={style.labelOffset ?? 0} min={-2000} max={2000} step={1} unit="pt" onChange={(v) => set('labelOffset', v || undefined)} />
@@ -631,6 +655,18 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
           <Row label="Text color">
             <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={style.textColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('textColor', c ?? undefined)} />
           </Row>
+          {/* Fork (leojru/redcolumn): a text box's or callout's border shape; the text sits inside it. */}
+          {(type === 'text' || type === 'callout') && (
+            <Row label="Shape" title="The border's shape; the text sits inside it">
+              <select value={style.boxShape ?? 'rect'} onChange={(e) => onChange(e.target.value === 'rect' ? { boxShape: undefined } : { boxShape: e.target.value as TextFrame, textAlign: 'center', verticalAlign: 'middle' })}>
+                {TEXT_FRAMES.map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          )}
           {caps.textLayout && (
             <>
               <Row label="Align">

@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); dimension text inline, multi-line or lifted with a leader; a Length's line breaks around its label.
+// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); dimension text inline, multi-line or lifted with a leader; a Length's line breaks around its label; middle-aligned text centres its capitals.
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
@@ -258,8 +258,10 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * size) / 2;
   const total = lines.length * lineH;
   const valign = m.style.verticalAlign ?? 'top';
+  // Fork (leojru/redcolumn): centred, a line's glyphs sit high in it (room is kept under them for
+  // descenders), so a lone number or capital looked high in its box: middle centres the capitals.
   const top =
-    valign === 'middle' ? b.y + (b.h - total) / 2 : valign === 'bottom' ? b.y + b.h - pad - total : b.y + pad;
+    valign === 'middle' ? b.y + (b.h - total) / 2 + size * 0.14 : valign === 'bottom' ? b.y + b.h - pad - total : b.y + pad;
   return lines.map(({ text, indent, last }, i) => {
     let width = measure(text);
     // A wrapped list line hangs in from its first line; aligned text treats the indent as part of the line.
@@ -394,7 +396,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       ctx.rotate(dim.angle);
       ctx.font = cssFont(style, dim.size);
       ctx.fillStyle = textColor(style);
-      ctx.textAlign = dim.align === 'left' ? 'left' : 'center';
+      ctx.textAlign = dim.align;
       ctx.textBaseline = 'alphabetic';
       ctx.fillText(line.text, 0, 0);
       ctx.restore();

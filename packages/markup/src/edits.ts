@@ -1,3 +1,5 @@
+// Modified in the leojru/redcolumn fork: auto-size fits a text box's border shape around its text.
+import { frameAround } from './textFrames';
 import { boundsOf, contentBox, flagTip, isTextType, type Markup, type MarkupStyle, type Point } from './model';
 import { textLineHeight, textPadding } from './geometry';
 import { TYPE_INFO } from './types';
@@ -55,12 +57,15 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number): Poin
   const textW = Math.max(...lines.map((l) => measure(l.trimEnd())));
   const w = Math.ceil(textW + textPadding(m.style) * 2 + 1);
   const h = Math.ceil(lines.length * size * textLineHeight(m.style) + textPadding(m.style) * 2);
-  const box = contentBox(m);
+  // Fork (leojru/redcolumn): inside a border shape, the shape's box grows to hold the text.
+  const shape = (m.type === 'text' || m.type === 'callout') && m.style.boxShape && m.style.boxShape !== 'rect' ? m.style.boxShape : null;
+  const box = shape ? boundsOf(m.type === 'callout' ? m.points.slice(2, 4) : m.points) : contentBox(m);
+  const outer = shape ? frameAround(shape, w, h) : { w, h };
   if (m.type === 'callout') {
     if (m.points.length < 4) return null;
     const pts = m.points.map((p) => [p[0], p[1]] as Point);
     pts[2] = [box.x, box.y];
-    pts[3] = [box.x + w, box.y + h];
+    pts[3] = [box.x + outer.w, box.y + outer.h];
     return pts;
   }
   if (m.type === 'flagLabel') {
@@ -70,5 +75,5 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number): Poin
     for (let i = 0; i < 4; i++) outer = w + flagTip({ x: 0, y: 0, w: outer, h });
     return [[b.x, b.y], [b.x + outer, b.y + h]];
   }
-  return [[box.x, box.y], [box.x + w, box.y + h]];
+  return [[box.x, box.y], [box.x + outer.w, box.y + outer.h]];
 }

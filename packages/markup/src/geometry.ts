@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: inline dimension text breaks the dimension line; lifted text gets a leader.
+// Modified in the leojru/redcolumn fork: inline dimension text breaks the dimension line; lifted text gets a leader; text box and callout border shapes; hatches under the border.
 import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
@@ -9,6 +9,7 @@ import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
 import { cutSegment, dimensionLayout } from './dimensionInline';
+import { framePath } from './textFrames';
 import { tableCells, tableLines } from './table';
 import type { LineArt } from './lineStyle';
 
@@ -42,14 +43,19 @@ const KAPPA = 0.5522847498;
 export function markupShape(m: Markup): ShapePart[] {
   const parts = baseShape(m);
   if (resolveHatch(m.style.hatch, m.style.hatchSpec) && parts[0] && isClosed(m)) {
-    parts.push({
+    const outline = parts[0];
+    const hatch: ShapePart = {
       path: [],
       stroke: false,
       fill: null,
-      clip: parts[0].path,
-      evenOdd: parts[0].evenOdd,
+      clip: outline.path,
+      evenOdd: outline.evenOdd,
       hatch: { id: m.style.hatch!, scale: m.style.hatchScale ?? 100, color: m.style.hatchColor ?? m.style.stroke, ...(m.style.hatchSpec ? { spec: m.style.hatchSpec } : {}) },
-    });
+    };
+    // Fork (leojru/redcolumn): as Revu draws it, the hatch goes over the fill but under the border,
+    // so it never runs into the line: the outline's fill, the hatch, then the outline's stroke.
+    if (outline.stroke) parts.splice(0, 1, { ...outline, stroke: false }, hatch, { ...outline, fill: null });
+    else parts.splice(1, 0, hatch);
   }
   return parts;
 }
@@ -89,7 +95,9 @@ function baseShape(m: Markup): ShapePart[] {
     case 'signature': {
       const b = boundsOf(points);
       const r = m.type === 'rect' ? Math.min(style.cornerRadius ?? 0, b.w / 2, b.h / 2) : 0;
-      const path: PathCmd[] = r > 0 ? roundedRect(b, r) : [['M', b.x, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x, b.y + b.h], ['Z']];
+      // Fork (leojru/redcolumn): a text box's border shape (box, circle, triangle, hexagon).
+      const shaped = m.type === 'text' && style.boxShape && style.boxShape !== 'rect' ? framePath(style.boxShape, b) : null;
+      const path: PathCmd[] = shaped ?? (r > 0 ? roundedRect(b, r) : [['M', b.x, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x, b.y + b.h], ['Z']]);
       const boxless = style.noBox && m.type === 'text';
       // Without a border the fill still draws.
       return [{ path, stroke: !boxless && !(style.borderless && m.type === 'text') && (m.type === 'rect' || style.width > 0), fill: style.fill }];
@@ -99,12 +107,13 @@ function baseShape(m: Markup): ShapePart[] {
       return [{ path: points.length > 2 ? [...polyline(points), ['Z']] : polyline(points), stroke: true, fill: style.fill }];
     case 'callout': {
       if (points.length < 4) return withEnds(m, points.slice(0, 2));
-      const box = contentBox(m);
+      // Fork (leojru/redcolumn): the box's own bounds (its text sits inside any border shape).
+      const box = boundsOf(points.slice(2, 4));
       const leaders = calloutLeaders(points).flatMap(([tip, knee]) => {
         const land = calloutLanding(knee, box);
         return withEnds(m, [tip, land.knee, land.attach]);
       });
-      const rect: PathCmd[] = [['M', box.x, box.y], ['L', box.x + box.w, box.y], ['L', box.x + box.w, box.y + box.h], ['L', box.x, box.y + box.h], ['Z']];
+      const rect: PathCmd[] = style.boxShape && style.boxShape !== 'rect' ? framePath(style.boxShape, box) : [['M', box.x, box.y], ['L', box.x + box.w, box.y], ['L', box.x + box.w, box.y + box.h], ['L', box.x, box.y + box.h], ['Z']];
       return [{ path: rect, stroke: style.width > 0 && !style.noBox && !style.borderless, fill: style.fill }, ...leaders];
     }
     case 'note':
@@ -353,13 +362,18 @@ function inlineTextGap(m: Markup, parts: ShapePart[]): ShapePart[] {
   const line = dimensionLine(m);
   const layout = dimensionLayout(m);
   if (!line || !layout) return parts;
-  if (layout.leader) return [...parts, { path: polyline(layout.leader), stroke: true, fill: null, decoration: true }];
+  // A shape around the text (dimFrame): drawn solid, as the line's ends are.
+  const frame: ShapePart[] = layout.frame ? [{ path: layout.frame, stroke: true, fill: null, decoration: true }] : [];
+  if (layout.leader) return [...parts, { path: polyline(layout.leader), stroke: true, fill: null, decoration: true }, ...frame];
   const gap = layout.gap;
-  if (!gap) return parts;
-  return parts.flatMap((part) => {
-    const cut = part.decoration || !part.stroke || part.fill ? null : cutSegment(part.path, line.text, line.dir, gap);
-    return cut ? cut.map((path) => ({ ...part, path })) : [part];
-  });
+  if (!gap) return [...parts, ...frame];
+  return [
+    ...parts.flatMap((part) => {
+      const cut = part.decoration || !part.stroke || part.fill ? null : cutSegment(part.path, line.text, line.dir, gap);
+      return cut ? cut.map((path) => ({ ...part, path })) : [part];
+    }),
+    ...frame,
+  ];
 }
 
 /** The dimension line run on past an end out to text slid beyond it. */

@@ -127,3 +127,36 @@ test('a Length breaks its line around its label, and its label comes off on a le
   await expect.poll(async () => (await app.saved()).length, { timeout: 30_000 }).toBe(before + 1);
   writeFileSync(info.outputPath('saved.pdf'), (await app.saved()).at(-1)!.bytes);
 });
+
+test('a frame around dimension text (box, circle, hexagon, triangle), the line meeting it; lines aligned', async ({ app }, info) => {
+  const raw = async () => (await app.raw()) as unknown as Raw[];
+  await app.open('plan.pdf');
+  const frames = ['rect', 'circle', 'hexagon', 'triangle'] as const;
+  for (const [i, frame] of frames.entries()) {
+    const y = 560 + i * 60;
+    await app.tool('dimension');
+    await app.clicks([[160, y], [400, y]]);
+    await app.page.keyboard.type('1');
+    await app.page.keyboard.press('Enter');
+    await expect.poll(async () => (await raw()).filter((m) => m.type === 'dimension').length).toBe(i + 1);
+    const id = (await raw()).filter((m) => m.type === 'dimension')[i]!.id;
+    await app.page.keyboard.press('Escape');
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), id);
+    await app.page.locator('select[data-dim-frame]').selectOption(frame);
+    await expect.poll(async () => ((await raw()).find((m) => m.id === id)?.style as { dimFrame?: string }).dimFrame).toBe(frame);
+  }
+  // Two lines off to the right of the leader line up on the left (Auto).
+  await app.tool('dimension');
+  await app.clicks([[460, 560], [700, 560]]);
+  await app.page.keyboard.type('2B-12 (EL.:12\'-6")');
+  await app.page.keyboard.press('Shift+Enter');
+  await app.page.keyboard.type('TYP.');
+  await app.page.keyboard.press('Enter');
+  await expect.poll(async () => (await raw()).filter((m) => m.type === 'dimension').length).toBe(5);
+  const last = (await raw()).filter((m) => m.type === 'dimension')[4]!.id;
+  await app.page.keyboard.press('Escape');
+  await app.page.evaluate((id) => window.__nb.tools.select([id]), last);
+  await app.drag([580, 560], [640, 520]);
+  await app.page.evaluate(() => window.__nb.tools.select([]));
+  await app.page.screenshot({ path: info.outputPath('6-frames.png') });
+});

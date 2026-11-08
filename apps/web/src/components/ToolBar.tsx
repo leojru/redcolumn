@@ -1,7 +1,7 @@
-// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above); Start/End line endings on the toolbar.
+// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above); Start/End line endings on the toolbar; text box Shape; Dimension Frame and Align.
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { FONT_FAMILIES, HATCH_PATTERNS, LINE_ENDINGS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { FONT_FAMILIES, HATCH_PATTERNS, LINE_ENDINGS, TEXT_FRAMES, type TextFrame, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
@@ -225,6 +225,9 @@ const ENDING_HEADS: Record<LineEnding, [string, string]> = {
   tick: ['|', '|'],
   slash: ['/', '/'],
 };
+/** Fork (leojru/redcolumn): each text frame's shape, before its name. */
+const FRAME_GLYPHS: Record<TextFrame, string> = { rect: '□', circle: '○', triangle: '△', hexagon: '⬡' };
+
 const endingGlyph = (ending: LineEnding, side: 'start' | 'end') => (side === 'start' ? `${ENDING_HEADS[ending][0]}——` : `——${ENDING_HEADS[ending][1]}`);
 
 const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
@@ -467,6 +470,30 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
           </select>
         </label>
       )}
+      {style && styleType === 'dimension' && (
+        <>
+          <label className="field" title="A shape around the dimension's text">
+            Frame
+            <select data-dim-frame value={style.dimFrame ?? ''} onChange={(e) => tools.setStyle('dimension', { dimFrame: (e.target.value || undefined) as TextFrame | undefined })}>
+              <option value="">None</option>
+              {TEXT_FRAMES.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {FRAME_GLYPHS[f.value]} {f.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field" title="How the dimension's lines of text line up. Auto: off the line to the right of its leader, from the left; to the left, from the right; else centred.">
+            Align
+            <select data-dim-align value={style.textAlign ?? ''} onChange={(e) => tools.setStyle('dimension', { textAlign: (e.target.value || undefined) as TextAlign | undefined })}>
+              <option value="">Auto</option>
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+          </label>
+        </>
+      )}
       {cloudBubble && (
         <label className="field" title="Size of the cloud's bubbles (pt)">
           Bubbles
@@ -481,6 +508,27 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
             onChange={(e) => tools.setStyle(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
           />
           Border
+        </label>
+      )}
+      {/* Fork (leojru/redcolumn): the text box's border shape, as Revu's Shape list; the text centres in it. */}
+      {textStyle && (textType === 'text' || textType === 'callout') && (
+        <label className="field" title="Border shape: the text sits inside it">
+          Shape
+          <select
+            data-box-shape
+            value={textStyle.boxShape ?? 'rect'}
+            onChange={(e) => {
+              const shape = e.target.value as TextFrame;
+              tools.setStyle(textType, shape === 'rect' ? { boxShape: undefined } : { boxShape: shape, textAlign: 'center', verticalAlign: 'middle' });
+              tools.autoSizeSelectedText();
+            }}
+          >
+            {TEXT_FRAMES.map((f) => (
+              <option key={f.value} value={f.value}>
+                {FRAME_GLYPHS[f.value]} {f.label}
+              </option>
+            ))}
+          </select>
         </label>
       )}
       {textStyle && textType && styleCapabilities(textType).font && (

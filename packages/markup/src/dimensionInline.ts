@@ -4,6 +4,7 @@
 import type { FontFamily } from './style';
 import { dimensionLine, type Markup, type Point } from './model';
 import type { PathCmd } from './geometry';
+import { frameAround, framePath, frameTextCentre, frameWidthAt, mapPath } from './textFrames';
 
 // Helvetica's advance widths (thousandths of an em) for printable ASCII, from its AFM.
 // prettier-ignore
@@ -94,14 +95,33 @@ export const DIM_LINE_HEIGHT = 1.2;
  */
 export interface DimensionLayout {
   lines: { text: string; at: Point }[];
-  align: 'center' | 'left';
+  /** How each line sits on its point: starting there, centred on it or ending there. */
+  align: 'left' | 'center' | 'right';
   angle: number;
   size: number;
   inline: boolean;
   gap: number | null;
   leader: Point[] | null;
   knob: Point;
+  /** The text's extent, or with a frame the frame's. */
   box: { center: Point; w: number; h: number };
+  /** The shape drawn around the text (`dimFrame`), closed. */
+  frame: PathCmd[] | null;
+}
+
+/**
+ * How a Dimension's lines line up: as set, or (Auto) by where the text sits: off the line to the right
+ * of its leader, from the left (next to the leader); to the left, from the right; else centred.
+ */
+export function dimensionAlign(m: Markup): 'left' | 'center' | 'right' {
+  const set = m.style.textAlign;
+  if (set === 'left' || set === 'right' || set === 'center') return set;
+  if (!m.style.labelLift) return 'center';
+  const size = m.style.fontSize ?? 10;
+  const texts = (m.text ?? '').split('\n');
+  const w = Math.max(...texts.map((t) => approxTextWidth(t, size, m.style.fontFamily)));
+  const shift = m.style.labelShift ?? 0;
+  return Math.abs(shift) <= w / 2 ? 'center' : shift > 0 ? 'left' : 'right';
 }
 
 export function dimensionLayout(m: Markup): DimensionLayout | null {
@@ -116,7 +136,8 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
   const lh = size * DIM_LINE_HEIGHT;
   const texts = m.text.split('\n');
   const n = texts.length;
-  const w = Math.max(...texts.map((t) => approxTextWidth(t, size, m.style.fontFamily)));
+  const widths = texts.map((t) => approxTextWidth(t, size, m.style.fontFamily));
+  const w = Math.max(...widths);
   const h = n * lh;
   const lift = m.style.labelLift ?? 0;
   const lifted = Math.abs(lift) > 1e-6;
@@ -128,44 +149,42 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
   const u0: Point = [Math.sin(base), -Math.cos(base)];
   const at = (o: Point, along: number, up: number): Point => [o[0] + r[0] * along + u[0] * up, o[1] + r[1] * along + u[1] * up];
   const p = line.text;
+  const kind = m.style.dimFrame;
+  // The frame around the text, with a little room: its box, and where the text's middle sits in it.
+  const fw = kind ? frameAround(kind, w + size * 0.7, h + size * 0.35) : { w, h };
+  const [fx, fy] = kind ? frameTextCentre(kind) : [0.5, 0.5];
+  // Where the text's middle goes.
+  let center: Point;
+  if (lifted) center = liftedCenter(m)!;
+  else if (inline) center = p;
+  else {
+    // Above: the text's (or frame's) foot just over the line (a turned text turns about there).
+    const off = size * 0.35 + m.style.width;
+    const foot: Point = [p[0] + u0[0] * off, p[1] + u0[1] * off];
+    const below = kind ? fw.h * (1 - fy) : h / 2 + size * 0.2;
+    center = at(foot, 0, below);
+  }
   // A baseline half a capital below a line's middle centres the capitals on it.
   const cap = size * 0.36;
-  const middle = (i: number) => h / 2 - lh * (i + 0.5) - cap;
+  const align = dimensionAlign(m);
+  const x = align === 'left' ? -w / 2 : align === 'right' ? w / 2 : 0;
+  const lines = texts.map((text, i) => ({ text, at: at(center, x, h / 2 - lh * (i + 0.5) - cap) }));
+  // The frame's box about the text's middle (a triangle's text sits low in it), in page space.
+  const boxCenter: Point = kind ? at(center, fw.w * (0.5 - fx), -fw.h * (0.5 - fy)) : center;
+  const frame = kind
+    ? mapPath(framePath(kind, { x: -fw.w * fx, y: -fw.h * fy, w: fw.w, h: fw.h }), ([lx, ly]) => at(center, lx, -ly))
+    : null;
+  const box = { center: boxCenter, w: fw.w, h: fw.h };
   if (lifted) {
-    // Centred where it was dragged to, the leader from the foot (on the line) grows to it.
-    const center = liftedCenter(m)!;
-    return {
-      lines: texts.map((text, i) => ({ text, at: at(center, 0, middle(i)) })),
-      align: 'center',
-      angle,
-      size,
-      inline: false,
-      gap: null,
-      leader: liftLeader(m, center, w, h),
-      // Just off the text on the line's side, so it covers none of it.
-      knob: at(center, 0, -Math.sign(lift) * (h / 2 + size * 0.45)),
-      box: { center, w, h },
-    };
+    // The leader grows from the foot (on the line) to the text, or its frame.
+    return { lines, align, angle, size, inline: false, gap: null, leader: liftLeader(m, boxCenter, fw.w, fw.h), knob: at(boxCenter, 0, -Math.sign(lift) * (fw.h / 2 + size * 0.45)), box, frame };
   }
   if (inline) {
-    // The knob at the text's start, in the gap, so it does not cover the text.
-    return { lines: texts.map((text, i) => ({ text, at: at(p, 0, middle(i)) })), align: 'center', angle, size, inline: true, gap: w + size * 0.5, leader: null, knob: at(p, -(w / 2 + size * 0.25), 0), box: { center: p, w, h } };
+    // The line breaks where it meets the frame, or around the text; the knob sits at the text's start, in the gap.
+    const gap = kind ? frameWidthAt(kind, fw.w, fy) : w + size * 0.5;
+    return { lines, align, angle, size, inline: true, gap, leader: null, knob: at(p, -(gap / 2 + size * 0.25), 0), box, frame };
   }
-  // Above: as before, the text's foot just over the line (a turned text turns about there).
-  const off = size * 0.35 + m.style.width;
-  const foot: Point = [p[0] + u0[0] * off, p[1] + u0[1] * off];
-  const descent = size * 0.2;
-  return {
-    lines: texts.map((text, i) => ({ text, at: at(foot, 0, descent + lh * (n - 1 - i)) })),
-    align: 'center',
-    angle,
-    size,
-    inline: false,
-    gap: null,
-    leader: null,
-    knob: at(foot, 0, size * 0.4),
-    box: { center: at(foot, 0, h / 2), w, h },
-  };
+  return { lines, align, angle, size, inline: false, gap: null, leader: null, knob: at(boxCenter, 0, -(fw.h / 2) + size * 0.4), box, frame };
 }
 
 /**

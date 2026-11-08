@@ -76,6 +76,8 @@ import {
   labelHandles,
   dimensionText,
   readingFrame,
+  autoSizedPoints,
+  cssFont,
   markupSnapPoints,
   rotateHandle,
   scaledAbout,
@@ -1655,6 +1657,26 @@ export class MarkupTools implements ViewerOverlay {
       for (const id of this.state.selected) {
         const m = store.get(id);
         if (m && m.type === type && !this.frozen(m)) store.update(id, { style: { ...m.style, ...patch }, ...tableOwnStyleCleared(m, patch) });
+      }
+    });
+  }
+
+  /**
+   * Fork (leojru/redcolumn): with Preferences › Auto-size Text Box on, the selected text boxes and
+   * callouts are refitted to their text (after a border shape changes, say).
+   */
+  autoSizeSelectedText() {
+    const store = this.store;
+    if (!store || !settings.get().autoSizeText) return;
+    const g = document.createElement('canvas').getContext('2d');
+    if (!g) return;
+    store.batch(() => {
+      for (const id of this.state.selected) {
+        const m = store.get(id);
+        if (!m || this.frozen(m) || (m.type !== 'text' && m.type !== 'callout')) continue;
+        g.font = cssFont(m.style, m.style.fontSize ?? 12);
+        const points = autoSizedPoints(m, (t) => g.measureText(t).width);
+        if (points) store.update(id, { points });
       }
     });
   }

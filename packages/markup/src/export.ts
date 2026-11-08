@@ -472,9 +472,11 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     // Fork (leojru/redcolumn): each line on its baseline point, centred there (or starting there); glyphs flipped upright.
     for (const line of dim.lines) {
       const text = safeText(font, line.text);
-      const w = dim.align === 'left' ? 0 : font.widthOfTextAtSize(text, dim.size);
-      const x = line.at[0] - (w / 2) * cos;
-      const y = line.at[1] - (w / 2) * sin;
+      const width = font.widthOfTextAtSize(text, dim.size);
+      // Back from its point by none of its width (left), half (centre) or all of it (right).
+      const back = dim.align === 'left' ? 0 : dim.align === 'right' ? width : width / 2;
+      const x = line.at[0] - back * cos;
+      const y = line.at[1] - back * sin;
       ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, 'BT', `/F0 ${fmt(dim.size)} Tf`, `${[cos, sin, sin, -cos, x, y].map(fmt).join(' ')} Tm`, `${font.encodeText(text).toString()} Tj`, 'ET');
     }
     resources.Font = { F0: font.ref };

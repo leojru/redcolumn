@@ -1,4 +1,5 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots); MarkupStyle.dimText and labelLift (dimension text); its bounds take in the text.
+// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots); MarkupStyle.dimText and labelLift (dimension text); its bounds take in the text; text box border shapes (boxShape).
+import { frameInner, type TextFrame } from './textFrames';
 import { expandArcs, isMeasureKind, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
 import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
@@ -209,6 +210,10 @@ export interface MarkupStyle {
   labelLift?: number;
   /** Fork (leojru/redcolumn): with the text off the line, how far its centre sits along the line from the leader's foot (points). */
   labelShift?: number;
+  /** Fork (leojru/redcolumn): a shape drawn around a Dimension's text. */
+  dimFrame?: TextFrame;
+  /** Fork (leojru/redcolumn): a text box's or callout's border shape (default a rectangle); the text sits inside it. */
+  boxShape?: TextFrame;
 }
 
 /** A file embedded in the PDF (File Attachment markups, sound notes). */
@@ -475,9 +480,12 @@ export interface Rect {
 }
 
 /** The box a markup's text or picture sits in: a callout's box, else the bounds of its points. */
-export function contentBox(m: Pick<Markup, 'type' | 'points'> & { flowShape?: FlowShapeKind }): Rect {
+export function contentBox(m: Pick<Markup, 'type' | 'points'> & { flowShape?: FlowShapeKind; style?: { boxShape?: TextFrame } }): Rect {
   const b = boundsOf(m.type === 'callout' && m.points.length >= 4 ? m.points.slice(2, 4) : m.points);
   if (m.type === 'flowShape') return flowTextBox(m.flowShape ?? 'process', b);
+  // Fork (leojru/redcolumn): inside a text box's or callout's border shape.
+  const shape = m.style?.boxShape;
+  if ((m.type === 'text' || m.type === 'callout') && shape && shape !== 'rect') return frameInner(shape, b);
   if (m.type !== 'flagLabel') return b;
   // A flag label's text sits right of its pointed end.
   const tip = flagTip(b);
@@ -644,8 +652,10 @@ function unrotatedBounds(m: Markup): Rect {
   if (m.type === 'dimension' && m.text) {
     const size = m.style.fontSize ?? 10;
     const lines = m.text.split('\n');
-    const w = Math.max(...lines.map((l) => l.length)) * size * 0.6 + size * 0.5;
-    const h = lines.length * size * 1.2;
+    // A frame (dimFrame) around the text is up to about twice its size (a triangle).
+    const k = m.style.dimFrame ? 2.3 : 1;
+    const w = (Math.max(...lines.map((l) => l.length)) * size * 0.6 + size * 0.5) * k;
+    const h = lines.length * size * 1.2 * k;
     const lift = m.style.labelLift ?? 0;
     // Along and up the text, kept reading left to right (as dimensionLayout turns it).
     const flip = line.dir[0] < 0 ? -1 : 1;
