@@ -83,10 +83,8 @@ test.describe('classic layout', () => {
     await expect(bar.locator('.pagenav')).toContainText(/\d+\.\d\d × \d+\.\d\d in/);
     for (const label of ['Grid', 'Snap', 'Content', 'Markup', 'Reuse']) await expect(bar.getByRole('button', { name: label, exact: true })).toBeVisible();
     // Split from the status bar, and back to a single view.
-    // Split asks for the document to show beside this one.
-    const chooser = app.page.waitForEvent('filechooser');
+    // Split shows this document beside itself.
     await bar.locator('[data-status-command="view.split"]').click();
-    await (await chooser).setFiles(app.fixture('plan-rev1.pdf'));
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
     await expect(bar.locator('[data-status-command="view.split"]')).toHaveAttribute('aria-pressed', 'true');
     await bar.locator('[data-status-command="view.unsplit"]').click();

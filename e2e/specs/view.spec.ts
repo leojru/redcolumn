@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: Split shows the same document in the right pane, so the split tests open the second file there.
 import { expect, test, type App } from '../support/app.ts';
 import { PLAN } from '../support/driver.ts';
 
@@ -315,12 +316,12 @@ test.describe('view', () => {
     expect((await app.command('view.unsplit')).enabled).toBe(false);
     await app.tool('rect');
     await app.drag([300, 450], [350, 500]);
-    const chooser = app.page.waitForEvent('filechooser');
+    // Fork (leojru/redcolumn): Split shows the same document in the right pane (as Revu); another opens there beside it.
     await app.cmd('view.split');
-    await (await chooser).setFiles(app.fixture('plan-rev1.pdf'));
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
     // Two panes, two canvases.
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+    await app.open('plan-rev1.pdf');
     for (const id of ['view.unsplit', 'view.switchPanes', 'view.balance', 'view.syncDocument', 'view.syncPage']) expect((await app.command(id)).enabled, id).toBe(true);
     // Switch Panes swaps the documents: plan.pdf (with its markup) moves out of pane A, then back.
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
@@ -348,9 +349,7 @@ test.describe('view', () => {
   });
 
   test('split horizontal', async ({ app }) => {
-    const chooser = app.page.waitForEvent('filechooser');
     await app.cmd('view.splitHorizontal');
-    await (await chooser).setFiles(app.fixture('plan-rev1.pdf'));
     await expect.poll(async () => (await app.command('view.splitHorizontal')).checked).toBe(true);
     expect((await app.command('view.split')).checked).toBe(false);
     await app.cmd('view.unsplit');

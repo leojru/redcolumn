@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar; markups hide with their PDF layer; dimension text edited in place.
+// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar; markups hide with their PDF layer; dimension text edited in place; split view of the same document.
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
@@ -1175,6 +1175,8 @@ export function App() {
     return () => window.removeEventListener('nb-assistant-open', open);
   }, []);
   const pendingSplit = useRef<File | null>(null);
+  /** Fork (leojru/redcolumn): the open document to show in the right pane as well, once it is up. */
+  const pendingSame = useRef<OpenFile | null>(null);
   /** A library file or a tab waiting for the right pane to exist (Open in Split View, Move to Right Pane). */
   const pendingSplitStored = useRef<{ file: StoredFile; bytes: ArrayBuffer } | null>(null);
   const pendingMove = useRef<OpenFile | null>(null);
@@ -2059,6 +2061,13 @@ export function App() {
     const moving = pendingMove.current;
     pendingMove.current = null;
     if (moving) moveTabRef.current('a', moving);
+    // Fork: the split to the same document: a tab for it in the right pane, its own view.
+    const same = pendingSame.current;
+    pendingSame.current = null;
+    if (same && tabsARef.current.includes(same)) {
+      if (!tabsBRef.current.includes(same)) setTabs('b', [...tabsBRef.current, same]);
+      showInPane('b', same);
+    }
     const f = pendingSplit.current;
     if (!f) return;
     pendingSplit.current = null;
@@ -2076,7 +2085,7 @@ export function App() {
   // Remember the library documents open in tabs for next time.
   useEffect(() => {
     if (!restored.current) return;
-    const ids = [...tabsA, ...tabsB].map((t) => t.file.id).filter((id) => !studioDocOf(id));
+    const ids = [...new Set([...tabsA, ...tabsB].map((t) => t.file.id))].filter((id) => !studioDocOf(id));
     try {
       localStorage.setItem(TABS_KEY, JSON.stringify({ ids, active: (activePane === 'b' ? openB : open)?.file.id ?? null }));
     } catch {
@@ -2134,6 +2143,22 @@ export function App() {
       viewer.setDocument(next.doc);
       if (keep === 'view') viewer.setView(view);
       else viewer.goToPage(keep(view.pageIndex));
+      // Fork (leojru/redcolumn): the same document split into both panes follows in the other one too.
+      const other: Pane = pane === 'a' ? 'b' : 'a';
+      if (tabsRefOf(other).current.includes(cur)) setTabs(other, tabsRefOf(other).current.map((t) => (t === cur ? next : t)));
+      const oc = ctlOf(other);
+      if (openRefOf(other).current === cur && oc) {
+        setFront(other, next);
+        oc.tools.setSnapSource(async (pageIndex) => {
+          const g = await next.doc.geometry(pageIndex);
+          return new SnapIndex(g.segments, undefined, g.curves);
+        });
+        oc.tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
+        const otherView = oc.viewer.getView();
+        oc.viewer.setDocument(next.doc);
+        if (keep === 'view') oc.viewer.setView(otherView);
+        else oc.viewer.goToPage(keep(otherView.pageIndex));
+      }
       void cur.doc.close();
     },
     [ctl, ctlB, setTabs, setFront],
@@ -4002,8 +4027,11 @@ export function App() {
         if (renamed) {
           now = { ...cur, file: renamed };
           markSaved(now);
-          setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? now : t)));
-          if (openRefOf(pane).current === cur) setFront(pane, now);
+          // Fork (leojru/redcolumn): in both panes, when the same document is split into both.
+          for (const p of ['a', 'b'] as const) {
+            if (tabsRefOf(p).current.includes(cur)) setTabs(p, tabsRefOf(p).current.map((t) => (t === cur ? now : t)));
+            if (openRefOf(p).current === cur) setFront(p, now);
+          }
           void refreshLibrary();
         }
       }
@@ -4109,6 +4137,8 @@ export function App() {
           revealPanel('files', (tab) => tab === 'sessions' || tab === 'projects');
         }
       }
+      // Fork (leojru/redcolumn): the same document split into the other pane stays open there.
+      if ((pane === 'b' ? tabsARef.current : tabsBRef.current).includes(closing)) return;
       disposeOpen(closing);
     },
     [setTabs, showInPane],
@@ -4238,7 +4268,8 @@ export function App() {
     const bFront = openBRef.current;
     showInPane('b', null);
     setTabs('b', []);
-    setTabs('a', [...tabsARef.current, ...moved]);
+    // Fork (leojru/redcolumn): a document in both panes (split to itself) stays one tab.
+    setTabs('a', [...tabsARef.current, ...moved.filter((t) => !tabsARef.current.includes(t))]);
     if (!openRef.current && bFront) showInPane('a', bFront);
     setSplit(false);
     setActivePane('a');
@@ -4863,7 +4894,7 @@ export function App() {
   useEffect(
     () =>
       onProjectOpened((project) => {
-        for (const tab of [...tabsARef.current, ...tabsBRef.current]) {
+        for (const tab of new Set([...tabsARef.current, ...tabsBRef.current])) {
           const link = linkOf(tab.file.id);
           if (link?.projectId === project.id) void project.attachMarkups(link.fileId, tab.store).catch((err: unknown) => console.warn('Project markups:', err));
         }
@@ -5628,7 +5659,8 @@ export function App() {
       if (t === openB) return statsB?.pageIndex ?? savedViews.current.get(t.file.id)?.pageIndex ?? 0;
       return savedViews.current.get(t.file.id)?.pageIndex ?? 0;
     };
-    return [...tabsA, ...tabsB].map((t) => ({
+    // Fork (leojru/redcolumn): a document split into both panes is listed once.
+    return [...new Set([...tabsA, ...tabsB])].map((t) => ({
       id: t.file.id,
       name: t.file.name,
       pageCount: t.doc.pages.length,
@@ -6256,6 +6288,15 @@ export function App() {
 
   const startSplit = () => {
     if (split) return;
+    // Fork (leojru/redcolumn): as in Revu, the other pane shows the same document (its own view of
+    // it, the markups shared); with nothing open, a file is picked for it.
+    const current = openRef.current;
+    if (current) {
+      pendingSame.current = current;
+      setSplit(true);
+      setActivePane('b');
+      return;
+    }
     splitFileRef.current?.click();
   };
 
