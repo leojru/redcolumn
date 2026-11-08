@@ -1581,3 +1581,23 @@ test('a moved markup snaps its nearest corner to another markup, and Shift keeps
     settings.set({ snapToMarkup: was });
   }
 });
+
+// Fork (leojru/redcolumn): Ctrl+drag copies, as in Revu.
+test('Ctrl+drag copies the selection; the originals stay; the copies are selected; one undo', async () => {
+  const h = await setup();
+  h.tools.setTool('rect');
+  drag(h.tools, [100, 100], [200, 160]);
+  const [orig] = h.store.all();
+  h.tools.setTool('select');
+  h.tools.select([orig!.id]);
+  drag(h.tools, [125, 100], [325, 300], { ctrlKey: true });
+  const all = h.store.all();
+  assert.equal(all.length, 2, 'a copy');
+  assert.deepEqual(h.store.get(orig!.id)!.points, [[100, 100], [200, 160]], 'the original stays');
+  const copy = all.find((m) => m.id !== orig!.id)!;
+  assert.deepEqual(copy.points, [[300, 300], [400, 360]]);
+  assert.deepEqual([...h.tools.getState().selected], [copy.id]);
+  h.store.undo();
+  assert.equal(h.store.all().length, 1);
+  await h.store.destroy();
+});

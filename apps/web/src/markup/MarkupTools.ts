@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving.
+// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; Ctrl+drag copies.
 import {
   align,
   centerOnPage,
@@ -272,7 +272,7 @@ type Gesture =
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
   | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean }
-  | { kind: 'move'; start: Point; dx: number; dy: number; /** Fork: the selection's point nearest the press, which snaps. */ base?: Point }
+  | { kind: 'move'; start: Point; dx: number; dy: number; /** Fork: the selection's point nearest the press, which snaps. */ base?: Point; /** Fork: Ctrl held: the drag makes copies, the originals stay. */ copy?: boolean }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
   | { kind: 'handle'; id: string; index: number; point: Point }
@@ -1630,6 +1630,30 @@ export class MarkupTools implements ViewerOverlay {
     this.select([...this.state.selected, ...ids]);
   }
 
+  /**
+   * Fork (leojru/redcolumn): Ctrl+drag: copies of the selection `dx`, `dy` away (groups kept together,
+   * links between them kept), which become the selection; one undo step.
+   */
+  private copySelectionBy(dx: number, dy: number) {
+    const store = this.store;
+    const ms = this.editable();
+    if (!store || store.readOnly || !ms.length) return;
+    const now = Date.now();
+    const ids: string[] = [];
+    const groups = new Map<string, string>();
+    const copyOf = new Map(ms.map((m) => [m.id, crypto.randomUUID()]));
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of relinkCopies(ms, copyOf)) {
+        const id = copyOf.get(m.id)!;
+        ids.push(id);
+        const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
+        store.add({ ...structuredClone(m), id, groupId, ...moved(m, dx, dy), status: 'none', author: this.options.author(), createdAt: now + ids.length, modifiedAt: now + ids.length });
+      }
+    });
+    this.select(ids);
+  }
+
   /** Updates the style for `type` (future markups) and applies it to selected markups of that type. */
   setStyle(type: MarkupType, patch: Partial<MarkupStyle>) {
     // With cells selected, the text settings are theirs: the table and the tool's defaults stay as they are.
@@ -2148,6 +2172,13 @@ export class MarkupTools implements ViewerOverlay {
         const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points)) % 360) + 540) % 360) - 180 : absolute;
         const scale = store.scaleAt(pageIndex, from);
         if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
+      }
+    }
+    // Fork (leojru/redcolumn): Ctrl+drag: the copies under the pointer, the originals where they were.
+    if (g?.kind === 'move' && g.copy && (g.dx || g.dy)) {
+      for (const id of this.state.selected) {
+        const m = store.get(id);
+        if (m && m.pageIndex === pageIndex) drawMarkup(ctx, { ...m, ...moved(m, g.dx, g.dy) }, zoom, store.scaleOf(m), legends);
       }
     }
     // Draw to Scale: the box from its first corner to the pointer, with its width and height.
@@ -2967,7 +2998,8 @@ export class MarkupTools implements ViewerOverlay {
     } else if (!this.state.selected.has(hit.id)) {
       this.select(members);
     }
-    this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0 });
+    // Fork (leojru/redcolumn): Ctrl+drag copies the selection, as in Revu.
+    this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0, copy: e.ctrlKey || e.metaKey });
     return true;
   }
 
@@ -3282,7 +3314,9 @@ export class MarkupTools implements ViewerOverlay {
         this.setGesture({ kind: 'multi', markup: { ...this.newMarkup('polygon', g.markup.pageIndex, [at]), style: { ...CALIBRATE_STYLE, dash: 'dashed' } }, hover: at, down: at, calibrate: false });
       } else this.commitDraft(g.markup);
     } else if (g.kind === 'move') {
-      if (g.dx || g.dy) {
+      // Fork (leojru/redcolumn): Ctrl held at the press or the release: copies go where it was dragged.
+      if ((g.dx || g.dy) && (g.copy || e.ctrlKey || e.metaKey)) this.copySelectionBy(g.dx, g.dy);
+      else if (g.dx || g.dy) {
         const store = this.store;
         store.batch(() => {
           for (const id of this.state.selected) {
@@ -4414,7 +4448,7 @@ export class MarkupTools implements ViewerOverlay {
   /** The markup as it should appear mid-gesture (moved or reshaped), without committing. */
   private ownPreview(m: Markup): Markup {
     const g = this.gesture;
-    if (g?.kind === 'move' && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
+    if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
     if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };

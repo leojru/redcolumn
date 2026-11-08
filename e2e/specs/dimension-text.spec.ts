@@ -136,7 +136,7 @@ test('a frame around dimension text (box, circle, hexagon, triangle), the line m
     const y = 560 + i * 60;
     await app.tool('dimension');
     await app.clicks([[160, y], [400, y]]);
-    await app.page.keyboard.type('1');
+    await app.page.keyboard.type(frame === 'hexagon' ? '1.2' : '1');
     await app.page.keyboard.press('Enter');
     await expect.poll(async () => (await raw()).filter((m) => m.type === 'dimension').length).toBe(i + 1);
     const id = (await raw()).filter((m) => m.type === 'dimension')[i]!.id;

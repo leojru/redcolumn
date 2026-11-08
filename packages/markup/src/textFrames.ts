@@ -31,14 +31,20 @@ export function frameInner(kind: TextFrame, b: Rect): Rect {
   return { x: b.x + b.w * x0, y: b.y + b.h * y0, w: b.w * (x1 - x0), h: b.h * (y1 - y0) };
 }
 
-/** The shape's box that holds text `w` by `h`; a circle stays round. */
+/**
+ * Width over height that a shape keeps as it grows: a circle stays round, a hexagon regular, a
+ * triangle equilateral; a box fits its text.
+ */
+const ASPECT: Record<TextFrame, number | null> = { rect: null, circle: 1, hexagon: 2 / Math.sqrt(3), triangle: 2 / Math.sqrt(3) };
+
+/** The shape's box that holds text `w` by `h`: a shape keeps its proportions, growing every way to fit. */
 export function frameAround(kind: TextFrame, w: number, h: number): { w: number; h: number } {
   const [x0, x1, y0, y1] = INNER[kind];
-  if (kind === 'circle') {
-    const d = Math.max(w, h) / (x1 - x0);
-    return { w: d, h: d };
-  }
-  return { w: w / (x1 - x0), h: h / (y1 - y0) };
+  const need = { w: w / (x1 - x0), h: h / (y1 - y0) };
+  const aspect = ASPECT[kind];
+  if (!aspect) return need;
+  const height = Math.max(need.h, need.w / aspect);
+  return { w: height * aspect, h: height };
 }
 
 /** Where the text's middle sits in the shape's box, as fractions (across, down). */
