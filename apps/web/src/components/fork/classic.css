@@ -107,8 +107,13 @@
   padding: 0 5px;
 }
 
+/* A fixed slot: the position changes width as the pointer moves (70'-5 1/2" against 1'-0"), and a
+   slot that followed it pushed everything else in the bar back and forth. */
 .statusbar.classic .status-coords {
-  min-width: 11em;
+  flex: none;
+  width: 19em;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: right;
 }
 
