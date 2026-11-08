@@ -1,8 +1,8 @@
-// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); inline dimension text.
+// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); dimension text inline, multi-line or lifted with a leader; a Length's line breaks around its label.
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
-import { dimensionInline } from './dimensionInline';
+import { breakAroundBox, dimensionLayout, lengthLabelBox, type DimensionLayout } from './dimensionInline';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
 import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
@@ -234,26 +234,11 @@ export function labelBox(lines: readonly string[], size: number, widthOf: (s: st
 }
 
 /**
- * A dimension's text: centred on its line, just above it, turned to run along it (kept reading
- * left to right). `angle` is in radians, clockwise in page space.
+ * A dimension's text: where its lines go (see `dimensionLayout`). Fork (leojru/redcolumn): inline
+ * or above, one or more lines, or dragged off the line with a leader.
  */
-export function dimensionText(m: Markup): { text: string; at: [number, number]; angle: number; size: number; inline?: boolean } | null {
-  if (m.type !== 'dimension' || !m.text || m.points.length < 2) return null;
-  const [a, b] = [m.points[0]!, m.points[1]!];
-  let angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
-  if (angle > Math.PI / 2) angle -= Math.PI;
-  else if (angle < -Math.PI / 2) angle += Math.PI;
-  const size = m.style.fontSize ?? 10;
-  // On the dimension line (moved off its points by any leader offset, slid along by any label offset).
-  const [mx, my] = dimensionLine(m)!.text;
-  // Fork (leojru/redcolumn): inline, the baseline sits half a capital below the line, so the text is centred on it.
-  if (dimensionInline(m)) {
-    const down = size * 0.36;
-    return { text: m.text, at: [mx - Math.sin(angle) * down, my + Math.cos(angle) * down], angle, size, inline: true };
-  }
-  // Above the line: the left-hand normal of the reading direction. A turned text turns about there.
-  const off = size * 0.35 + m.style.width;
-  return { text: m.text, at: [mx + Math.sin(angle) * off, my - Math.cos(angle) * off], angle: angle + ((m.style.labelRotation ?? 0) * Math.PI) / 180, size };
+export function dimensionText(m: Markup): DimensionLayout | null {
+  return dimensionLayout(m);
 }
 
 /**
@@ -339,7 +324,10 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   const dash = style.dashArray ?? dashPattern(style.dash, lineWidth);
   // Highlighter multiplies so drawing detail stays visible underneath.
   if (TYPE_INFO[m.type].multiply) ctx.globalCompositeOperation = 'multiply';
-  for (const part of styledParts(markupShape(m), style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
+  // Fork (leojru/redcolumn): a Length's line breaks around its label rather than a white box hiding it.
+  const lengthGap = lengthLabelBox(m, measurementLabel(m, scale));
+  const shape = lengthGap ? breakAroundBox(markupShape(m), lengthGap) : markupShape(m);
+  for (const part of styledParts(shape, style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
     if (part.art) {
       paintArt(ctx, part.art);
       continue;
@@ -378,7 +366,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       ctx.rotate(label.angle);
       x = y = 0;
     }
-    if (background) {
+    if (background && !lengthGap) {
       ctx.globalAlpha = 0.85 * style.opacity;
       ctx.fillStyle = background;
       ctx.fillRect(x - w / 2, y - h / 2, w, h);
@@ -395,16 +383,18 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   }
   const dim = dimensionText(m);
   if (dim) {
-    ctx.save();
-    ctx.translate(dim.at[0], dim.at[1]);
-    ctx.rotate(dim.angle);
-    ctx.font = cssFont(style, dim.size);
-    ctx.fillStyle = textColor(style);
-    ctx.textAlign = 'center';
-    // Inline text is placed by its baseline, as the saved PDF places it.
-    ctx.textBaseline = dim.inline ? 'alphabetic' : 'bottom';
-    ctx.fillText(dim.text, 0, 0);
-    ctx.restore();
+    // Each line placed by its baseline, as the saved PDF places it.
+    for (const line of dim.lines) {
+      ctx.save();
+      ctx.translate(line.at[0], line.at[1]);
+      ctx.rotate(dim.angle);
+      ctx.font = cssFont(style, dim.size);
+      ctx.fillStyle = textColor(style);
+      ctx.textAlign = dim.align === 'left' ? 'left' : 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(line.text, 0, 0);
+      ctx.restore();
+    }
   }
   const flow = connectorLabel(m);
   if (flow) {
@@ -635,6 +625,20 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
     ctx.arc(text.rotate.at[0], text.rotate.at[1], 4 * px, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    // Fork (leojru/redcolumn): the dimension line's own knob (a diamond), to move it out from its points.
+    if (text.offset) {
+      const [ox, oy] = text.offset;
+      const d = h / 2 + px * 1.5;
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.moveTo(ox, oy - d);
+      ctx.lineTo(ox + d, oy);
+      ctx.lineTo(ox, oy + d);
+      ctx.lineTo(ox - d, oy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
     ctx.restore();
   }
   const knob = rotateHandle(m, zoom);
@@ -669,7 +673,7 @@ export function rotateHandle(m: Markup, zoom: number): { at: [number, number]; s
  * A selected Length or Dimension's text knobs: `move` on the text (drag it along or off the line)
  * and `rotate` beyond its top (turn it), with the text's current turn in degrees clockwise.
  */
-export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { at: Point; stem: Point }; angle: number } | null {
+export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { at: Point; stem: Point }; angle: number; offset?: Point } | null {
   if (m.locked) return null;
   const line = dimensionLine(m);
   if (!line || (m.type === 'length' ? m.style.showLabel === false : !m.text)) return null;
@@ -678,11 +682,15 @@ export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { 
   const size = m.style.fontSize ?? 10;
   // Up the text: its left-hand normal in page space (y down).
   const up: Point = [Math.sin(angle), -Math.cos(angle)];
-  const move: Point = dim ? [dim.at[0] + up[0] * size * 0.4, dim.at[1] + up[1] * size * 0.4] : line.text;
+  const move: Point = dim ? dim.knob : line.text;
   const reach = size * (dim ? 0.8 : 0.7);
-  const stem: Point = [move[0] + up[0] * reach, move[1] + up[1] * reach];
+  // Fork (leojru/redcolumn): a Dimension's turn knob stands off the top of its text (one or more lines).
+  const top: Point = dim ? [dim.box.center[0] + up[0] * (dim.box.h / 2), dim.box.center[1] + up[1] * (dim.box.h / 2)] : move;
+  const stem: Point = dim ? [top[0] + up[0] * size * 0.3, top[1] + up[1] * size * 0.3] : [move[0] + up[0] * reach, move[1] + up[1] * reach];
   const at: Point = [stem[0] + up[0] * (14 / zoom), stem[1] + up[1] * (14 / zoom)];
-  return { move, rotate: { at, stem }, angle: (angle * 180) / Math.PI };
+  // Fork: a Dimension's line moves out from its points by a knob of its own, a fifth of the way along it.
+  const offset: Point | undefined = dim ? [line.a[0] + (line.b[0] - line.a[0]) * 0.2, line.a[1] + (line.b[1] - line.a[1]) * 0.2] : undefined;
+  return { move, rotate: { at, stem }, angle: (angle * 180) / Math.PI, ...(offset ? { offset } : {}) };
 }
 
 /** A box's handles by index: its two defining corners, the other two corners, then the middles of its four edges. */

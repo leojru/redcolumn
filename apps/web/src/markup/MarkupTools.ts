@@ -74,6 +74,7 @@ import {
   markupBounds,
   dimensionLine,
   labelHandles,
+  dimensionText,
   markupSnapPoints,
   rotateHandle,
   scaledAbout,
@@ -285,7 +286,7 @@ type Gesture =
    */
   | { kind: 'scaleRef'; ids: string[]; pageIndex: number; ref: Point[]; target: Point[]; stage: 'ref' | 'ask' | 'target'; hover: Point | null }
   /** Dragging a Length or Dimension's text: off the line moves the line (`leader`), along it slides the text (`along`). */
-  | { kind: 'label'; id: string; start: Point; from: { leader: number; along: number }; leader: number; along: number }
+  | { kind: 'label'; id: string; start: Point; from: { leader: number; along: number; lift?: number }; leader: number; along: number; /** Fork: a Dimension's text off its line. */ lift?: number; /** Fork: the diamond knob, moving only the dimension line. */ offsetOnly?: boolean }
   /** Turning a Length or Dimension's text by its knob; `angle` in degrees from where it would sit. */
   | { kind: 'labelRotate'; id: string; centre: Point; base: number; angle: number }
   /** Press on a hyperlink; followed on release unless the pointer moved. */
@@ -550,12 +551,15 @@ function needsScale(tool: Tool): boolean {
 /** Fork (leojru/redcolumn): whether `p` is on a dimension's or measurement's text (a box about its knob, along the text's angle). */
 function overLabelText(m: Markup, text: { move: Point; angle: number }, p: Point, tol: number): boolean {
   const size = m.style.fontSize ?? 10;
-  const half = Math.max((m.text ?? '').length, 3) * size * 0.3 + tol;
+  const box = dimensionText(m)?.box;
+  const center = box?.center ?? text.move;
+  const half = box ? box.w / 2 + tol : Math.max((m.text ?? '').length, 3) * size * 0.3 + tol;
+  const halfH = box ? box.h / 2 + tol : size * 0.6 + tol;
   const a = (text.angle * Math.PI) / 180;
-  const [dx, dy] = [p[0] - text.move[0], p[1] - text.move[1]];
+  const [dx, dy] = [p[0] - center[0], p[1] - center[1]];
   const along = dx * Math.cos(a) + dy * Math.sin(a);
   const across = -dx * Math.sin(a) + dy * Math.cos(a);
-  return Math.abs(along) <= half && Math.abs(across) <= size * 0.6 + tol;
+  return Math.abs(along) <= half && Math.abs(across) <= halfH;
 }
 
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
@@ -2798,8 +2802,14 @@ export class MarkupTools implements ViewerOverlay {
         return true;
       }
       // Fork (leojru/redcolumn): the text itself can be grabbed, not just its knob.
+      // Fork (leojru/redcolumn): a Dimension's diamond knob moves its line out from the points.
+      if (m && text?.offset && Math.hypot(text.offset[0] - p[0], text.offset[1] - p[1]) <= tol * 1.5) {
+        const from = { leader: m.style.leader ?? 0, along: m.style.labelOffset ?? 0, lift: m.style.labelLift ?? 0 };
+        this.setGesture({ kind: 'label', id: m.id, start: p, from, ...from, offsetOnly: true });
+        return true;
+      }
       if (m && text && (Math.hypot(text.move[0] - p[0], text.move[1] - p[1]) <= tol * 1.5 || overLabelText(m, text, p, tol))) {
-        const from = { leader: m.style.leader ?? 0, along: m.style.labelOffset ?? 0 };
+        const from = { leader: m.style.leader ?? 0, along: m.style.labelOffset ?? 0, lift: m.style.labelLift ?? 0 };
         this.setGesture({ kind: 'label', id: m.id, start: p, from, ...from });
         return true;
       }
@@ -3054,10 +3064,24 @@ export class MarkupTools implements ViewerOverlay {
       if (line) {
         const dx = pt[0] - g.start[0];
         const dy = pt[1] - g.start[1];
-        // Shift keeps the text on its line; near the middle it settles there.
-        const along = g.from.along + dx * line.dir[0] + dy * line.dir[1];
-        g.along = Math.abs(along) * this.viewer.zoomFor(this.page) < this.hitPx ? 0 : along;
-        g.leader = e.shiftKey ? g.from.leader : g.from.leader + dx * line.normal[0] + dy * line.normal[1];
+        const zoom = this.viewer.zoomFor(this.page);
+        const across = dx * line.normal[0] + dy * line.normal[1];
+        if (g.offsetOnly) {
+          // Fork: the diamond knob: the dimension line moves out from its points, the text with it.
+          g.leader = g.from.leader + across;
+        } else {
+          // Shift keeps the text on its line; near the middle it settles there.
+          const along = g.from.along + dx * line.dir[0] + dy * line.dir[1];
+          g.along = Math.abs(along) * zoom < this.hitPx ? 0 : along;
+          if (m!.type === 'dimension') {
+            // Fork (leojru/redcolumn): a Dimension's text comes off the line, on a leader (up the text is
+            // positive); close to the line it settles back on it. The line stays where it is.
+            const dim = dimensionText(m!);
+            const up: Point = dim ? [Math.sin(dim.angle), -Math.cos(dim.angle)] : [-line.normal[0], -line.normal[1]];
+            const lift = (g.from.lift ?? 0) + dx * up[0] + dy * up[1];
+            g.lift = e.shiftKey || Math.abs(lift) * zoom < this.hitPx * 2 ? 0 : lift;
+          } else g.leader = e.shiftKey ? g.from.leader : g.from.leader + across;
+        }
       }
     } else if (g.kind === 'labelRotate') {
       // The knob sits above the text, so pointing straight up is no turn; Shift snaps to 15°.
@@ -4566,11 +4590,13 @@ function calloutBoxMoved(points: readonly Point[], dx: number, dy: number): Poin
 
 /** A Length or Dimension's style with its text dragged or turned (zero offsets and turns left unset). */
 function labelStyled(m: Markup, g: Extract<Gesture, { kind: 'label' | 'labelRotate' }>): MarkupStyle {
-  const { leader: _l, labelOffset: _o, labelRotation: _r, ...rest } = m.style;
+  const { leader: _l, labelOffset: _o, labelRotation: _r, labelLift: _f, ...rest } = m.style;
   const leader = g.kind === 'label' ? g.leader : m.style.leader;
   const along = g.kind === 'label' ? g.along : m.style.labelOffset;
   const turn = g.kind === 'labelRotate' ? g.angle : m.style.labelRotation;
-  return { ...rest, ...(leader ? { leader } : {}), ...(along ? { labelOffset: along } : {}), ...(turn ? { labelRotation: turn } : {}) };
+  // Fork (leojru/redcolumn): a Dimension's text off its line.
+  const lift = g.kind === 'label' && g.lift !== undefined ? g.lift : m.style.labelLift;
+  return { ...rest, ...(leader ? { leader } : {}), ...(along ? { labelOffset: along } : {}), ...(turn ? { labelRotation: turn } : {}), ...(lift ? { labelLift: lift } : {}) };
 }
 
 function toPoint(pt: PagePoint): Point {

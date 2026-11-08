@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots); MarkupStyle.dimText (inline dimension text).
+// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots); MarkupStyle.dimText and labelLift (dimension text); its bounds take in the text.
 import { expandArcs, isMeasureKind, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
 import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
@@ -205,6 +205,8 @@ export interface MarkupStyle {
   labelRotation?: number;
   /** Fork (leojru/redcolumn): a Dimension's text above its line (the default when unset) or inline, the line broken around it. */
   dimText?: 'above' | 'inline';
+  /** Fork (leojru/redcolumn): a Dimension's text dragged off its line, this far (points, up the text positive), with a leader to it. */
+  labelLift?: number;
 }
 
 /** A file embedded in the PDF (File Attachment markups, sound notes). */
@@ -633,9 +635,32 @@ function unrotatedBounds(m: Markup): Rect {
   const line = dimensionLine(m);
   if (!line) return out;
   const [tx, ty] = line.text;
-  const x0 = Math.min(out.x, tx - pad);
-  const y0 = Math.min(out.y, ty - pad);
-  return { x: x0, y: y0, w: Math.max(out.x + out.w, tx + pad) - x0, h: Math.max(out.y + out.h, ty + pad) - y0 };
+  // Fork (leojru/redcolumn): a Dimension's text, inline, on lines or off the line on a leader, is
+  // inside its bounds: the corners of its box (as dimensionLayout places it, widths estimated).
+  const xs = [out.x, out.x + out.w, tx - pad, tx + pad];
+  const ys = [out.y, out.y + out.h, ty - pad, ty + pad];
+  if (m.type === 'dimension' && m.text) {
+    const size = m.style.fontSize ?? 10;
+    const lines = m.text.split('\n');
+    const w = Math.max(...lines.map((l) => l.length)) * size * 0.6 + size * 0.5;
+    const h = lines.length * size * 1.2;
+    const lift = m.style.labelLift ?? 0;
+    // Along and up the text, kept reading left to right (as dimensionLayout turns it).
+    const flip = line.dir[0] < 0 ? -1 : 1;
+    const r: Point = [line.dir[0] * flip, line.dir[1] * flip];
+    const up: Point = [r[1], -r[0]];
+    // The box in the text's frame: along from..to, up from..to, about the line's text point.
+    const above = size * 0.35 + m.style.width;
+    const [a0, a1, u0, u1] = lift ? [0, size * 0.3 + w, lift - h / 2, lift + h / 2] : m.style.dimText === 'inline' ? [-w / 2, w / 2, -h / 2, h / 2] : [-w / 2, w / 2, above, above + h + size * 0.2];
+    for (const al of [a0, a1])
+      for (const ul of [u0, u1]) {
+        xs.push(tx + r[0] * al + up[0] * ul);
+        ys.push(ty + r[1] * al + up[1] * ul);
+      }
+  }
+  const x0 = Math.min(...xs);
+  const y0 = Math.min(...ys);
+  return { x: x0, y: y0, w: Math.max(...xs) - x0, h: Math.max(...ys) - y0 };
 }
 
 /**

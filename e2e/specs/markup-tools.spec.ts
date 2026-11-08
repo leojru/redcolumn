@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: the dimension test types its text in place.
 import { expect, test, type App } from '../support/app.ts';
 import type { Pt } from '../support/driver.ts';
 
@@ -81,11 +82,12 @@ test.describe('markup tools', () => {
     });
   }
 
+  // Fork (leojru/redcolumn): the text is typed where it sits, without a pop-up.
   test('dimension: asks for its text', async ({ app }) => {
     await app.tool('dimension');
     await app.drag(A, C);
-    const ask = app.page.locator('.modal').filter({ hasText: 'Dimension Text' });
-    await expect(ask).toBeVisible();
+    const ask = app.page.locator('textarea[data-dimension-editor]');
+    await expect(ask).toBeFocused();
     await app.page.keyboard.type(`20'-0"`);
     await app.page.keyboard.press('Enter');
     await expect(ask).toBeHidden();

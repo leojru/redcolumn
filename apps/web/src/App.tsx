@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar; markups hide with their PDF layer.
+// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar; markups hide with their PDF layer; dimension text edited in place.
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
@@ -119,6 +119,7 @@ import { ClassicToolbars } from './components/fork/ClassicToolbars';
 import { StatusCommands } from './components/fork/StatusCommands';
 import { vectorSnapshotOf, withMarkupsInside } from './fork/snapshot';
 import { markupLayersOfHiddenPdf } from './fork/pdfLayerMarkups';
+import { DimensionTextEditor } from './components/fork/DimensionTextEditor';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
 import { commandPolicy } from './commands/commandPolicy';
 import { comboOf, formatCombo, keyMap } from './commands/keys';
@@ -916,6 +917,8 @@ export function App() {
   }, [notice]);
   const [dragOver, setDragOver] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
+  // Fork (leojru/redcolumn): a Dimension's text being edited in place, and in which pane.
+  const [editingDim, setEditingDim] = useState<{ pane: Pane; id: string } | null>(null);
   /** Pane whose Custom scale dialog is open (from the Scale dropdown in the page bar). */
   const [customScalePane, setCustomScalePane] = useState<'a' | 'b' | null>(null);
   /** The page Set Page Scale opens on when it isn't the current page (e.g. the page a measurement needed a scale on). */
@@ -5299,6 +5302,11 @@ export function App() {
     const store = paneParts(pane).o?.store;
     const m = store?.get(id);
     if (!store || !m) return;
+    // Fork (leojru/redcolumn): a Dimension's text is edited where it sits, without a pop-up.
+    if (m.type === 'dimension') {
+      setEditingDim({ pane, id });
+      return;
+    }
     const replace = m.type === 'replaceText';
     const connector = m.type === 'connector';
     void askText(replace ? 'Replace Text' : connector ? 'Connector Text' : 'Dimension Text', m.text ?? '', {
@@ -10995,6 +11003,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {editing && activeOpen && v && activeTools && (
         <TextEditor key={editing.id} markup={editing} store={activeOpen.store} viewer={v} onDone={() => setEditingText(null)} />
       )}
+      {editingDim &&
+        (() => {
+          const o = paneParts(editingDim.pane).o;
+          const viewer = editingDim.pane === 'b' ? ctlB?.viewer : ctl?.viewer;
+          const m = o?.store.get(editingDim.id);
+          return o && viewer && m ? <DimensionTextEditor key={m.id} markup={m} store={o.store} viewer={viewer} onDone={() => setEditingDim(null)} /> : null;
+        })()}
       {editingCell && activeOpen && v && (() => {
         const table = activeOpen.store.get(editingCell.id);
         if (table?.type !== 'table') return null;

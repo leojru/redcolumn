@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners.
+// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners; dimension text in lines, lifted with a leader; a Length's line breaks around its label.
 import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
@@ -16,6 +16,7 @@ import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
+import { breakAroundBox, lengthLabelBox } from './dimensionInline';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, strokeEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
@@ -369,7 +370,9 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const font = ctx.fonts.get(artStandardFont({ font: family, bold, italic }));
     return font ? font.widthOfTextAtSize(safeText(font, text), size) : text.length * size * 0.55;
   };
-  for (const part of styledParts(markupShape(m), style.lineStyle, style.width, measure)) {
+  // Fork (leojru/redcolumn): a Length's line breaks around its label rather than a white box hiding it.
+  const lengthGap = lengthLabelBox(m, measurementLabel(m, ctx.scale));
+  for (const part of styledParts(lengthGap ? breakAroundBox(markupShape(m), lengthGap) : markupShape(m), style.lineStyle, style.width, measure)) {
     if (part.art) {
       ops.push(...artOps(part.art, ctx, [sr, sg, sb], artFonts));
       continue;
@@ -433,7 +436,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       ops.push('q', `${[cos, sin, -sin, cos, x, y].map(fmt).join(' ')} cm`);
       x = y = 0;
     }
-    if (background) {
+    if (background && !lengthGap) {
       const [br, bg, bb] = rgb(background);
       ops.push(`/GSL gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`, `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`);
     }
@@ -461,14 +464,16 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   const dim = dimensionText(m);
   if (dim) {
     const font = ctx.fonts.get(standardFont(style, false))!;
-    const text = safeText(font, dim.text);
-    const w = font.widthOfTextAtSize(text, dim.size);
     const cos = Math.cos(dim.angle);
     const sin = Math.sin(dim.angle);
-    // Centred on its point along the line, the baseline just above it; glyphs flipped upright.
-    const x = dim.at[0] - (w / 2) * cos;
-    const y = dim.at[1] - (w / 2) * sin;
-    ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, 'BT', `/F0 ${fmt(dim.size)} Tf`, `${[cos, sin, sin, -cos, x, y].map(fmt).join(' ')} Tm`, `${font.encodeText(text).toString()} Tj`, 'ET');
+    // Fork (leojru/redcolumn): each line on its baseline point, centred there (or starting there); glyphs flipped upright.
+    for (const line of dim.lines) {
+      const text = safeText(font, line.text);
+      const w = dim.align === 'left' ? 0 : font.widthOfTextAtSize(text, dim.size);
+      const x = line.at[0] - (w / 2) * cos;
+      const y = line.at[1] - (w / 2) * sin;
+      ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, 'BT', `/F0 ${fmt(dim.size)} Tf`, `${[cos, sin, sin, -cos, x, y].map(fmt).join(' ')} Tm`, `${font.encodeText(text).toString()} Tj`, 'ET');
+    }
     resources.Font = { F0: font.ref };
   }
 
@@ -742,10 +747,10 @@ function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number;
     }
   }
   const dim = dimensionText(m);
-  const dimFont = ctx.fonts.get(standardFont(m.style, false));
-  if (dim && dimFont) {
-    const r = dimFont.widthOfTextAtSize(safeText(dimFont, dim.text), dim.size) / 2 + dim.size;
-    take(dim.at[0], dim.at[1], r, r);
+  if (dim) {
+    // Fork (leojru/redcolumn): the text's box (one or more lines), with room for a turn.
+    const r = Math.hypot(dim.box.w, dim.box.h) / 2 + dim.size;
+    take(dim.box.center[0], dim.box.center[1], r, r);
   }
   // A custom line style reaches off the line: symbols, text and parallel lines.
   if (m.style.lineStyle) {

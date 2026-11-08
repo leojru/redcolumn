@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: inline dimension text breaks the dimension line.
+// Modified in the leojru/redcolumn fork: inline dimension text breaks the dimension line; lifted text gets a leader.
 import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
@@ -8,7 +8,7 @@ import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, o
 import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
-import { cutSegment, dimensionInline, inlineGap } from './dimensionInline';
+import { cutSegment, dimensionLayout } from './dimensionInline';
 import { tableCells, tableLines } from './table';
 import type { LineArt } from './lineStyle';
 
@@ -345,11 +345,17 @@ function offsetLine(m: Markup, a: Point, b: Point): ShapePart[] {
   return [...leaderLines(m, a, b), ...textRunout(m)];
 }
 
-/** Fork (leojru/redcolumn): with its text inline, a Dimension's line (and any run-out) breaks around the text. */
+/**
+ * Fork (leojru/redcolumn): with its text inline, a Dimension's line (and any run-out) breaks around
+ * the text; with the text dragged off the line, a leader runs to it.
+ */
 function inlineTextGap(m: Markup, parts: ShapePart[]): ShapePart[] {
   const line = dimensionLine(m);
-  if (!line || !dimensionInline(m)) return parts;
-  const gap = inlineGap(m);
+  const layout = dimensionLayout(m);
+  if (!line || !layout) return parts;
+  if (layout.leader) return [...parts, { path: polyline(layout.leader), stroke: true, fill: null, decoration: true }];
+  const gap = layout.gap;
+  if (!gap) return parts;
   return parts.flatMap((part) => {
     const cut = part.decoration || !part.stroke || part.fill ? null : cutSegment(part.path, line.text, line.dir, gap);
     return cut ? cut.map((path) => ({ ...part, path })) : [part];
@@ -772,6 +778,13 @@ export function hitTest(m: Markup, p: Point, tolerance: number): boolean {
     // Test in the markup's own frame.
     p = unrotate(m, p);
     m = { ...m, rotation: 0 };
+  }
+  // Fork (leojru/redcolumn): a Dimension's text is part of it (it may sit in a gap in the line, or off it).
+  const dim = dimensionLayout(m);
+  if (dim) {
+    const [dx, dy] = [p[0] - dim.box.center[0], p[1] - dim.box.center[1]];
+    const [cos, sin] = [Math.cos(dim.angle), Math.sin(dim.angle)];
+    if (Math.abs(dx * cos + dy * sin) <= dim.box.w / 2 + tolerance && Math.abs(-dx * sin + dy * cos) <= dim.box.h / 2 + tolerance) return true;
   }
   const b = markupBounds(m);
   if (p[0] < b.x - tolerance || p[0] > b.x + b.w + tolerance || p[1] < b.y - tolerance || p[1] > b.y + b.h + tolerance) return false;
