@@ -1480,3 +1480,100 @@ test('restyling a selected markup leaves the tool default alone; with nothing se
   assert.equal(h.tools.getState().styles.line.dash, 'dashed', 'Set as Default still sets it');
   await h.store.destroy();
 });
+
+// Fork (leojru/redcolumn): Click to Place, as in Revu.
+test('Click to Place: a line, a rectangle and a Cloud+ go down with two clicks; Escape drops the first', async () => {
+  const was = settings.get().clickToPlace;
+  settings.set({ clickToPlace: true });
+  try {
+    const h = await setup();
+    h.tools.setTool('line');
+    click(h.tools, [100, 100]);
+    assert.equal(h.store.all().length, 0, 'the first click only starts it');
+    h.tools.hover([300, 150], 0);
+    click(h.tools, [300, 150]);
+    assert.deepEqual(h.store.all().find((m) => m.type === 'line')?.points, [[100, 100], [300, 150]]);
+    assert.equal(h.tools.getState().tool, 'line', 'the tool stays on for the next one');
+
+    h.tools.setTool('rect');
+    click(h.tools, [100, 300]);
+    h.tools.cancel();
+    assert.equal(h.tools.getState().tool, 'rect', 'Escape drops the first click, not the tool');
+    click(h.tools, [400, 400]);
+    click(h.tools, [100, 300]);
+    assert.deepEqual(h.store.all().find((m) => m.type === 'rect')?.points, [[400, 400], [100, 300]]);
+
+    h.tools.setTool('cloudPlus');
+    click(h.tools, [500, 100]);
+    click(h.tools, [650, 200]);
+    assert.ok(h.store.all().some((m) => m.type === 'cloud'), 'Cloud+ makes its cloud');
+    assert.ok(h.store.all().some((m) => m.type === 'callout'), 'and its callout');
+
+    h.tools.setTool('line');
+    drag(h.tools, [100, 500], [300, 500]);
+    assert.equal(h.store.all().filter((m) => m.type === 'line').length, 2, 'a drag still draws');
+    await h.store.destroy();
+  } finally {
+    settings.set({ clickToPlace: was });
+  }
+});
+
+test('Click to Place: Shift keeps the second point straight', async () => {
+  const was = settings.get().clickToPlace;
+  settings.set({ clickToPlace: true });
+  try {
+    const h = await setup();
+    h.tools.setTool('line');
+    click(h.tools, [100, 100]);
+    press(h.tools, [300, 108], { shiftKey: true });
+    release(h.tools, [300, 108], { shiftKey: true });
+    const [a, b] = h.store.all()[0]!.points;
+    assert.deepEqual(a, [100, 100]);
+    assert.equal(b![1], 100, 'level with the first click');
+    assert.ok(Math.abs(b![0] - 300) < 1);
+    await h.store.destroy();
+  } finally {
+    settings.set({ clickToPlace: was });
+  }
+});
+
+test('Shift keeps a dragged line end straight from its other end', async () => {
+  const h = await setup();
+  h.tools.setTool('line');
+  drag(h.tools, [100, 100], [300, 100]);
+  const line = h.store.all()[0]!;
+  h.tools.setTool('select');
+  h.tools.select([line.id]);
+  drag(h.tools, [300, 100], [420, 112], { shiftKey: true });
+  const [a, b] = h.store.get(line.id)!.points;
+  assert.deepEqual(a, [100, 100]);
+  assert.equal(b![1], 100, 'still level');
+  assert.ok(b![0] > 400);
+  await h.store.destroy();
+});
+
+test('a moved markup snaps its nearest corner to another markup, and Shift keeps the move straight', async () => {
+  const was = settings.get().snapToMarkup;
+  settings.set({ snapToMarkup: true });
+  try {
+    const h = await setup();
+    h.tools.setTool('rect');
+    drag(h.tools, [100, 100], [200, 160]);
+    drag(h.tools, [400, 300], [500, 380]);
+    const [moved, fixed] = h.store.all();
+    h.tools.setTool('select');
+    h.tools.select([moved!.id]);
+    // Grabbed on its bottom edge near the right corner, let go with that corner a few points off the other's top-left.
+    drag(h.tools, [185, 160], [383, 302]);
+    assert.deepEqual(h.store.get(moved!.id)!.points, [[300, 240], [400, 300]], 'corner on corner');
+    assert.deepEqual(h.store.get(fixed!.id)!.points, [[400, 300], [500, 380]]);
+
+    h.tools.select([fixed!.id]);
+    drag(h.tools, [450, 340], [560, 352], { shiftKey: true });
+    const [a] = h.store.get(fixed!.id)!.points;
+    assert.equal(a![1], 300, 'moved level');
+    await h.store.destroy();
+  } finally {
+    settings.set({ snapToMarkup: was });
+  }
+});

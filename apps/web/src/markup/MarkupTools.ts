@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone.
+// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving.
 import {
   align,
   centerOnPage,
@@ -268,7 +268,7 @@ type Gesture =
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
   | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean }
-  | { kind: 'move'; start: Point; dx: number; dy: number }
+  | { kind: 'move'; start: Point; dx: number; dy: number; /** Fork: the selection's point nearest the press, which snaps. */ base?: Point }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
   | { kind: 'handle'; id: string; index: number; point: Point }
@@ -393,15 +393,21 @@ export interface SketchState {
 /** Drag-drawn shapes Draw to Size sizes by width and height after a click. */
 const SKETCH_BOX_TYPES: readonly MarkupType[] = ['rect', 'ellipse', 'cloud'];
 /** Draw to Scale: the Ellipse tool is set to draw circles from their centre. */
-const sketchesCircle = (type: MarkupType) => type === 'ellipse' && settings.get().sketchEllipse !== 'ellipse';
+// Fork: a circle from its centre only with Draw to Scale; Click to Place draws an ellipse corner to corner.
+const sketchesCircle = (type: MarkupType) => type === 'ellipse' && settings.get().sketchToScale && settings.get().sketchEllipse !== 'ellipse';
 /** Drag-drawn lines Draw to Size draws point to point, so their length and angle can be typed. */
 const SKETCH_LINE_TYPES: readonly MarkupType[] = ['line', 'arrow'];
+/** Fork (leojru/redcolumn), Preferences › Click to Place: the types a click starts and a second click ends. */
+const CLICK_TO_PLACE_TYPES: readonly MarkupType[] = ['line', 'arrow', 'dimension', 'rect', 'ellipse', 'cloud'];
+const PLACED_LINE_TYPES: readonly MarkupType[] = ['line', 'arrow', 'dimension'];
 /** Click-drawn tools whose next point can be typed as a length and angle. */
 const sketchesSegments = (type: MarkupType) => !['count', 'angle', 'arc', 'arcLength'].includes(type);
 
 /** Draw to Scale: a box type's first click, the markup it will become, and the pointer since. */
 interface SketchAnchor {
   type: MarkupType;
+  /** The tool that set it down (Cloud+ draws a cloud). */
+  tool?: Tool;
   pageIndex: number;
   at: Point;
   markup: Markup;
@@ -541,6 +547,17 @@ function needsScale(tool: Tool): boolean {
 }
 
 /** Click-by-click point rules for a tool: measurements, calibration and click-drawn shapes. */
+/** Fork (leojru/redcolumn): whether `p` is on a dimension's or measurement's text (a box about its knob, along the text's angle). */
+function overLabelText(m: Markup, text: { move: Point; angle: number }, p: Point, tol: number): boolean {
+  const size = m.style.fontSize ?? 10;
+  const half = Math.max((m.text ?? '').length, 3) * size * 0.3 + tol;
+  const a = (text.angle * Math.PI) / 180;
+  const [dx, dy] = [p[0] - text.move[0], p[1] - text.move[1]];
+  const along = dx * Math.cos(a) + dy * Math.sin(a);
+  const across = -dx * Math.sin(a) + dy * Math.cos(a);
+  return Math.abs(along) <= half && Math.abs(across) <= size * 0.6 + tol;
+}
+
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
   if (tool === 'matchLine') return { min: 2, fixed: 2 };
@@ -774,6 +791,38 @@ export class MarkupTools implements ViewerOverlay {
     this.store.checkpoint();
     this.store.add(m);
     this.options.onCreated?.(m);
+    this.refreshSketch();
+  }
+
+  /** Fork (leojru/redcolumn): markups left out of snapping (the ones being moved). */
+  private snapExclude: ReadonlySet<string> | null = null;
+
+  /** Fork (leojru/redcolumn): the moved selection's snap point: its vertex (or snap point) nearest the press. */
+  private moveBase(start: Point): Point {
+    // The nearest at any distance: the offset to the pointer stays as it was pressed, so nothing jumps.
+    let best: Point = start;
+    let bestD = Infinity;
+    for (const id of this.state.selected) {
+      const m = this.store?.get(id);
+      if (!m || m.pageIndex !== this.page) continue;
+      for (const q of [...m.points, ...markupSnapPoints(m).map((s) => s.point)]) {
+        const d = Math.hypot(q[0] - start[0], q[1] - start[1]);
+        if (d < bestD) [best, bestD] = [[q[0], q[1]], d];
+      }
+    }
+    return best;
+  }
+
+  /** Fork (leojru/redcolumn), Click to Place: a second click waiting for its release. */
+  private pendingPlace: { anchor: SketchAnchor; to: Point } | null = null;
+
+  /** Fork (leojru/redcolumn), Click to Place: the second click, finished the way a drag is. */
+  private placeClicked(a: SketchAnchor, to: Point) {
+    if (!this.store) return;
+    this.sketchAnchor = null;
+    const now = Date.now();
+    this.store.checkpoint();
+    this.commitDraft({ ...a.markup, points: this.sketchBoxPoints(a, to), createdAt: now, modifiedAt: now });
     this.refreshSketch();
   }
 
@@ -1854,6 +1903,8 @@ export class MarkupTools implements ViewerOverlay {
     } else if (g?.kind === 'stitchMove') this.options.onStitchDrag?.([0, 0], false);
     if (g?.kind === 'geoMove') this.viewer.invalidate();
     if (g) this.setGesture(null);
+    // Fork: Escape drops a first click (Click to Place) before it leaves the tool.
+    else if (this.sketchAnchor) this.cancelSketch();
     else if (this.state.tool !== 'select') this.setTool('select');
     else this.select([]);
   }
@@ -2073,7 +2124,8 @@ export class MarkupTools implements ViewerOverlay {
       const scale = store.scaleAt(pageIndex, a);
       const size = (d: number) => formatLength(Math.abs(d) * scale.metersPerPoint, scale);
       const r = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      if (r * zoom >= 2) {
+      // Fork: Click to Place alone shows the shape without Draw to Scale's sizes.
+      if (r * zoom >= 2 && settings.get().sketchToScale) {
         if (sketchesCircle(anchor.type)) {
           // The radius, from the centre out to the pointer.
           ctx.save();
@@ -2651,11 +2703,16 @@ export class MarkupTools implements ViewerOverlay {
 
     // Draw to Scale: a click after the first corner places the opposite one.
     const anchor = this.sketchAnchor;
-    if (anchor && tool === anchor.type && anchor.pageIndex === pageIndex && e.button === 0) {
+    if (anchor && tool === (anchor.tool ?? anchor.type) && anchor.pageIndex === pageIndex && e.button === 0) {
       const to = this.resolve(pt, e, anchor.at);
       const zoom = this.viewer.zoomFor(pageIndex);
       const [dx, dy] = [Math.abs(to[0] - anchor.at[0]) * zoom, Math.abs(to[1] - anchor.at[1]) * zoom];
-      if (sketchesCircle(anchor.type) ? Math.hypot(dx, dy) >= this.dragPx : dx >= this.dragPx && dy >= this.dragPx) this.placeSketchBox(this.sketchBoxPoints(anchor, to));
+      const line = PLACED_LINE_TYPES.includes(anchor.type);
+      const far = sketchesCircle(anchor.type) || line ? Math.hypot(dx, dy) >= this.dragPx : dx >= this.dragPx && dy >= this.dragPx;
+      // Fork: Click to Place finishes as a drag would (a dimension's label, Cloud+'s callout, the tool staying on).
+      // Finished on the release, as a drag is, so a box it opens (a dimension's text) keeps the focus.
+      if (far && (line || !settings.get().sketchToScale)) this.pendingPlace = { anchor, to };
+      else if (far) this.placeSketchBox(this.sketchBoxPoints(anchor, to));
       return true;
     }
 
@@ -2740,7 +2797,8 @@ export class MarkupTools implements ViewerOverlay {
         this.setGesture({ kind: 'labelRotate', id: m.id, centre: text.move, base: text.angle - rotation, angle: rotation });
         return true;
       }
-      if (m && text && Math.hypot(text.move[0] - p[0], text.move[1] - p[1]) <= tol * 1.5) {
+      // Fork (leojru/redcolumn): the text itself can be grabbed, not just its knob.
+      if (m && text && (Math.hypot(text.move[0] - p[0], text.move[1] - p[1]) <= tol * 1.5 || overLabelText(m, text, p, tol))) {
         const from = { leader: m.style.leader ?? 0, along: m.style.labelOffset ?? 0 };
         this.setGesture({ kind: 'label', id: m.id, start: p, from, ...from });
         return true;
@@ -2965,6 +3023,17 @@ export class MarkupTools implements ViewerOverlay {
         const bulge = bulgeThrough(a, b, toPoint(pt));
         g.bulge = Math.abs(bulge) < 0.02 ? 0 : Math.max(-2.4, Math.min(2.4, bulge));
       }
+    } else if (g.kind === 'move' && this.state.selected.size) {
+      // Fork (leojru/redcolumn): the moved selection's nearest point snaps, as AutoCAD's base point
+      // does, to the drawing and other markups; Shift keeps the move straight.
+      const p = toPoint(pt);
+      g.base ??= this.moveBase(g.start);
+      const target: PagePoint = [g.base[0] + p[0] - g.start[0], g.base[1] + p[1] - g.start[1]];
+      this.snapExclude = this.state.selected;
+      const to = this.resolve(target, e, e.shiftKey ? g.base : null);
+      this.snapExclude = null;
+      g.dx = to[0] - g.base[0];
+      g.dy = to[1] - g.base[1];
     } else if (g.kind === 'move' || g.kind === 'calloutBox') {
       const p = toPoint(pt);
       g.dx = p[0] - g.start[0];
@@ -3008,7 +3077,9 @@ export class MarkupTools implements ViewerOverlay {
       if (g.stage !== 'ask' && g.pageIndex === pageIndex) g.hover = this.resolve(pt, e, (g.stage === 'ref' ? g.ref[0] : g.target[0]) ?? null);
     } else {
       const m = this.store?.get(g.id);
-      const anchor = m && CLICK_SHAPES[m.type] ? (m.points[g.index - 1] ?? m.points[g.index + 1] ?? null) : null;
+      // Fork (leojru/redcolumn): Shift keeps a line's, arrow's or dimension's dragged end straight from its other end too.
+      const shiftable = m && (CLICK_SHAPES[m.type] || (PLACED_LINE_TYPES.includes(m.type) && g.index < 2));
+      const anchor = m && shiftable ? (m.points[g.index - 1] ?? m.points[g.index + 1] ?? null) : null;
       if (m && m.type !== 'connector' && g.index < 4 && lockedRatio(m, e.shiftKey)) {
         // The corner rides the box's diagonal, so snapping to a point off it would only mislead.
         this.snapHit = null;
@@ -3023,6 +3094,12 @@ export class MarkupTools implements ViewerOverlay {
 
   pointerUp(e: PointerEvent, pt: PagePoint, pageIndex: number) {
     this.page = pageIndex;
+    const place = this.pendingPlace;
+    if (place) {
+      this.pendingPlace = null;
+      this.placeClicked(place.anchor, place.to);
+      return;
+    }
     const g = this.gesture;
     if (!g || !this.store) return;
     if (g.kind === 'guideEnd') {
@@ -3665,7 +3742,7 @@ export class MarkupTools implements ViewerOverlay {
   private outlines(pageIndex: number, excludeId?: string): number[] {
     const out: number[] = [];
     for (const m of this.pageMarkups(pageIndex)) {
-      if (m.id === excludeId || !snapTarget(m.type)) continue;
+      if (m.id === excludeId || this.snapExclude?.has(m.id) || !snapTarget(m.type)) continue;
       let lines = this.outlineCache.get(m);
       if (!lines) {
         lines = markupSegments(m);
@@ -3690,7 +3767,7 @@ export class MarkupTools implements ViewerOverlay {
       if (!prefs.snapQuadrants) off.add('quadrant');
       if (!prefs.snapGeoCenters) off.add('geocenter');
       for (const m of this.pageMarkups(pageIndex)) {
-        if (m.id === excludeId || !snapTarget(m.type)) continue;
+        if (m.id === excludeId || this.snapExclude?.has(m.id) || !snapTarget(m.type)) continue;
         for (const q of markupSnapPoints(m)) if (!off.has(q.kind)) extra.push(q);
       }
     }
@@ -3818,8 +3895,8 @@ export class MarkupTools implements ViewerOverlay {
       if (m.points.length < 2) m.points = [a, [a[0] + 0.01, a[1]]];
     } else if (tiny) {
       // Draw to Size: a click puts down the corner; the size is typed.
-      if (settings.get().sketchToScale && SKETCH_BOX_TYPES.includes(m.type)) {
-        this.sketchAnchor = { type: m.type, pageIndex: m.pageIndex, at: a, markup: m };
+      if ((settings.get().sketchToScale && SKETCH_BOX_TYPES.includes(m.type)) || (settings.get().clickToPlace && CLICK_TO_PLACE_TYPES.includes(m.type))) {
+        this.sketchAnchor = { type: m.type, pageIndex: m.pageIndex, at: a, markup: m, tool: this.state.tool };
         this.refreshSketch();
       }
       return;

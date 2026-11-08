@@ -573,6 +573,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         </Row>
         {/* Fork addition. */}
         <C>{check('vectorSnapshots', 'Vector Snapshots (keep drawings as vector graphics)', { title: 'Snapshot and Cut Content copy the page content as vector graphics, and the markups in the area as markups. Off: one picture of both, at the Snapshot Resolution.' })}</C>
+        <C>{check('clickToPlace', 'Click to Place (click the start, then click the end)', { title: 'Lines, arrows, dimensions, rectangles, ellipses and clouds are drawn with two clicks, like the polyline. Dragging still works.' })}</C>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
       </Grid>
     ),

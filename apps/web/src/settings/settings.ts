@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): vectorSnapshots setting; Omarchy theme by default; feet shown as feet and inches.
+// Modified in the leojru/redcolumn fork (revu-layout): vectorSnapshots setting; Omarchy theme by default; feet shown as feet and inches; clickToPlace.
 import { useSyncExternalStore } from 'react';
 import type { ThemeChoice } from '../theme/themes';
 import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
@@ -238,6 +238,8 @@ export interface Settings {
   snapshotDpi: number;
   /** Fork addition: Snapshot and Cut Content keep the page content as vector graphics (with the markups copied as markups), not as a picture. */
   vectorSnapshots: boolean;
+  /** Fork addition: lines, arrows, dimensions, rectangles, ellipses and clouds are drawn click, then click (a drag still works), as in Revu. */
+  clickToPlace: boolean;
   /** Advanced › Experimental: an application embedding RedColumn may set the library id of files it launches and turn commands off (desktop/embedHost.ts). */
   embedHostHooks: boolean;
 
@@ -468,6 +470,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hiddenRibbonGroups: [],
   snapshotDpi: 200,
   vectorSnapshots: true,
+  clickToPlace: true,
   embedHostHooks: false,
 
   tabTruncation: 'end',
