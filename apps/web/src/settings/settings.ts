@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): vectorSnapshots setting; Omarchy theme by default.
+// Modified in the leojru/redcolumn fork (revu-layout): vectorSnapshots setting; Omarchy theme by default; feet shown as feet and inches.
 import { useSyncExternalStore } from 'react';
 import type { ThemeChoice } from '../theme/themes';
 import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
@@ -589,7 +589,9 @@ const listeners = new Set<() => void>();
 
 /** Pages with no scale set measure at full size, shown in the default units. */
 function applyDefaultScale(s: Settings) {
-  Object.assign(DEFAULT_SCALE, { unit: s.lengthUnit, areaUnit: s.areaUnit, volumeUnit: s.volumeUnit, feetInches: false, precision: UNIT_PRECISION[s.lengthUnit] });
+  // Fork (leojru/redcolumn): feet are shown as feet and inches (12'-6"), to the 1/16".
+  const feetInches = s.lengthUnit === 'ft';
+  Object.assign(DEFAULT_SCALE, { unit: s.lengthUnit, areaUnit: s.areaUnit, volumeUnit: s.volumeUnit, feetInches, precision: feetInches ? 16 : UNIT_PRECISION[s.lengthUnit] });
 }
 applyDefaultScale(current);
 

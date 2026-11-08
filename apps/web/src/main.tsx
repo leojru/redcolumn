@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: middle click never pastes (fork/middleClick).
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
@@ -13,6 +14,7 @@ import { startProfileBackup } from './workspace/profileBackup';
 import { installTheme } from './theme/theme';
 import { installDialogDrag } from './dialogDrag';
 import { installDialogFocus } from './dialogFocus';
+import { installNoMiddlePaste } from './fork/middleClick';
 import { App } from './App';
 import './theme/themes.css';
 import './styles.css';
@@ -30,6 +32,7 @@ installLogCapture();
 installDesktopBridge();
 installDialogDrag();
 installDialogFocus();
+installNoMiddlePaste();
 
 // A new version waits until nothing is in progress, then reloads the page (the service worker).
 // The app shows why it is waiting (Help › Check for Updates). The desktop app has no service

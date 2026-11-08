@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content.
+// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners.
 import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
@@ -17,7 +17,7 @@ import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
-import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
+import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, strokeEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
@@ -360,8 +360,9 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const sin = Math.sin(a);
     ops.push(`${[cos, sin, -sin, cos, cx - cx * cos + cy * sin, cy - cx * sin - cy * cos].map(fmt).join(' ')} cm`);
   }
-  ops.push('/GS0 gs', `${fmt(style.width)} w`, '1 J 1 j', `${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG`);
-  if (m.type === 'highlighter') ops.push('0 J');
+  // Fork (leojru/redcolumn): flat ends and sharp corners, as in Revu (strokeEnds).
+  const ends = strokeEnds(m);
+  ops.push('/GS0 gs', `${fmt(style.width)} w`, `${ends.cap === 'round' ? 1 : 0} J ${ends.join === 'round' ? 1 : 0} j`, `${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG`);
   let hatchPattern: PDFRef | null = null;
   const artFonts: Record<string, PDFRef> = {};
   const measure = (text: string, family: ArtText['font'], bold: boolean, italic: boolean, size: number) => {

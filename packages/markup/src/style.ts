@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds).
 import type { Markup, MarkupStyle, MarkupType } from './model';
 import { TYPE_INFO } from './types';
 
@@ -55,6 +56,17 @@ const DASH_UNITS: Record<LineDash, number[]> = {
   dashDot: [6, 3, 0, 3],
   dashDotDot: [6, 3, 0, 3, 0, 3],
 };
+
+/**
+ * Fork (leojru/redcolumn): line ends and corners as Revu draws them, flat ends and sharp corners.
+ * Freehand ink keeps round ones, and so do dot patterns (a dot is a dash of length 0).
+ */
+export function strokeEnds(m: Pick<Markup, 'type' | 'style'>): { cap: 'butt' | 'round'; join: 'miter' | 'round' } {
+  if (m.type === 'highlighter') return { cap: 'butt', join: 'round' };
+  if (TYPE_INFO[m.type].draw === 'freehand') return { cap: 'round', join: 'round' };
+  const dots = !m.style.dashArray && (DASH_UNITS[m.style.dash ?? 'solid'] ?? []).includes(0);
+  return { cap: dots ? 'round' : 'butt', join: 'miter' };
+}
 
 /** Dash array in points for a line style at `width`; empty for solid. */
 export function dashPattern(dash: LineDash | undefined, width: number): number[] {

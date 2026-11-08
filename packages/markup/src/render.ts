@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds).
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
@@ -8,7 +9,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
-import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, textColor } from './style';
+import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, strokeEnds, textColor } from './style';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
 import { connectorLabel } from './flowchart';
 
@@ -325,8 +326,10 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   const lineWidth = Math.max(style.width, 1 / zoom);
   ctx.lineWidth = lineWidth;
   ctx.strokeStyle = style.stroke;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = m.type === 'highlighter' ? 'butt' : 'round';
+  // Fork (leojru/redcolumn): flat ends and sharp corners, as in Revu (strokeEnds).
+  const ends = strokeEnds(m);
+  ctx.lineJoin = ends.join;
+  ctx.lineCap = ends.cap;
   const dash = style.dashArray ?? dashPattern(style.dash, lineWidth);
   // Highlighter multiplies so drawing detail stays visible underneath.
   if (TYPE_INFO[m.type].multiply) ctx.globalCompositeOperation = 'multiply';

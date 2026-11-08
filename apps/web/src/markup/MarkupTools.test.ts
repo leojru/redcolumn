@@ -1460,3 +1460,23 @@ test('a connector end dragged onto another shape drops the route set by hand', a
   assert.equal(k.connect?.to?.id, 'c');
   assert.equal(k.connect?.bends, undefined);
 });
+
+// Fork (leojru/redcolumn): Revu's behaviour, restyling a selected markup changes only that markup.
+test('restyling a selected markup leaves the tool default alone; with nothing selected it sets it', async () => {
+  const h = await setup();
+  h.tools.setTool('line');
+  const before = h.tools.getState().styles.line;
+  drag(h.tools, [100, 100], [300, 100]);
+  const line = h.store.all().find((m) => m.type === 'line')!;
+  h.tools.select([line.id]);
+  h.tools.setStyle('line', { width: 1.5, dash: 'dashed' });
+  assert.equal(h.store.get(line.id)!.style.width, 1.5);
+  assert.equal(h.store.get(line.id)!.style.dash, 'dashed');
+  assert.deepEqual(h.tools.getState().styles.line, before, 'the default is unchanged');
+  h.tools.select([]);
+  h.tools.setStyle('line', { width: 4 });
+  assert.equal(h.tools.getState().styles.line.width, 4, 'with nothing selected the toolbar sets the default');
+  h.tools.setDefaultStyle('line', { ...h.store.get(line.id)!.style });
+  assert.equal(h.tools.getState().styles.line.dash, 'dashed', 'Set as Default still sets it');
+  await h.store.destroy();
+});
