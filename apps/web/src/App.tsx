@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar.
+// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar; markups hide with their PDF layer.
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
@@ -118,6 +118,7 @@ import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { ClassicToolbars } from './components/fork/ClassicToolbars';
 import { StatusCommands } from './components/fork/StatusCommands';
 import { vectorSnapshotOf, withMarkupsInside } from './fork/snapshot';
+import { markupLayersOfHiddenPdf } from './fork/pdfLayerMarkups';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
 import { commandPolicy } from './commands/commandPolicy';
 import { comboOf, formatCombo, keyMap } from './commands/keys';
@@ -5784,12 +5785,15 @@ export function App() {
   }, [open, openB, pdfLayers]);
 
   // Markup layers switched off stay off for each pane's document.
+  // Fork (leojru/redcolumn): so do the markups on a PDF layer that is switched off.
   useEffect(() => {
-    ctl?.tools.setHiddenLayers(new Set(open ? (hiddenMarkupLayers[open.file.id] ?? []) : []));
-    ctlB?.tools.setHiddenLayers(new Set(openB ? (hiddenMarkupLayers[openB.file.id] ?? []) : []));
+    const hiddenFor = (o: typeof open) =>
+      new Set(o ? [...(hiddenMarkupLayers[o.file.id] ?? []), ...markupLayersOfHiddenPdf(pdfLayers[o.file.hash] ?? [], hiddenPdfLayers[o.file.id] ?? [])] : []);
+    ctl?.tools.setHiddenLayers(hiddenFor(open));
+    ctlB?.tools.setHiddenLayers(hiddenFor(openB));
     ctl?.tools.setFadedLayers(new Set(open ? (fadedMarkupLayers[open.file.id] ?? []) : []));
     ctlB?.tools.setFadedLayers(new Set(openB ? (fadedMarkupLayers[openB.file.id] ?? []) : []));
-  }, [hiddenMarkupLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
+  }, [hiddenMarkupLayers, hiddenPdfLayers, pdfLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
 
   // The magnifier follows the active pane.
   useEffect(() => {
