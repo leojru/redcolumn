@@ -33,6 +33,53 @@ export function dimensionInline(m: Pick<Markup, 'type' | 'style' | 'text'>): boo
   return m.type === 'dimension' && m.style.dimText === 'inline' && !!m.text && !m.style.labelRotation && !m.style.labelLift;
 }
 
+/**
+ * A Length's or Dimension's reading frame: along its line kept reading left to right (`r`), and up
+ * the text (`u`, its left-hand normal); `foot`, where its text sits on the line.
+ */
+export function readingFrame(m: Markup): { r: Point; u: Point; foot: Point } | null {
+  const line = dimensionLine(m);
+  if (!line) return null;
+  const flip = line.dir[0] < 0 ? -1 : 1;
+  const r: Point = [line.dir[0] * flip, line.dir[1] * flip];
+  return { r, u: [r[1], -r[0]], foot: line.text };
+}
+
+/**
+ * Where text dragged off a Length's or Dimension's line is centred: `labelLift` up the text from its
+ * foot on the line and `labelShift` along it. Null while it sits on the line.
+ */
+export function liftedCenter(m: Markup): Point | null {
+  const lift = m.style.labelLift ?? 0;
+  const f = Math.abs(lift) > 1e-6 ? readingFrame(m) : null;
+  if (!f) return null;
+  const shift = m.style.labelShift ?? 0;
+  return [f.foot[0] + f.u[0] * lift + f.r[0] * shift, f.foot[1] + f.u[1] * lift + f.r[1] * shift];
+}
+
+/**
+ * The leader to text off the line (`w` by `h`, centred at `center`), as Revu draws it: square off the
+ * line from the foot, then along to the text's near end at its middle; with the text over the foot,
+ * straight up (or down) to its edge.
+ */
+export function liftLeader(m: Markup, center: Point, w: number, h: number): Point[] | null {
+  const f = readingFrame(m);
+  const lift = m.style.labelLift ?? 0;
+  if (!f || !lift) return null;
+  const size = m.style.fontSize ?? 10;
+  const shift = m.style.labelShift ?? 0;
+  const up = (d: number): Point => [f.foot[0] + f.u[0] * d, f.foot[1] + f.u[1] * d];
+  const sign = Math.sign(lift);
+  if (Math.abs(shift) <= w / 2) {
+    const reach = lift - sign * (h / 2 + size * 0.15);
+    return Math.sign(reach) === sign ? [f.foot, up(reach)] : null;
+  }
+  const end = center;
+  const side = Math.sign(shift);
+  const near: Point = [end[0] - f.r[0] * side * (w / 2 + size * 0.2), end[1] - f.r[1] * side * (w / 2 + size * 0.2)];
+  return [f.foot, up(lift), near];
+}
+
 /** Line spacing of a Dimension's text, as a multiple of its size. */
 export const DIM_LINE_HEIGHT = 1.2;
 
@@ -85,18 +132,19 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
   const cap = size * 0.36;
   const middle = (i: number) => h / 2 - lh * (i + 0.5) - cap;
   if (lifted) {
-    const elbow: Point = [p[0] + u0[0] * lift, p[1] + u0[1] * lift];
-    const tick = size * 0.3;
+    // Centred where it was dragged to, the leader from the foot (on the line) grows to it.
+    const center = liftedCenter(m)!;
     return {
-      lines: texts.map((text, i) => ({ text, at: at(elbow, tick, middle(i)) })),
-      align: 'left',
+      lines: texts.map((text, i) => ({ text, at: at(center, 0, middle(i)) })),
+      align: 'center',
       angle,
       size,
       inline: false,
       gap: null,
-      leader: [p, elbow, at(elbow, tick * 0.6, 0)],
-      knob: elbow,
-      box: { center: at(elbow, tick + w / 2, 0), w, h },
+      leader: liftLeader(m, center, w, h),
+      // Just off the text on the line's side, so it covers none of it.
+      knob: at(center, 0, -Math.sign(lift) * (h / 2 + size * 0.45)),
+      box: { center, w, h },
     };
   }
   if (inline) {
@@ -163,6 +211,15 @@ export function lengthLabelBox(m: Markup, label: { lines: readonly string[]; at:
   return { center: label.at, w, h, angle: label.angle };
 }
 
+/** Fork: the leader to a Length's label dragged off its line (its box estimated as `lengthLabelBox` does). */
+export function lengthLeader(m: Markup, label: { lines: readonly string[]; at: Point } | null): Point[] | null {
+  if (m.type !== 'length' || !label || !m.style.labelLift) return null;
+  const size = m.style.fontSize ?? 10;
+  const w = Math.max(...label.lines.map((l) => approxTextWidth(l, size, m.style.fontFamily) * 1.05)) + size * 0.6;
+  const h = label.lines.length * size * 1.2 + size * 0.2;
+  return liftLeader(m, label.at, w, h);
+}
+
 /** The straight, undecorated strokes of `parts` with what lies inside the box (turned `angle`) taken out. */
 export function breakAroundBox<T extends { path: PathCmd[]; stroke: boolean; fill: string | null; decoration?: boolean }>(parts: T[], box: { center: Point; w: number; h: number; angle: number }): T[] {
   const [cos, sin] = [Math.cos(box.angle), Math.sin(box.angle)];
@@ -207,4 +264,9 @@ export function breakAroundBox<T extends { path: PathCmd[]; stroke: boolean; fil
     }
     return out;
   });
+}
+
+/** A leader as a shape part: a plain solid line (never dashed). */
+export function leaderPart(points: readonly Point[]): { path: PathCmd[]; stroke: boolean; fill: null; decoration: boolean } {
+  return { path: points.map((p, i): PathCmd => [i ? 'L' : 'M', p[0], p[1]]), stroke: true, fill: null, decoration: true };
 }

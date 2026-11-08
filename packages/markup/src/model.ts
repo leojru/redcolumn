@@ -205,8 +205,10 @@ export interface MarkupStyle {
   labelRotation?: number;
   /** Fork (leojru/redcolumn): a Dimension's text above its line (the default when unset) or inline, the line broken around it. */
   dimText?: 'above' | 'inline';
-  /** Fork (leojru/redcolumn): a Dimension's text dragged off its line, this far (points, up the text positive), with a leader to it. */
+  /** Fork (leojru/redcolumn): a Dimension's or Length's text dragged off its line, this far (points, up the text positive), with a leader to it. */
   labelLift?: number;
+  /** Fork (leojru/redcolumn): with the text off the line, how far its centre sits along the line from the leader's foot (points). */
+  labelShift?: number;
 }
 
 /** A file embedded in the PDF (File Attachment markups, sound notes). */
@@ -651,12 +653,24 @@ function unrotatedBounds(m: Markup): Rect {
     const up: Point = [r[1], -r[0]];
     // The box in the text's frame: along from..to, up from..to, about the line's text point.
     const above = size * 0.35 + m.style.width;
-    const [a0, a1, u0, u1] = lift ? [0, size * 0.3 + w, lift - h / 2, lift + h / 2] : m.style.dimText === 'inline' ? [-w / 2, w / 2, -h / 2, h / 2] : [-w / 2, w / 2, above, above + h + size * 0.2];
+    const shift = m.style.labelShift ?? 0;
+    const [a0, a1, u0, u1] = lift ? [shift - w / 2, shift + w / 2, lift - h / 2, lift + h / 2] : m.style.dimText === 'inline' ? [-w / 2, w / 2, -h / 2, h / 2] : [-w / 2, w / 2, above, above + h + size * 0.2];
     for (const al of [a0, a1])
       for (const ul of [u0, u1]) {
         xs.push(tx + r[0] * al + up[0] * ul);
         ys.push(ty + r[1] * al + up[1] * ul);
       }
+  }
+  // Fork: a Length's label dragged off its line (its value's width estimated).
+  if (m.type === 'length' && m.style.labelLift) {
+    const size = m.style.fontSize ?? 10;
+    const flip = line.dir[0] < 0 ? -1 : 1;
+    const r: Point = [line.dir[0] * flip, line.dir[1] * flip];
+    const up: Point = [r[1], -r[0]];
+    const [lift, shift] = [m.style.labelLift, m.style.labelShift ?? 0];
+    const [cx, cy] = [tx + up[0] * lift + r[0] * shift, ty + up[1] * lift + r[1] * shift];
+    xs.push(cx - size * 5, cx + size * 5);
+    ys.push(cy - size * 2.5, cy + size * 2.5);
   }
   const x0 = Math.min(...xs);
   const y0 = Math.min(...ys);

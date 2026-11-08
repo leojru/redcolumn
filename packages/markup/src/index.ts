@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: exports vector snapshots and the Length/Dimension text layout.
 export * from './model';
 export { TYPE_INFO, type MarkupTypeInfo } from './types';
 export * from './style';
@@ -97,3 +98,5 @@ export * from './cad';
 
 // Fork addition (leojru/redcolumn): vector snapshots.
 export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES } from './vectorSnapshot';
+// Fork (leojru/redcolumn): Length and Dimension text layout (inline, lines, leaders).
+export { approxTextWidth, dimensionLayout, liftedCenter, readingFrame, type DimensionLayout } from './dimensionInline';

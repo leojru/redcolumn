@@ -888,7 +888,9 @@ test('drawing snaps to every corner and side middle of a box, and to a circle ce
   await h.store.destroy();
 });
 
-test("a length's text drags off the line (taking the line with it), along it, and turns", async () => {
+// Fork (leojru/redcolumn): the text leaves the line on a leader (as Revu's does); the line stays put
+// (it moves out by its own diamond knob).
+test("a length's text drags off the line on a leader, the line staying put, and turns", async () => {
   const h = await setup();
   arm(h, 'length');
   click(h.tools, [100, 200]);
@@ -899,8 +901,10 @@ test("a length's text drags off the line (taking the line with it), along it, an
   // The text sits on the middle of the line; drag it 30 up and 100 right, past the end.
   drag(h.tools, [180, 200], [280, 170]);
   let style = h.store.get(m!.id)!.style;
-  assert.equal(style.leader, -30, 'the dimension line moved out with the text');
-  assert.equal(style.labelOffset, 100, 'slid along past the end');
+  assert.equal(style.leader, undefined, 'the dimension line stays');
+  assert.equal(style.labelLift, 30, 'the text is 30 off the line');
+  assert.equal(style.labelShift, 100, 'and 100 along from its foot');
+  assert.equal(style.labelOffset, undefined, 'the foot stays at the middle');
   // Its turn knob sits above it; pointing right turns it a quarter.
   const knob: Point = [280, 170 - 7 - 14];
   drag(h.tools, knob, [320, 170]);

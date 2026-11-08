@@ -32,9 +32,14 @@
 }
 
 /* The Properties row keeps one height whether it shows the document or style controls, so the drawing does not jump. */
+/* One row, always: a row that wrapped as a selection changed what it shows moved the drawing down
+   under the pointer (between the two clicks of a double-click). What does not fit scrolls sideways. */
 .classic-toolbars .classic-props {
   min-height: 34px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   background: var(--panel);
   border-top: 1px solid var(--tint, var(--border));
   font-size: 12px;
@@ -151,4 +156,11 @@
 
 .statusbar.classic .pagenav-side.right > :first-child {
   margin-left: auto;
+}
+
+/* The toolbar's Start and End lists show the ending's shape only (its name is the tooltip). */
+.toolbar .line-end-select {
+  width: 6.4em;
+  font-family: system-ui, sans-serif;
+  letter-spacing: -0.12em;
 }

@@ -1,7 +1,7 @@
-// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above).
+// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above); Start/End line endings on the toolbar.
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { FONT_FAMILIES, HATCH_PATTERNS, LINE_ENDINGS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
@@ -207,6 +207,26 @@ const ARROW_CHOICES: { value: LineEnding; label: string }[] = [
   { value: 'none', label: 'None' },
 ];
 
+/**
+ * Fork (leojru/redcolumn): each line ending drawn as text, on its end of a line (the start's mirrored),
+ * so the toolbar's Start and End lists show their shapes, as Revu's do.
+ */
+const ENDING_HEADS: Record<LineEnding, [string, string]> = {
+  none: ['', ''],
+  openArrow: ['<', '>'],
+  closedArrow: ['◁', '▷'],
+  filledArrow: ['◀', '▶'],
+  circle: ['○', '○'],
+  filledCircle: ['●', '●'],
+  square: ['□', '□'],
+  filledSquare: ['■', '■'],
+  diamond: ['◇', '◇'],
+  filledDiamond: ['◆', '◆'],
+  tick: ['|', '|'],
+  slash: ['/', '/'],
+};
+const endingGlyph = (ending: LineEnding, side: 'start' | 'end') => (side === 'start' ? `${ENDING_HEADS[ending][0]}——` : `——${ENDING_HEADS[ending][1]}`);
+
 const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
 /** The highlighter sweeps wide bands. */
 const HIGHLIGHT_WIDTHS = [4, 8, 12, 16, 20, 30, 40, 60, 80, 100, 150, 200];
@@ -405,6 +425,34 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
           {lineEnds({ type: styleType, style }).some((e) => e !== 'none') && (
             <label className="field">
               <ComboField title="Arrow size" value={Math.round((style.capScale ?? 1) * 100)} options={[50, 75, 100, 150, 200, 300]} min={10} max={1000} unit="%" onChange={(v) => tools.setStyle(styleType, { capScale: v / 100 })} />
+            </label>
+          )}
+        </>
+      )}
+      {/* Fork (leojru/redcolumn): Start and End line endings and their size, on the toolbar, for every
+          tool with ends (line, arrow, dimension, polyline, arc, callout...), as Revu's Properties row has. */}
+      {style && styleType && styleType !== 'length' && styleType !== 'polylength' && styleCapabilities(styleType).lineEnds && (
+        <>
+          {(['start', 'end'] as const).map((side, i) => (
+            <label key={side} className="field" title={`${side === 'start' ? 'Start' : 'End'}: ${LINE_ENDINGS.find((c) => c.value === lineEnds({ type: styleType, style })[i])?.label ?? ''}`}>
+              {side === 'start' ? 'Start' : 'End'}
+              <select
+                className="line-end-select"
+                data-line-end={side}
+                value={lineEnds({ type: styleType, style })[i]}
+                onChange={(e) => tools.setStyle(styleType, side === 'start' ? { startCap: e.target.value as LineEnding } : { endCap: e.target.value as LineEnding })}
+              >
+                {LINE_ENDINGS.map((c) => (
+                  <option key={c.value} value={c.value} title={c.label} aria-label={c.label}>
+                    {endingGlyph(c.value, side)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          {lineEnds({ type: styleType, style }).some((e) => e !== 'none') && (
+            <label className="field">
+              <ComboField title="Ending size" value={Math.round((style.capScale ?? 1) * 100)} options={[50, 75, 100, 150, 200, 300]} min={10} max={1000} unit="%" onChange={(v) => tools.setStyle(styleType, { capScale: v / 100 })} />
             </label>
           )}
         </>

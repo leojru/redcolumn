@@ -16,7 +16,7 @@ import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
-import { breakAroundBox, lengthLabelBox } from './dimensionInline';
+import { breakAroundBox, leaderPart, lengthLabelBox, lengthLeader } from './dimensionInline';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, strokeEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
@@ -371,8 +371,11 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     return font ? font.widthOfTextAtSize(safeText(font, text), size) : text.length * size * 0.55;
   };
   // Fork (leojru/redcolumn): a Length's line breaks around its label rather than a white box hiding it.
-  const lengthGap = lengthLabelBox(m, measurementLabel(m, ctx.scale));
-  for (const part of styledParts(lengthGap ? breakAroundBox(markupShape(m), lengthGap) : markupShape(m), style.lineStyle, style.width, measure)) {
+  const lengthText = measurementLabel(m, ctx.scale);
+  const lengthGap = lengthLabelBox(m, lengthText);
+  const lengthLead = lengthLeader(m, lengthText);
+  const lengthShape = [...(lengthGap ? breakAroundBox(markupShape(m), lengthGap) : markupShape(m)), ...(lengthLead ? [leaderPart(lengthLead)] : [])];
+  for (const part of styledParts(lengthShape, style.lineStyle, style.width, measure)) {
     if (part.art) {
       ops.push(...artOps(part.art, ctx, [sr, sg, sb], artFonts));
       continue;

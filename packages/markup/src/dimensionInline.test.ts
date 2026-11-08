@@ -52,15 +52,34 @@ test('two lines (Shift+Enter): inline they straddle the line; above they stack o
   assert.ok(above.lines[0]!.at[1] < above.lines[1]!.at[1] && above.lines[1]!.at[1] < 200, 'both over the line, in order');
 });
 
-test('text dragged off the line has a leader square off the line, and the line stays whole', () => {
-  const m = dim('inline', { labelLift: 30 });
-  const t = dimensionText(m)!;
-  assert.equal(t.inline, false);
-  assert.equal(t.align, 'left');
-  assert.deepEqual(t.leader!.slice(0, 2), [[200, 200], [200, 170]], 'up from the line at the text');
-  assert.ok(t.lines[0]!.at[0] > 200, 'the text starts past the elbow');
-  assert.equal(strokes(m).length, 1, 'no gap');
+test('text dragged off the line: a leader grows from its foot, straight up under the text or out along to it', () => {
+  // Straight over the foot: the leader runs up to the text's foot only.
+  const over = dimensionText(dim('inline', { labelLift: 30 }))!;
+  assert.equal(over.inline, false);
+  assert.equal(over.align, 'center');
+  assert.equal(over.leader!.length, 2);
+  assert.deepEqual(over.leader![0], [200, 200]);
+  assert.ok(over.leader![1]![1] < 200 && over.leader![1]![1] > 170, 'up to the bottom of the text');
+  assert.deepEqual(over.box.center, [200, 170]);
+  // Off to the right: up to the text's middle, then along to its near end.
+  const m = dim('inline', { labelLift: 30, labelShift: 80 });
+  const right = dimensionText(m)!;
+  assert.deepEqual(right.leader!.slice(0, 2), [[200, 200], [200, 170]]);
+  assert.ok(right.leader![2]![0] > 230 && right.leader![2]![0] < 280 - right.box.w / 2 + 1, 'along to the text');
+  assert.deepEqual(right.box.center, [280, 170]);
+  assert.equal(strokes(m).length, 1, 'the dimension line stays whole');
   assert.ok(markupShape(m).some((p) => p.decoration && p.path.length === 3), 'the leader is drawn');
+});
+
+test('a Length label dragged off its line sits there, with a leader', async () => {
+  const { lengthLeader } = await import('./dimensionInline.ts');
+  const { measurementLabel } = await import('./render.ts');
+  const len = { id: 'l', type: 'length', pageIndex: 0, points: [[100, 200], [300, 200]], style: { ...TYPE_INFO.length.style, labelLift: 40, labelShift: -90 } } as Markup;
+  const label = measurementLabel(len)!;
+  assert.deepEqual(label.at, [110, 160]);
+  const leader = lengthLeader(len, label)!;
+  assert.deepEqual(leader.slice(0, 2), [[200, 200], [200, 160]]);
+  assert.ok(leader[2]![0] < 200 && leader[2]![0] > 110, 'along to the label');
 });
 
 test('a Length breaks its line around its label (no white box) unless a label background is chosen', async () => {

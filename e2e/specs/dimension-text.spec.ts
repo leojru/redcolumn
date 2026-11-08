@@ -6,7 +6,7 @@ import { expect, test } from '../support/app.ts';
 
 test.use({ toolbar: 'classic' });
 
-type Raw = { id: string; type: string; text?: string; style: { dimText?: string; labelLift?: number; leader?: number; labelOffset?: number } };
+type Raw = { id: string; type: string; text?: string; style: { dimText?: string; labelLift?: number; labelShift?: number; leader?: number; labelOffset?: number; startCap?: string; endCap?: string } };
 
 test('dimension text is typed in place, inline, on two lines; double-click edits it; Above from the toolbar', async ({ app }, info) => {
   const raw = async () => (await app.raw()) as unknown as Raw[];
@@ -67,12 +67,15 @@ test('dragging dimension text off the line puts it on a leader; Shift keeps it o
   await app.page.keyboard.press('Escape');
   await app.page.evaluate((id) => window.__nb.tools.select([id]), id);
 
-  // Up and to the right: the text leaves the line; the line stays put.
-  await app.drag([296, 600], [340, 560]);
+  // Up and to the right: the text goes where it is dragged; the leader's foot and the line stay put.
+  await app.drag([296, 600], [380, 560]);
   let style = (await raw()).find((m) => m.id === id)!.style;
   expect(style.labelLift).toBeGreaterThan(30);
+  expect(style.labelShift).toBeGreaterThan(70);
+  expect(style.labelOffset ?? 0).toBe(0);
   expect(style.leader ?? 0).toBe(0);
   await app.page.screenshot({ path: info.outputPath('3-leader.png') });
+
 
   // Undone, then dragged with Shift: it stays on the line, slid along it.
   await app.page.evaluate(() => window.__nb.commands().get('edit.undo')!.run());
@@ -89,9 +92,16 @@ test('dragging dimension text off the line puts it on a leader; Shift keeps it o
   style = (await raw()).find((m) => m.id === id)!.style;
   expect(Math.abs(style.leader ?? 0)).toBeGreaterThan(20);
   await app.page.screenshot({ path: info.outputPath('4-offset.png') });
+
+  // The toolbar's Start and End change the selected dimension's ends.
+  await app.page.locator('select[data-line-end="start"]').selectOption('openArrow');
+  await app.page.locator('select[data-line-end="end"]').selectOption('tick');
+  style = (await raw()).find((m) => m.id === id)!.style;
+  expect([style.startCap, style.endCap]).toEqual(['openArrow', 'tick']);
 });
 
-test('a Length breaks its line around its label; the saved PDF too', async ({ app }, info) => {
+test('a Length breaks its line around its label, and its label comes off on a leader; the saved PDF too', async ({ app }, info) => {
+  const raw = async () => (await app.raw()) as unknown as Raw[];
   await app.open('plan.pdf');
   await app.calibrate();
   await app.tool('length');
@@ -103,6 +113,14 @@ test('a Length breaks its line around its label; the saved PDF too', async ({ ap
   await app.page.keyboard.type('TYP.');
   await app.page.keyboard.press('Enter');
   await app.page.keyboard.press('Escape');
+  // The Length's label comes off its line too, on a leader; its line stays put.
+  const length = (await raw()).find((m) => m.type === 'length')!;
+  await app.page.evaluate((id) => window.__nb.tools.select([id]), length.id);
+  await app.drag([310, 640], [380, 600]);
+  const ls = (await raw()).find((m) => m.id === length.id)!.style;
+  expect(ls.labelLift).toBeGreaterThan(25);
+  expect(ls.leader ?? 0).toBe(0);
+  await app.page.evaluate(() => window.__nb.tools.select([]));
   await app.page.screenshot({ path: info.outputPath('5-length.png') });
   const before = (await app.saved()).length;
   await app.cmd('file.saveAs');

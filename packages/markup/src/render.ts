@@ -2,7 +2,7 @@
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
-import { breakAroundBox, dimensionLayout, lengthLabelBox, type DimensionLayout } from './dimensionInline';
+import { breakAroundBox, dimensionLayout, leaderPart, lengthLabelBox, lengthLeader, liftedCenter, readingFrame, type DimensionLayout } from './dimensionInline';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
 import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
@@ -204,7 +204,9 @@ export interface MeasureLabel {
 export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel | null {
   if (!isMeasureKind(m.type) || m.points.length === 0 || m.style.showLabel === false) return null;
   const line = dimensionLine(m);
-  const at: [number, number] = line ? [line.text[0], line.text[1]] : labelAnchor(m.type, m.points);
+  // Fork (leojru/redcolumn): a Length's label dragged off its line sits where it was dragged.
+  const lifted = liftedCenter(m);
+  const at: [number, number] = lifted ? [lifted[0], lifted[1]] : line ? [line.text[0], line.text[1]] : labelAnchor(m.type, m.points);
   const value = measureLabel(m.type, m.points, scale, measureProps(m));
   const label = m.type === 'count' ? '' : markupLabel(m);
   return { text: value, lines: label ? [label, value] : [value], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
@@ -325,8 +327,10 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   // Highlighter multiplies so drawing detail stays visible underneath.
   if (TYPE_INFO[m.type].multiply) ctx.globalCompositeOperation = 'multiply';
   // Fork (leojru/redcolumn): a Length's line breaks around its label rather than a white box hiding it.
-  const lengthGap = lengthLabelBox(m, measurementLabel(m, scale));
-  const shape = lengthGap ? breakAroundBox(markupShape(m), lengthGap) : markupShape(m);
+  const lengthText = measurementLabel(m, scale);
+  const lengthGap = lengthLabelBox(m, lengthText);
+  const lengthLead = lengthLeader(m, lengthText);
+  const shape = [...(lengthGap ? breakAroundBox(markupShape(m), lengthGap) : markupShape(m)), ...(lengthLead ? [leaderPart(lengthLead)] : [])];
   for (const part of styledParts(shape, style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
     if (part.art) {
       paintArt(ctx, part.art);
@@ -625,6 +629,14 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
     ctx.arc(text.rotate.at[0], text.rotate.at[1], 4 * px, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    // Fork (leojru/redcolumn): the leader's foot on the line (a small round knob), to slide it along.
+    if (text.foot) {
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.arc(text.foot[0], text.foot[1], h / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
     // Fork (leojru/redcolumn): the dimension line's own knob (a diamond), to move it out from its points.
     if (text.offset) {
       const [ox, oy] = text.offset;
@@ -673,7 +685,7 @@ export function rotateHandle(m: Markup, zoom: number): { at: [number, number]; s
  * A selected Length or Dimension's text knobs: `move` on the text (drag it along or off the line)
  * and `rotate` beyond its top (turn it), with the text's current turn in degrees clockwise.
  */
-export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { at: Point; stem: Point }; angle: number; offset?: Point } | null {
+export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { at: Point; stem: Point }; angle: number; offset?: Point; foot?: Point } | null {
   if (m.locked) return null;
   const line = dimensionLine(m);
   if (!line || (m.type === 'length' ? m.style.showLabel === false : !m.text)) return null;
@@ -682,15 +694,26 @@ export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { 
   const size = m.style.fontSize ?? 10;
   // Up the text: its left-hand normal in page space (y down).
   const up: Point = [Math.sin(angle), -Math.cos(angle)];
-  const move: Point = dim ? dim.knob : line.text;
+  // Fork (leojru/redcolumn): a Length's label dragged off its line is moved from where it is.
+  const lifted = liftedCenter(m);
+  // A lifted Dimension's knob sits a few screen pixels off its text, on the line's side.
+  const liftSide = Math.sign(m.style.labelLift ?? 0);
+  const move: Point =
+    dim && lifted
+      ? [dim.box.center[0] - up[0] * liftSide * (dim.box.h / 2 + 9 / zoom), dim.box.center[1] - up[1] * liftSide * (dim.box.h / 2 + 9 / zoom)]
+      : dim
+        ? dim.knob
+        : (lifted ?? line.text);
   const reach = size * (dim ? 0.8 : 0.7);
-  // Fork (leojru/redcolumn): a Dimension's turn knob stands off the top of its text (one or more lines).
+  // Fork: a Dimension's turn knob stands off the top of its text (one or more lines).
   const top: Point = dim ? [dim.box.center[0] + up[0] * (dim.box.h / 2), dim.box.center[1] + up[1] * (dim.box.h / 2)] : move;
   const stem: Point = dim ? [top[0] + up[0] * size * 0.3, top[1] + up[1] * size * 0.3] : [move[0] + up[0] * reach, move[1] + up[1] * reach];
   const at: Point = [stem[0] + up[0] * (14 / zoom), stem[1] + up[1] * (14 / zoom)];
-  // Fork: a Dimension's line moves out from its points by a knob of its own, a fifth of the way along it.
-  const offset: Point | undefined = dim ? [line.a[0] + (line.b[0] - line.a[0]) * 0.2, line.a[1] + (line.b[1] - line.a[1]) * 0.2] : undefined;
-  return { move, rotate: { at, stem }, angle: (angle * 180) / Math.PI, ...(offset ? { offset } : {}) };
+  // Fork: the dimension line moves out from its points by a knob of its own (a diamond), a fifth of
+  // the way along it; with the text off the line, the leader's foot has one too, to slide it along.
+  const offset: Point = [line.a[0] + (line.b[0] - line.a[0]) * 0.2, line.a[1] + (line.b[1] - line.a[1]) * 0.2];
+  const foot = lifted ? readingFrame(m)?.foot : undefined;
+  return { move, rotate: { at, stem }, angle: (angle * 180) / Math.PI, offset, ...(foot ? { foot } : {}) };
 }
 
 /** A box's handles by index: its two defining corners, the other two corners, then the middles of its four edges. */
