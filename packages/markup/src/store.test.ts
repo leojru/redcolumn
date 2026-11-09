@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
+import { feetDisplay, type Scale } from '@nb/measure';
 import { MarkupStore } from './store.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
 
@@ -338,4 +339,19 @@ test('a drawing standard is recorded per document, and choosing another clears w
     ],
   );
   await store.destroy();
+});
+
+// Fork (leojru/redcolumn).
+test('a page or viewport scale in decimal feet reads as feet and inches while the preference is on', async () => {
+  feetDisplay.feetAndInches = true;
+  try {
+    const store = await storeWith(0);
+    const decimal: Scale = { metersPerPoint: 0.1, unit: 'ft', feetInches: false, precision: 2, label: 'Decimal' };
+    store.setScale([0], decimal);
+    store.setViewport({ id: 'v', pageIndex: 0, name: 'V', rect: { x: 0, y: 0, w: 10, h: 10 }, scale: decimal });
+    assert.deepEqual([store.scaleFor(0).feetInches, store.scaleFor(0).precision], [true, 16]);
+    assert.equal(store.allViewports()[0]!.scale.feetInches, true);
+  } finally {
+    feetDisplay.feetAndInches = false;
+  }
 });

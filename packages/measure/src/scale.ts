@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): feetDisplay and shownScale (feet always shown as feet and inches).
 export type LengthUnit = 'in' | 'ft' | 'yd' | 'mi' | 'mm' | 'cm' | 'm' | 'km';
 
 export const METERS_PER_UNIT: Record<LengthUnit, number> = {
@@ -176,6 +177,14 @@ export function usesFractions(scale: Scale): boolean {
 /** Precision choices for a unit: decimal places, or inch fractions for feet and inches. */
 export const DECIMAL_PRECISIONS = [0, 1, 2, 3, 4];
 export const FRACTION_PRECISIONS = [1, 2, 4, 8, 16, 32, 64];
+
+/** Fork addition (leojru/redcolumn): set from Preferences › Units. */
+export const feetDisplay = { feetAndInches: false };
+
+/** Fork addition: the scale as shown. With the preference on, feet read as feet and inches whatever format the scale came with. */
+export function shownScale(scale: Scale): Scale {
+  return feetDisplay.feetAndInches && scale.unit === 'ft' && !scale.feetInches ? { ...scale, feetInches: true, precision: 16 } : scale;
+}
 
 export function formatLength(meters: number, scale: Scale): string {
   const value = meters / METERS_PER_UNIT[scale.unit];

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts, yScaleLabel } from './scale.ts';
+import { calibratedScale, formatArea, formatFeetInches, formatLength, feetDisplay, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts, shownScale, yScaleLabel } from './scale.ts';
 import { angleAt, arcPoints, arcSegment, arcSplit, bulgeThrough, smoothBulgesAt, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
 import { SnapIndex } from './snap.ts';
 
@@ -273,4 +273,20 @@ test('smooth bulges are arcs of the circle through the vertex and its neighbours
   assert.equal(smoothBulgesAt(pts, 0, false), null);
   assert.deepEqual(smoothBulgesAt([[0, 0], [1, 0], [3, 0]], 1, false), { before: 0, after: 0 });
   assert.ok(smoothBulgesAt([[0, 0], [4, 0], [4, 4], [0, 4]], 0, true));
+});
+
+// Fork (leojru/redcolumn).
+test('feet read as feet and inches on any scale while the preference is on', () => {
+  const engineering = SCALE_PRESETS.find((p) => p.label === '1" = 20\'')!.scale;
+  const metric = SCALE_PRESETS.find((p) => p.label === '1:100')!.scale;
+  assert.equal(formatLength(3.81, shownScale(engineering)), '12.50 ft');
+  feetDisplay.feetAndInches = true;
+  try {
+    assert.equal(formatLength(3.81, shownScale(engineering)), `12'-6"`);
+    assert.equal(shownScale(metric), metric);
+    const picked = { ...engineering, feetInches: true, precision: 8 };
+    assert.equal(shownScale(picked), picked);
+  } finally {
+    feetDisplay.feetAndInches = false;
+  }
 });

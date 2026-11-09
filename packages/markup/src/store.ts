@@ -1,6 +1,7 @@
+// Modified in the leojru/redcolumn fork (revu-layout): page and viewport scales are read through shownScale (feet as feet and inches).
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { DEFAULT_SCALE, type GeoRegion, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, shownScale, type GeoRegion, type Scale } from '@nb/measure';
 import { SOURCE_RANK, type DetectedLink, type SheetInfo } from '@nb/sheets';
 import { DEFAULT_STATUSES, type ColumnSet, type CustomColumn, type MarkupStatusDef } from './columns';
 import { mergeAssemblies, sanitizeAssemblies, type Assembly } from './assemblies';
@@ -299,10 +300,10 @@ export class MarkupStore {
       this.snapshot = [...this.map.values()];
       this.hasConnectors = this.snapshot.some((m) => m.type === 'connector');
     }
-    if (has(this.scales)) this.scaleSnapshot = Object.fromEntries([...this.scales.entries()].map(([k, v]) => [Number(k), v]));
+    if (has(this.scales)) this.scaleSnapshot = Object.fromEntries([...this.scales.entries()].map(([k, v]) => [Number(k), shownScale(v)]));
     if (has(this.sheets)) this.sheetSnapshot = Object.fromEntries([...this.sheets.entries()].map(([k, v]) => [Number(k), v]));
     if (has(this.links)) this.linkSnapshot = [...this.links.values()];
-    if (has(this.viewports)) this.viewportSnapshot = [...this.viewports.values()];
+    if (has(this.viewports)) this.viewportSnapshot = [...this.viewports.values()].map((v) => ({ ...v, scale: shownScale(v.scale) }));
     if (has(this.meta)) {
       this.stitchSnapshot = (this.meta.get('stitch') as StoredStitchGroup[] | undefined) ?? NO_STITCH;
       const manual = this.meta.get('manualStitch') as StoredManualStitch | undefined;

@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): decimal precision hidden for feet while they always show as feet and inches.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   MARKUP_LABELS,
@@ -259,7 +260,7 @@ function PageScale({
   onApplyScale: ((pages: number[]) => void) | null;
   onCalibrate: (() => void) | null;
 }) {
-  const system = useSettings().unitSystem;
+  const { unitSystem: system, feetAsFeetInches: feetAlways } = useSettings();
   const groups = SCALE_GROUPS[system];
   const [saved, setSaved] = useState<SavedPreset[]>(loadPresets);
   const [mode, setMode] = useState<'preset' | 'custom'>(scale && matchPreset(scale, saved) ? 'preset' : 'custom');
@@ -319,7 +320,10 @@ function PageScale({
   const closeApply = () => setApplyOpen(false);
   useDismiss(applyOpen, closeApply);
 
-  const prec = precisionValue(scale, pendingPrec);
+  // Fork change: with Always Show Feet as Feet and Inches, feet offer inch fractions only.
+  const feetOnly = feetAlways && (realUnit || scale?.unit) === 'ft';
+  const rawPrec = precisionValue(scale, pendingPrec);
+  const prec = feetOnly && rawPrec[0] === 'd' ? 'f16' : rawPrec;
   const fracOk = (realUnit || scale?.unit) === 'ft' || (realUnit || scale?.unit) === 'in' || (!scale && !realUnit && system === 'imperial');
 
   const keep = (base: Scale, y?: number): Scale => {
@@ -618,7 +622,7 @@ function PageScale({
       <div className="ms-line">
         <span className="ms-k">Precision:</span>
         <select className="ms-precision" aria-label="Precision" value={prec} disabled={!onScale} onChange={(e) => onPrecision(e.target.value)}>
-          {DECIMAL_PRECISIONS.map((p) => (
+          {!feetOnly && DECIMAL_PRECISIONS.map((p) => (
             <option key={`d${p}`} value={`d${p}`}>
               {precisionText(`d${p}`)}
             </option>

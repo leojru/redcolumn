@@ -1,5 +1,5 @@
 // Added in the leojru/redcolumn fork (revu-layout). Vector snapshots: Snapshot copies the page
-// content as vector graphics (and the markups in the area as markups); a saved PDF keeps it vector.
+// content as vector graphics, the markups in the area drawn into it; a saved PDF keeps it vector.
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFStream } from 'pdf-lib';
 import { expect, test } from '../support/app.ts';
 
@@ -27,9 +27,9 @@ function formContents(doc: PDFDocument, form: PDFStream, depth = 0): { text: str
   return { text, images };
 }
 
-test('snapshot copies the drawing as vector, with its markups, and saves it as vector', async ({ app }) => {
+test('snapshot copies the drawing as vector, with its markups drawn in, and saves it as vector', async ({ app }) => {
   await app.open('plan.pdf');
-  // A markup inside the area, which comes along as a markup.
+  // A markup inside the area, which becomes part of the snapshot.
   await app.tool('rect');
   await app.drag([300, 300], [360, 340]);
   expect((await app.markups()).map((m) => m.type)).toEqual(['rect']);
@@ -44,11 +44,11 @@ test('snapshot copies the drawing as vector, with its markups, and saves it as v
   const snapshot = raw.find((m) => m.type === 'image');
   expect(snapshot?.vector?.startsWith('data:application/pdf;base64,')).toBe(true);
   expect(snapshot?.vectorImage).toBeTruthy();
-  // The pasted rectangle is grouped with the snapshot; the original stays as it was.
-  const rects = raw.filter((m) => m.type === 'rect');
-  expect(rects).toHaveLength(2);
-  expect(snapshot!.groupId).toBeTruthy();
-  expect(rects.filter((r) => r.groupId === snapshot!.groupId)).toHaveLength(1);
+  // No editable copy of the rectangle: only the original is a markup, and the snapshot draws it.
+  expect(raw.filter((m) => m.type === 'rect')).toHaveLength(1);
+  const sheet = await PDFDocument.load(Buffer.from(snapshot!.vector!.split(',')[1]!, 'base64'));
+  const sheetForms = sheet.getPage(0).node.Resources()!.lookup(PDFName.of('XObject'), PDFDict);
+  expect(formContents(sheet, sheetForms.lookup(sheetForms.keys()[0]!, PDFStream)).text).toMatch(/\/NBK\d+ Do/);
 
   // Saved, the snapshot's appearance draws the page's own content: text operators, no picture.
   const before = (await app.saved()).length;

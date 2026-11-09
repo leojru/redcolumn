@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): decimal precision hidden for feet while they always show as feet and inches.
 import { useState } from 'react';
 import {
   DECIMAL_PRECISIONS,
@@ -47,7 +48,7 @@ function sideOf(scale: Scale): Side {
 
 /** Bluebeam's Set Page Scale: pages, a preset or custom equation, an optional separate Y scale, and precision. */
 export function SetScaleDialog({ scale, pageCount, currentPage, selected, initialPages, onCalibrate, onApply, onCancel }: Props) {
-  const system = useSettings().unitSystem;
+  const { unitSystem: system, feetAsFeetInches: feetAlways } = useSettings();
   const groups = SCALE_GROUPS[system];
   const [saved, setSaved] = useState<SavedPreset[]>(loadPresets);
   const fallback = SCALE_PRESETS.find((p) => p.label === (system === 'metric' ? '1:100' : '1/8" = 1\'-0"'))!.scale;
@@ -85,7 +86,9 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
   const xBase = mode === 'preset' ? presetScale(xPreset) : fromSide(x);
   const unit = xBase?.unit ?? x.realUnit;
   const fracOk = unit === 'ft' || unit === 'in';
-  const precValue = !fracOk && prec[0] === 'f' ? 'd2' : prec;
+  // Fork change: with Always Show Feet as Feet and Inches, feet offer inch fractions only.
+  const feetOnly = feetAlways && unit === 'ft';
+  const precValue = feetOnly && prec[0] === 'd' ? 'f16' : !fracOk && prec[0] === 'f' ? 'd2' : prec;
 
   const built = ((): Scale | null => {
     if (!xBase) return null;
@@ -288,7 +291,7 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
 
           <span className="scale-k">Precision:</span>
           <select aria-label="Precision" value={precValue} onChange={(e) => setPrec(e.target.value)}>
-            {DECIMAL_PRECISIONS.map((p) => (
+            {!feetOnly && DECIMAL_PRECISIONS.map((p) => (
               <option key={`d${p}`} value={`d${p}`}>
                 {precisionText(`d${p}`)}
               </option>

@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Vector Snapshots preference; Omarchy theme choice.
+// Modified in the leojru/redcolumn fork (revu-layout): Vector Snapshots preference; Omarchy theme choice; Always Show Feet as Feet and Inches.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
@@ -430,6 +430,8 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           {unitSelect('lengthUnit', 'Length', choices.length, (u) => LENGTH_NAMES[u])}
           {unitSelect('areaUnit', 'Area', choices.area, (u) => AREA_LABELS[u])}
           {unitSelect('volumeUnit', 'Volume', choices.volume, (u) => VOLUME_LABELS[u])}
+          {/* Fork addition */}
+          <C>{check('feetAsFeetInches', 'Always Show Feet as Feet and Inches', { title: 'Lengths in feet read as 12\'-6", to the 1/16", even on a scale saved or chosen as decimal feet. Turn off to use each scale\'s own format. Applies to documents opened after changing it.' })}</C>
         </Grid>
       );
     },
@@ -574,7 +576,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           </select>
         </Row>
         {/* Fork addition. */}
-        <C>{check('vectorSnapshots', 'Vector Snapshots (keep drawings as vector graphics)', { title: 'Snapshot and Cut Content copy the page content as vector graphics, and the markups in the area as markups. Off: one picture of both, at the Snapshot Resolution.' })}</C>
+        <C>{check('vectorSnapshots', 'Vector Snapshots (keep drawings as vector graphics)', { title: 'Snapshot and Cut Content copy the page content as vector graphics, with the markups in the area drawn into them, no longer editable. Off: one picture of both, at the Snapshot Resolution.' })}</C>
         <C>{check('clickToPlace', 'Click to Place (click the start, then click the end)', { title: 'Lines, arrows, dimensions, rectangles, ellipses and clouds are drawn with two clicks, like the polyline. Dragging still works.' })}</C>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
       </Grid>

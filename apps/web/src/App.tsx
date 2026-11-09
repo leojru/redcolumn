@@ -120,7 +120,7 @@ import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, to
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { ClassicToolbars } from './components/fork/ClassicToolbars';
 import { StatusCommands } from './components/fork/StatusCommands';
-import { vectorSnapshotOf, withMarkupsInside } from './fork/snapshot';
+import { vectorSnapshotOf } from './fork/snapshot';
 import { markupLayersOfHiddenPdf } from './fork/pdfLayerMarkups';
 import { DimensionTextEditor } from './components/fork/DimensionTextEditor';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
@@ -1301,7 +1301,6 @@ export function App() {
   const formFieldRef = useRef<(pane: Pane, w: FormWidgetHit) => void>(() => {});
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
   /** The last Snapshot taken: its picture's pixel size and the image markup it pastes as. */
-  // Fork change: `markups` is the snapshot and, for a vector snapshot, the markups copied with it.
   const lastSnapshot = useRef<{ width: number; height: number; markups: Markup[] } | null>(null);
   const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean, polygon?: Point[]) => Promise<void>>(async () => {});
   const pasteImageRef = useRef<(file: Blob, at?: { pane: Pane; x: number; y: number }) => void>(() => {});
@@ -5641,12 +5640,17 @@ export function App() {
     const { o } = paneParts(pane);
     if (!o) return Promise.resolve();
     return (async () => {
-      // Fork change: the page content as vector graphics when it can be (the picture is then only its
-      // on-screen look, so it leaves the markups out: they are copied as markups instead).
-      const vector = settings.get().vectorSnapshots ? await vectorSnapshotOf(o.doc, pageIndex, rect, polygon) : null;
+      // Fork change: the page content as vector graphics when it can be, the markups drawn into it (the
+      // picture is its on-screen look). They stop being markups, so no other tool has to re-read them.
+      const store = o.store;
+      const useVector = settings.get().vectorSnapshots;
+      const fonts = useVector && withMarkups ? await fontExport(store.forPage(pageIndex)) : null;
+      const drawnIn = fonts ? { all: store.all(), options: { scaleFor: (i: number) => store.scaleFor(i), viewports: store.allViewports(), ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}), onFontFallback: fonts.onFontFallback } } : undefined;
+      const vector = useVector ? await vectorSnapshotOf(o.doc, pageIndex, rect, polygon, drawnIn) : null;
+      fonts?.done();
       // The resolution set in Preferences › Snapshot (at least 300 dpi for a vector one's preview), within 4096 px on the longest side.
       const dpi = vector ? Math.max(300, settings.get().snapshotDpi) : settings.get().snapshotDpi;
-      const region = await renderRegion(o, pageIndex, rect, (w, h) => Math.min(dpi / 72, 4096 / Math.max(w, h)), withMarkups && !vector);
+      const region = await renderRegion(o, pageIndex, rect, (w, h) => Math.min(dpi / 72, 4096 / Math.max(w, h)), withMarkups);
       if (!region) return;
       const { x0, y0, w, h } = region;
       let canvas = region.canvas;
@@ -5669,7 +5673,7 @@ export function App() {
       const markup: Markup = { id: 'snapshot', type: 'image', pageIndex, points: [[x0, y0], [x0 + w, y0 + h]], style: { ...DEFAULT_STYLES.image }, image: canvas.toDataURL('image/png'), subject: 'Snapshot', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
       // A vector snapshot's PDF content goes with the picture it was captured with (export checks the pair).
       if (vector) Object.assign(markup, { vector, vectorImage: markupDigest({ image: markup.image } as Markup) });
-      const markups = vector && withMarkups ? withMarkupsInside(markup, o.store.forPage(pageIndex)) : [markup];
+      const markups = [markup];
       // Also on the app's own clipboard, so pasting works where the system clipboard is off limits.
       clipboard.current = markups;
       // Pasted back from the system clipboard, the picture is recognised by its pixel size and placed
@@ -5677,7 +5681,7 @@ export function App() {
       lastSnapshot.current = { width: canvas.width, height: canvas.height, markups };
       setClipboardCount(markups.length);
       const kind = vector ? 'Vector snapshot' : 'Snapshot';
-      const pastesAs = vector ? (markups.length > 1 ? `the drawing (vector) with ${markups.length - 1} markup${markups.length > 2 ? 's' : ''}` : 'the drawing (vector)') : 'an image';
+      const pastesAs = vector ? 'the drawing (vector)' : 'an image';
       try {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
         setNotice(`${kind} copied to the clipboard. Ctrl+V pastes ${pastesAs}.`);

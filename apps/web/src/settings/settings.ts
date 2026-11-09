@@ -1,7 +1,7 @@
 // Modified in the leojru/redcolumn fork (revu-layout): vectorSnapshots setting; Omarchy theme by default; feet shown as feet and inches; clickToPlace.
 import { useSyncExternalStore } from 'react';
 import type { ThemeChoice } from '../theme/themes';
-import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, feetDisplay, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
 
 /**
  * App preferences (File → Preferences…), kept per browser. Unlike profiles they are not about the
@@ -240,8 +240,10 @@ export interface Settings {
   hiddenRibbonGroups: string[];
   /** Snapshot: resolution of the picture it copies, in dots per inch. */
   snapshotDpi: number;
-  /** Fork addition: Snapshot and Cut Content keep the page content as vector graphics (with the markups copied as markups), not as a picture. */
+  /** Fork addition: Snapshot and Cut Content keep the page content as vector graphics (with the markups in the area drawn into it, no longer editable), not as a picture. */
   vectorSnapshots: boolean;
+  /** Fork addition: feet read as feet and inches (12'-6"), even on a scale saved or chosen as decimal feet. */
+  feetAsFeetInches: boolean;
   /** Fork addition: lines, arrows, dimensions, rectangles, ellipses and clouds are drawn click, then click (a drag still works), as in Revu. */
   clickToPlace: boolean;
   /** Advanced › Experimental: an application embedding RedColumn may set the library id of files it launches and turn commands off (desktop/embedHost.ts). */
@@ -479,6 +481,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hiddenRibbonGroups: [],
   snapshotDpi: 200,
   vectorSnapshots: true,
+  feetAsFeetInches: true,
   clickToPlace: true,
   embedHostHooks: false,
 
@@ -604,7 +607,8 @@ const listeners = new Set<() => void>();
 /** Pages with no scale set measure at full size, shown in the default units. */
 function applyDefaultScale(s: Settings) {
   // Fork (leojru/redcolumn): feet are shown as feet and inches (12'-6"), to the 1/16".
-  const feetInches = s.lengthUnit === 'ft';
+  feetDisplay.feetAndInches = s.feetAsFeetInches;
+  const feetInches = s.lengthUnit === 'ft' && s.feetAsFeetInches;
   Object.assign(DEFAULT_SCALE, { unit: s.lengthUnit, areaUnit: s.areaUnit, volumeUnit: s.volumeUnit, feetInches, precision: feetInches ? 16 : UNIT_PRECISION[s.lengthUnit] });
 }
 applyDefaultScale(current);

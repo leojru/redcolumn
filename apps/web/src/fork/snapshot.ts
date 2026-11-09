@@ -1,6 +1,7 @@
 // Added in the leojru/redcolumn fork (revu-layout). Vector snapshots for the Snapshot and Cut Content
-// tools: the area's PDF content as vector graphics, with the markups inside it copied alongside.
+// tools: the area's PDF content as vector graphics, with the markups over it drawn in (not editable).
 import { makeVectorSnapshot, markupBounds, type Markup, type Point } from '@nb/markup';
+import type { ExportOptions } from '@nb/markup/export';
 
 interface SnapshotDoc {
   pages: readonly { width: number; height: number }[];
@@ -18,29 +19,36 @@ function clamp(doc: SnapshotDoc, pageIndex: number, rect: { x: number; y: number
   return w > 0 && h > 0 ? { x, y, w, h } : null;
 }
 
-/** The area's page content as a one-page PDF data URL, or null to fall back to the picture (too big, unreadable). */
-export async function vectorSnapshotOf(doc: SnapshotDoc, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, polygon?: readonly Point[]): Promise<string | null> {
-  const area = clamp(doc, pageIndex, rect);
-  if (!area) return null;
-  try {
-    return await makeVectorSnapshot(await doc.bytes(), pageIndex, area, polygon);
-  } catch {
-    return null;
-  }
+/** The document with the page's markups drawn into its content: other tools get plain page content, nothing to re-read. */
+async function withMarkupsDrawnIn(bytes: ArrayBuffer, pageIndex: number, markups: readonly Markup[], options: ExportOptions): Promise<ArrayBuffer | Uint8Array> {
+  const { exportWithAnnotations } = await import('@nb/markup/export');
+  const { flattenAnnotations } = await import('../documents/process');
+  const exported = await exportWithAnnotations(bytes, markups, options);
+  return (await flattenAnnotations(exported, null, (page) => (page === pageIndex ? 'flatten' : 'drop'))).bytes;
+}
+
+/** The markups to draw into a snapshot of `area`, with what saving them needs; omitted to leave them out. */
+export interface SnapshotMarkups {
+  all: readonly Markup[];
+  options: ExportOptions;
 }
 
 /**
- * The snapshot and copies of the markups lying wholly inside its box, grouped so they paste and
- * move together; the markups stay markups (editable), drawn over the snapshot.
+ * The area's page content as a one-page PDF data URL, with `markups` over the area drawn in, or
+ * null to fall back to the picture (too big, unreadable).
  */
-export function withMarkupsInside(snapshot: Markup, pageMarkups: readonly Markup[]): Markup[] {
-  const box = markupBounds(snapshot);
-  const inside = pageMarkups.filter((m) => {
-    if (m.id === snapshot.id) return false;
-    const b = markupBounds(m);
-    return b.x >= box.x && b.y >= box.y && b.x + b.w <= box.x + box.w && b.y + b.h <= box.y + box.h;
-  });
-  if (!inside.length) return [snapshot];
-  const groupId = crypto.randomUUID();
-  return [{ ...snapshot, groupId }, ...inside.sort((a, b) => a.createdAt - b.createdAt).map((m) => ({ ...m, groupId }))];
+export async function vectorSnapshotOf(doc: SnapshotDoc, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, polygon?: readonly Point[], markups?: SnapshotMarkups): Promise<string | null> {
+  const area = clamp(doc, pageIndex, rect);
+  if (!area) return null;
+  try {
+    const bytes = await doc.bytes();
+    const over = markups?.all.some((m) => {
+      if (m.pageIndex !== pageIndex) return false;
+      const b = markupBounds(m);
+      return b.x < area.x + area.w && b.x + b.w > area.x && b.y < area.y + area.h && b.y + b.h > area.y;
+    });
+    return await makeVectorSnapshot(over ? await withMarkupsDrawnIn(bytes, pageIndex, markups!.all, markups!.options) : bytes, pageIndex, area, polygon);
+  } catch {
+    return null;
+  }
 }
