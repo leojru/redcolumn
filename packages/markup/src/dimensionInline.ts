@@ -4,7 +4,7 @@
 import type { FontFamily } from './style';
 import { dimensionLine, type Markup, type Point } from './model';
 import type { PathCmd } from './geometry';
-import { frameAround, framePath, frameTextCentre, frameWidthAt, mapPath } from './textFrames';
+import { frameAround, framePath, frameTextCentre, frameWidthAt, mapPath, type TextFrame } from './textFrames';
 
 // Helvetica's advance widths (thousandths of an em) for printable ASCII, from its AFM.
 // prettier-ignore
@@ -85,6 +85,13 @@ export function liftLeader(m: Markup, center: Point, w: number, h: number): Poin
 export const DIM_LINE_HEIGHT = 1.2;
 
 /**
+ * Room added around a Dimension's text inside its frame, in ems (across, down). The shapes already keep
+ * their text clear of their slants; a hexagon's down room makes it two ems tall for a short value, as
+ * drawings' tags are. Only a box, whose sides are right against the text, needs room across.
+ */
+const FRAME_ROOM: Record<TextFrame, [number, number]> = { rect: [0.35, 0.1], circle: [0, 0], hexagon: [0, 0.56], triangle: [0, 0] };
+
+/**
  * Where a Dimension's text goes, one or more lines (Shift+Enter): each line's baseline point (its
  * centre, or with `align` left its start), turned `angle` radians (clockwise in page space).
  * - Inline: the lines centred on the dimension line, which breaks `gap` long around them.
@@ -151,7 +158,7 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
   const p = line.text;
   const kind = m.style.dimFrame;
   // The frame around the text, with a little room: its box, and where the text's middle sits in it.
-  const fw = kind ? frameAround(kind, w + size * 0.7, h + size * 0.35) : { w, h };
+  const fw = kind ? frameAround(kind, w + size * FRAME_ROOM[kind][0], h + size * FRAME_ROOM[kind][1]) : { w, h };
   const [fx, fy] = kind ? frameTextCentre(kind) : [0.5, 0.5];
   // Where the text's middle goes.
   let center: Point;

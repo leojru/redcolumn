@@ -96,3 +96,15 @@ test('a Length breaks its line around its label (no white box) unless a label ba
   const cut = breakAroundBox(markupShape(slanted), lengthLabelBox(slanted, measurementLabel(slanted))!).filter((p) => p.stroke && !p.decoration && p.path.length === 2);
   assert.equal(cut.length, 2);
 });
+
+test('a frame hugs its text: a hexagon is two ems tall for a short value and stays regular', () => {
+  const box = (text: string, dimFrame: 'hexagon' | 'rect') => dimensionText({ ...dim('inline', { fontSize: 10, dimFrame }), text })!.box;
+  for (const text of ['1', '1.7']) {
+    const hex = box(text, 'hexagon');
+    assert.ok(Math.abs(hex.h - 20) < 0.3, `${text}: ${hex.h}`);
+    assert.ok(Math.abs(hex.w / hex.h - 2 / Math.sqrt(3)) < 1e-6);
+  }
+  // A box keeps a little room, so its sides don't touch the text.
+  const rect = box('1.7', 'rect');
+  assert.ok(Math.abs(rect.w - (13.9 + 3.5)) < 0.1);
+});
