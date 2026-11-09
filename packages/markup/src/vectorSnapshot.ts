@@ -1,6 +1,6 @@
 // Added in the leojru/redcolumn fork (revu-layout). Vector snapshots: an area of a PDF page kept as
 // PDF content (lines, text and fills stay vector), not as a picture.
-import { PDFDocument, PDFName, PDFOperator, PDFNumber, PDFOperatorNames as Ops } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFObjectCopier, PDFOperator, PDFNumber, PDFOperatorNames as Ops, PDFRef, PDFStream } from 'pdf-lib';
 import type { Point } from './model';
 import { pageMatrix, type Matrix } from './export';
 
@@ -79,4 +79,40 @@ export async function makeVectorSnapshot(source: ArrayBuffer | Uint8Array, pageI
   const bytes = await out.save({ useObjectStreams: true });
   if (bytes.length > MAX_VECTOR_SNAPSHOT_BYTES) return null;
   return PDF_DATA_URL + toBase64(bytes);
+}
+
+const numbersOf = (a: PDFArray | undefined, n: number): number[] | null => {
+  const out = (a?.asArray() ?? []).map((v) => (v instanceof PDFNumber ? v.asNumber() : NaN));
+  return out.length === n && out.every(Number.isFinite) ? out : null;
+};
+
+/**
+ * Another tool's stamp (a Revu snapshot) as a one-page PDF the size of its /Rect, drawn from its own
+ * appearance, or null when it cannot be: for showing it sharply, not for saving.
+ */
+export async function stampAppearanceSheet(doc: PDFDocument, pageIndex: number, annotIndex: number): Promise<Uint8Array | null> {
+  const page = doc.getPages()[pageIndex];
+  if (!page || page.getRotation().angle % 360 !== 0) return null;
+  const annot = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray)?.lookupMaybe(annotIndex, PDFDict);
+  if (!annot || annot.get(PDFName.of('Subtype')) !== PDFName.of('Stamp')) return null;
+  const form = annot.lookupMaybe(PDFName.of('AP'), PDFDict)?.lookupMaybe(PDFName.of('N'), PDFStream);
+  const rect = numbersOf(annot.lookupMaybe(PDFName.of('Rect'), PDFArray), 4);
+  if (!form || !rect) return null;
+  const bbox = numbersOf(form.dict.lookupMaybe(PDFName.of('BBox'), PDFArray), 4);
+  if (!bbox) return null;
+  const matrix = (numbersOf(form.dict.lookupMaybe(PDFName.of('Matrix'), PDFArray), 6) ?? [1, 0, 0, 1, 0, 0]) as Matrix;
+  const [w, h] = [Math.abs(rect[2]! - rect[0]!), Math.abs(rect[3]! - rect[1]!)];
+  // The appearance's box as its /Matrix turns it, fitted to the sheet (PDF 12.5.5).
+  const corners = ([[bbox[0]!, bbox[1]!], [bbox[2]!, bbox[1]!], [bbox[0]!, bbox[3]!], [bbox[2]!, bbox[3]!]] as Point[]).map((p) => apply(matrix, p));
+  const [x0, y0] = [Math.min(...corners.map((p) => p[0])), Math.min(...corners.map((p) => p[1]))];
+  const [x1, y1] = [Math.max(...corners.map((p) => p[0])), Math.max(...corners.map((p) => p[1]))];
+  if (!(w > 0) || !(h > 0) || !(x1 > x0) || !(y1 > y0)) return null;
+  const out = await PDFDocument.create({ updateMetadata: false });
+  const sheet = out.addPage([w, h]);
+  const copied = PDFObjectCopier.for(doc.context, out.context).copy(form);
+  const ref = out.context.register(copied) as PDFRef;
+  const name = sheet.node.newXObject('Stamp', ref);
+  const [sx, sy] = [w / (x1 - x0), h / (y1 - y0)];
+  sheet.pushOperators(op(Ops.PushGraphicsState), op(Ops.ConcatTransformationMatrix, sx, 0, 0, sy, -x0 * sx, -y0 * sy), PDFOperator.of(Ops.DrawObject, [name]), op(Ops.PopGraphicsState));
+  return out.save({ useObjectStreams: true });
 }

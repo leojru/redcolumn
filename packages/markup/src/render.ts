@@ -45,13 +45,22 @@ const pictureDigests = new Map<string, string>();
 /** Fork: whether a snapshot's picture is still the one captured with its vector content. */
 function vectorStillCurrent(m: Markup): boolean {
   if (!m.vector || !m.image || !m.vectorImage) return false;
-  let digest = pictureDigests.get(m.image);
+  return digestOf(m.image) === m.vectorImage;
+}
+
+function digestOf(image: string): string {
+  let digest = pictureDigests.get(image);
   if (digest === undefined) {
     if (pictureDigests.size > 64) pictureDigests.clear();
-    digest = markupDigest({ image: m.image } as Markup);
-    pictureDigests.set(m.image, digest);
+    digest = markupDigest({ image } as Markup);
+    pictureDigests.set(image, digest);
   }
-  return digest === m.vectorImage;
+  return digest;
+}
+
+/** Fork: whether a picture is still the one a stamp from another tool came in with. */
+function importedPictureCurrent(m: Markup): boolean {
+  return !!m.image && !!m.pdfAnnot?.image && digestOf(m.image) === m.pdfAnnot.image;
 }
 
 function markupImage(src: string): HTMLImageElement | null {
@@ -497,7 +506,8 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
     const b = boundsOf(m.points);
     const img = markupImage(m.image);
-    const sharp = m.type === 'image' && !!vectorPictureDrawer && vectorStillCurrent(m) && vectorPictureDrawer(ctx, m.vector!, b, img?.naturalWidth ?? 0);
+    const sharpFrom = m.type !== 'image' || !vectorPictureDrawer ? null : vectorStillCurrent(m) ? m.vector! : importedPictureCurrent(m) ? m.image! : null;
+    const sharp = !!sharpFrom && vectorPictureDrawer!(ctx, sharpFrom, b, img?.naturalWidth ?? 0);
     if (img && !sharp) ctx.drawImage(img, b.x, b.y, b.w, b.h);
   }
   if (isTextType(m.type) && m.text) {

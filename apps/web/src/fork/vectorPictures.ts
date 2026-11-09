@@ -1,6 +1,7 @@
 // Added in the leojru/redcolumn fork (revu-layout). Keeps vector snapshots sharp on screen: past the
 // resolution of the stored picture, the part in view is drawn from the snapshot's PDF content.
-import { vectorSnapshotBytes } from '@nb/markup';
+import { stampAppearanceSheet, vectorSnapshotBytes, type MarkupStore } from '@nb/markup';
+import { PDFDocument } from 'pdf-lib';
 import type { PdfDocument, PdfEngine } from '@nb/pdf-core';
 
 interface Sheet {
@@ -41,6 +42,24 @@ const MAX_TILE_PX = 8192;
 const MAX_SHEETS = 24;
 const MAX_VIEWS = 8;
 
+/** Where the vector drawing of a stamp from another tool comes from, by its picture. Read only when zoomed in. */
+const sources = new Map<string, () => Promise<Uint8Array | null>>();
+const parsed = new WeakMap<PdfDocument, Promise<PDFDocument>>();
+
+/** Lets the stamps another tool wrote (Revu snapshots) in this document be drawn sharply. Saving does not use this. */
+export function registerStampSources(doc: PdfDocument, store: MarkupStore) {
+  for (const m of store.all()) {
+    if (m.type !== 'image' || !m.image || !m.pdfAnnot?.image || sources.has(m.image)) continue;
+    const { pageIndex } = m;
+    const { index } = m.pdfAnnot;
+    sources.set(m.image, async () => {
+      let file = parsed.get(doc);
+      if (!file) parsed.set(doc, (file = doc.bytes().then((b) => PDFDocument.load(b, { ignoreEncryption: true, updateMetadata: false }))));
+      return stampAppearanceSheet(await file, pageIndex, index);
+    });
+  }
+}
+
 /** A drawer for `setVectorPictureDrawer`: true when it drew the snapshot, false to show the picture. */
 export function createVectorPictures(engine: PdfEngine, redraw: () => void) {
   const sheets = new Map<string, Sheet>();
@@ -50,11 +69,14 @@ export function createVectorPictures(engine: PdfEngine, redraw: () => void) {
 
   const open = (url: string) => {
     if (opening.has(url) || (failed.get(url) ?? 0) > Date.now()) return;
-    const bytes = vectorSnapshotBytes(url);
-    if (!bytes) return;
+    const load = sources.get(url);
+    if (!load && !url.startsWith('data:application/pdf')) return;
     opening.add(url);
-    void engine
-      .open(bytes.slice().buffer as ArrayBuffer)
+    void (load ? load() : Promise.resolve(vectorSnapshotBytes(url)))
+      .then((bytes) => {
+        if (!bytes) throw new Error('No drawing');
+        return engine.open(bytes.slice().buffer as ArrayBuffer);
+      })
       .then((doc) => {
         const page = doc.pages[0];
         if (!page) throw new Error('No page');

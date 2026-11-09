@@ -121,7 +121,7 @@ import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { ClassicToolbars } from './components/fork/ClassicToolbars';
 import { StatusCommands } from './components/fork/StatusCommands';
 import { vectorSnapshotOf } from './fork/snapshot';
-import { createVectorPictures } from './fork/vectorPictures';
+import { createVectorPictures, registerStampSources } from './fork/vectorPictures';
 import { markupLayersOfHiddenPdf } from './fork/pdfLayerMarkups';
 import { DimensionTextEditor } from './components/fork/DimensionTextEditor';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
@@ -5787,6 +5787,16 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  // Fork (leojru/redcolumn): Revu's snapshots stay sharp as the view zooms in, as our own do.
+  useEffect(() => {
+    const stops = [open, openB].flatMap((o) => {
+      if (!o) return [];
+      const register = () => registerStampSources(o.doc, o.store);
+      register();
+      return [o.store.subscribe(register)];
+    });
+    return () => stops.forEach((stop) => stop());
+  }, [open, openB]);
   /** The drawing the active PDF was converted from in this visit, if any. */
   const activeCad = useCadConversion(activeOpen?.file.id);
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.

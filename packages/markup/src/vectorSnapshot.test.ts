@@ -5,7 +5,7 @@ import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFName, P
 import { exportWithAnnotations } from './export.ts';
 import { markupDigest } from './digest.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
-import { makeVectorSnapshot, vectorSnapshotBytes } from './vectorSnapshot.ts';
+import { makeVectorSnapshot, stampAppearanceSheet, vectorSnapshotBytes } from './vectorSnapshot.ts';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
@@ -95,4 +95,16 @@ test('once its picture is changed, a vector snapshot saves the picture', async (
   const ap = out.getPage(0).node.Annots()!.lookup(0, PDFDict).lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'), PDFStream);
   assert.match(text(ap), /\/Im0 Do/);
   assert.doesNotMatch(text(ap), /\/Fm0 Do/);
+});
+
+test("another tool's stamp becomes a sheet the size of its Rect, drawn from its appearance", async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const ctx = doc.context;
+  const form = ctx.register(ctx.stream('0 0 m 100 50 l S', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 100, 50], Matrix: [0, 1, -1, 0, 50, 0] }));
+  const stamp = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Stamp', Rect: [100, 200, 150, 300], AP: { N: form } }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([stamp]));
+  const sheet = await PDFDocument.load((await stampAppearanceSheet(doc, 0, 0))!);
+  assert.deepEqual([sheet.getPage(0).getWidth(), sheet.getPage(0).getHeight()], [50, 100]);
+  assert.equal(await stampAppearanceSheet(doc, 0, 1), null);
 });
