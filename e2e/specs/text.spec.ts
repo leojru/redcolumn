@@ -127,8 +127,8 @@ test.describe('text markups', () => {
     // The ribbon has a Line spacing field too; use the Properties panel's.
     await app.page.locator('.props-panel').getByLabel('Line spacing', { exact: true }).selectOption('2');
     expect(((await app.raw())[0]!.style as { lineHeight?: number }).lineHeight).toBe(2);
-    // Three 12 pt lines: 3 x 12 x 2 + padding, against 3 x 12 x 1.2 + padding.
-    expect(await height()).toBeGreaterThan(normal + 25);
+    // Fork (leojru/redcolumn): measured from the first line's capitals to the last baseline, so three 12 pt lines have two gaps: 2 x 12 x 2 against 2 x 12 x 1.2.
+    expect(await height()).toBeGreaterThan(normal + 15);
   });
 
   test('a middle-aligned box edits with its text centred, as it renders', async ({ app }) => {

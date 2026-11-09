@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: a top-aligned box edits where its text renders too.
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { autoFormatList, autoSizedPoints, backspaceList, contentBox, continueList, cssFont, shiftList, textBlockShift, textLineHeight, textPadding, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
 import { settings, useSettings } from '../settings/settings';
@@ -119,10 +120,9 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
   const width = Math.max(box.w * scale, typewriter ? 320 : 0);
   const height = Math.max(box.h * scale, typewriter ? fontSize * scale * 3 : 0);
 
-  // Middle and bottom text sits lower than the top: pad the first line down to where it renders.
-  const valigned = !typewriter && (markup.style.verticalAlign ?? 'top') !== 'top';
+  // Pad the first line to where it renders. Fork (leojru/redcolumn): top-aligned boxes too.
   let padTop = textPadding(markup.style) * scale;
-  if (valigned) {
+  if (!typewriter) {
     const mctx = document.createElement('canvas').getContext('2d')!;
     mctx.font = cssFont(markup.style, fontSize);
     padTop = Math.max(0, padTop + textBlockShift({ ...markup, text: typed }, (s) => mctx.measureText(s).width) * scale);
@@ -206,7 +206,7 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
           textAlign: markup.style.textAlign ?? 'left',
           textDecoration: [markup.style.underline && 'underline', markup.style.strikethrough && 'line-through'].filter(Boolean).join(' ') || undefined,
           padding: textPadding(markup.style) * scale,
-          ...(valigned ? { paddingTop: padTop, paddingBottom: 0 } : {}),
+          ...(typewriter ? {} : { paddingTop: padTop, paddingBottom: 0 }),
           color: textColor(markup.style),
           background: editorBackground(markup),
         }}

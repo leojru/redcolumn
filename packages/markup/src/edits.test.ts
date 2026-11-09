@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoSizedPoints, canAutoSize, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits.ts';
+import { autoSizedPoints, canAutoSize, keepTextInBox, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits.ts';
 import { markupShape } from './geometry.ts';
 import { legendRows } from './legend.ts';
 import { DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
@@ -38,8 +38,11 @@ test('Auto-size fits a text box to its text and keeps its top-left corner', () =
   const measure = (s: string) => s.length * 6;
   const box = mk('text', [[20, 30], [400, 300]], { text: 'Hello\nwide world line', style: { ...DEFAULT_STYLES.text, fontSize: 10 } });
   const pts = autoSizedPoints(box, measure)!;
-  // 15 characters × 6 + padding; 2 lines × 12 + padding.
-  assert.deepEqual(pts, [[20, 30], [20 + Math.ceil(90 + 8 + 1), 30 + Math.ceil(24 + 8)]]);
+  // 15 characters × 6 + padding; one line down to the second's capitals (10 × 0.718) + padding.
+  assert.equal(pts[0]![0], 20);
+  assert.equal(pts[0]![1], 30);
+  assert.ok(Math.abs(pts[1]![0] - (20 + 90 + 8 + 0.5)) < 1e-6);
+  assert.ok(Math.abs(pts[1]![1] - (30 + 12 + 7.18 + 8)) < 1e-6);
   const callout = mk('callout', [[0, 0], [10, 10], [50, 50], [300, 200]], { text: 'ab', style: { ...DEFAULT_STYLES.callout, fontSize: 10 } });
   const c = autoSizedPoints(callout, measure)!;
   assert.deepEqual(c.slice(0, 3), [[0, 0], [10, 10], [50, 50]], 'the leader stays where it was');
@@ -73,7 +76,28 @@ test('an auto-sized text box grows with its line spacing', () => {
     const [a, b] = autoSizedPoints(m, measure)!;
     return b![1] - a![1];
   };
-  assert.equal(height(), Math.ceil(3 * 10 * 1.2 + 8));
-  assert.equal(height(2), 3 * 10 * 2 + 8);
+  assert.ok(Math.abs(height() - (2 * 10 * 1.2 + 7.18 + 8)) < 1e-6);
+  assert.ok(Math.abs(height(2) - (2 * 10 * 2 + 7.18 + 8)) < 1e-6);
   assert.ok(height(2) > height(1));
+});
+
+test('resizing a text box keeps its text showing: no narrower than a word, as tall as the text wrapped', () => {
+  const measure = (s: string) => s.length * 6;
+  const m = mk('text', [[100, 100], [300, 140]], { text: 'SEE NOTE', style: { ...DEFAULT_STYLES.text, fontSize: 10 } });
+  // Dragged small from the bottom right: the top left stays; the word fits; two lines fit.
+  const [a, b] = keepTextInBox(m, [[100, 100], [110, 105]], measure) as [[number, number], [number, number]];
+  assert.deepEqual(a, [100, 100]);
+  assert.ok(Math.abs(b[0] - (100 + 24 + 8 + 0.5)) < 1e-6);
+  assert.ok(Math.abs(b[1] - (100 + 12 + 7.18 + 8)) < 1e-6);
+  // From the top left: the bottom right stays.
+  const [c, d] = keepTextInBox(m, [[295, 138], [300, 140]], measure) as [[number, number], [number, number]];
+  assert.deepEqual(d, [300, 140]);
+  assert.ok(c[0] < 295 && c[1] < 138);
+  // Big enough: left exactly as dragged. A callout's leader stays.
+  const fine: [number, number][] = [[100, 100], [260, 130]];
+  assert.deepEqual(keepTextInBox(m, fine, measure), fine);
+  const callout = mk('callout', [[0, 0], [10, 10], [50, 50], [300, 200]], { text: 'SEE', style: { ...DEFAULT_STYLES.callout, fontSize: 10 } });
+  const out = keepTextInBox(callout, [[0, 0], [10, 10], [50, 50], [52, 52]], measure);
+  assert.deepEqual(out.slice(0, 3), [[0, 0], [10, 10], [50, 50]]);
+  assert.ok(out[3]![0] > 52 && out[3]![1] > 52);
 });

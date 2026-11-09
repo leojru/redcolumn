@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving.
+// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing.
 import {
   align,
   centerOnPage,
@@ -77,6 +77,7 @@ import {
   dimensionText,
   readingFrame,
   autoSizedPoints,
+  keepTextInBox,
   cssFont,
   markupSnapPoints,
   rotateHandle,
@@ -1805,6 +1806,18 @@ export class MarkupTools implements ViewerOverlay {
    * Fork (leojru/redcolumn): with Preferences › Auto-size Text Box on, the selected text boxes and
    * callouts are refitted to their text (after a border shape changes, say).
    */
+  /** Fork (leojru/redcolumn): a markup's points with a handle dragged; a text box or callout stays big enough to show its text. */
+  private handleMoved(m: Markup, index: number, point: Point): Point[] {
+    const points = handleEdit(m, index, point);
+    if ((m.type !== 'text' && m.type !== 'callout') || typeof document === 'undefined') return points;
+    const g = (this.textMeasure ??= document.createElement('canvas').getContext('2d'));
+    if (!g) return points;
+    g.font = cssFont(m.style, m.style.fontSize ?? 12);
+    return keepTextInBox(m, points, (t) => g.measureText(t).width);
+  }
+
+  private textMeasure: CanvasRenderingContext2D | null = null;
+
   autoSizeSelectedText() {
     const store = this.store;
     if (!store || !settings.get().autoSizeText) return;
@@ -3704,7 +3717,7 @@ export class MarkupTools implements ViewerOverlay {
       if (m?.type === 'connector') {
         const next = this.connectorEndMoved(m, g.index, g.point);
         this.store.update(g.id, { points: next.points, connect: next.connect });
-      } else if (m) this.store.update(g.id, { points: handleEdit(m, g.index, g.point) });
+      } else if (m) this.store.update(g.id, { points: this.handleMoved(m, g.index, g.point) });
     } else if (g.kind === 'bend') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { bulges: withBulge(m, g.segment, g.bulge) });
@@ -4873,7 +4886,7 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
-    if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: handleEdit(m, g.index, g.point) };
+    if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: this.handleMoved(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'segment' && g.id === m.id) return this.withBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };

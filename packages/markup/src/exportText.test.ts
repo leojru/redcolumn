@@ -50,10 +50,9 @@ test('line spacing is written to /DS and /RC, and the drawn lines follow it', as
   assert.deepEqual(gaps(ys(await appearanceText(withSpacing(2)))), [20, 20]);
   assert.deepEqual(gaps(ys(await appearanceText(withSpacing(1.5)))), [15, 15]);
 
-  // Extra leading is split above and below the glyphs, as CSS (the editor, rich text) does: half of the
-  // difference from the default moves the first line, and none at the default.
+  // Fork (leojru/redcolumn): a text box's capitals stay one padding below its top at any line spacing.
   const first = async (lh?: number) => ys(await appearanceText(withSpacing(lh)))[0]!;
-  assert.ok(Math.abs((await first(2)) - (await first()) - 4) < 0.01);
+  assert.ok(Math.abs((await first(2)) - (await first())) < 0.01);
   assert.equal(await first(1.2), await first());
 
   const doc = await PDFDocument.create();

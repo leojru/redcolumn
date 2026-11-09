@@ -168,9 +168,11 @@ test('textBlockShift is the first line\'s drop below top alignment, for the edit
   const measure = (s: string) => s.length * 6;
   const m = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [200, 100]], status: 'none', author: '', createdAt: 1, modifiedAt: 1, text: 'one\ntwo' } as Markup;
   const at = (verticalAlign: 'top' | 'middle' | 'bottom') => ({ ...m, style: { ...DEFAULT_STYLES.text, fontSize: 12, verticalAlign } });
-  assert.equal(textBlockShift(at('top'), measure), 0);
+  // Top: capitals one padding below the box's top, the line a little above that.
+  const fm = TEXT_INK_METRICS.sans;
+  assert.ok(Math.abs(textBlockShift(at('top'), measure) + (fm.ascent - fm.cap) * 12) < 1e-9);
   const lines = (v: 'top' | 'middle' | 'bottom') => textBoxLines(at(v), measure)[0]!.y;
-  assert.ok(Math.abs(textBlockShift(at('middle'), measure) - (lines('middle') - lines('top'))) < 1e-9);
+  assert.ok(Math.abs(textBlockShift(at('middle'), measure) - textBlockShift(at('top'), measure) - (lines('middle') - lines('top'))) < 1e-9);
   assert.ok(textBlockShift(at('middle'), measure) > 0);
   assert.ok(textBlockShift(at('bottom'), measure) > textBlockShift(at('middle'), measure));
 });
@@ -184,7 +186,7 @@ test('middle and bottom vertical alignment place the visible text block, not the
       const fm = TEXT_INK_METRICS[family];
       const ink = (valign: 'middle' | 'bottom') => {
         const lines = textBoxLines({ ...base, style: { ...DEFAULT_STYLES.text, fontSize: size, fontFamily: family, verticalAlign: valign } }, measure);
-        return { top: lines[0]!.y + (fm.ascent - fm.cap) * size, bottom: lines[lines.length - 1]!.y + (fm.ascent + fm.descent) * size };
+        return { top: lines[0]!.y + (fm.ascent - fm.cap) * size, bottom: lines[lines.length - 1]!.y + fm.ascent * size };
       };
       const mid = ink('middle');
       assert.ok(Math.abs((mid.top + mid.bottom) / 2 - 50) < 0.5, `${family} ${text.length} middle`);
