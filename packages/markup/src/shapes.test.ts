@@ -349,3 +349,18 @@ test('a new line colour leaves the text the colour it was; a set text colour sta
   assert.deepEqual(keepTextColor('typewriter', style, { stroke: '#0000ff' }), { stroke: '#0000ff' });
   assert.deepEqual(keepTextColor('text', style, { width: 2 }), { width: 2 });
 });
+
+// Fork (leojru/redcolumn).
+test('a 45° tick leans the same way at both ends of a line across the page', async () => {
+  const { DEFAULT_STYLES } = await import('./model.ts');
+  const { markupShape } = await import('./geometry.ts');
+  const m = { id: 'a', type: 'dimension', pageIndex: 0, points: [[100, 100], [300, 100]], style: { ...DEFAULT_STYLES.dimension, startCap: 'slash', endCap: 'slash', width: 1 }, status: 'none', author: '', createdAt: 0, modifiedAt: 0 } as never;
+  const ticks = markupShape(m).filter((p) => p.decoration);
+  assert.equal(ticks.length, 2);
+  for (const t of ticks) {
+    const [a, b] = [t.path[0]!, t.path[1]!] as [['M', number, number], ['L', number, number]];
+    // Up to the right on the page (y runs down).
+    assert.ok((b[1] - a[1]) / (b[2] - a[2]) < 0, 'leans /');
+    assert.ok(Math.abs(Math.abs(b[1] - a[1]) - Math.abs(b[2] - a[2])) < 1e-6, '45°');
+  }
+});

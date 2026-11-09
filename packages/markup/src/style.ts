@@ -32,8 +32,8 @@ export const LINE_ENDINGS: { value: LineEnding; label: string }[] = [
   { value: 'filledSquare', label: 'Filled square' },
   { value: 'diamond', label: 'Diamond' },
   { value: 'filledDiamond', label: 'Filled diamond' },
-  { value: 'tick', label: 'Tick (dimension)' },
-  { value: 'slash', label: 'Slash (architectural)' },
+  { value: 'slash', label: 'Tick (45°)' },
+  { value: 'tick', label: 'Tick (straight)' },
 ];
 
 export type LineDash = 'solid' | 'dashed' | 'longDash' | 'dotted' | 'dashDot' | 'dashDotDot';

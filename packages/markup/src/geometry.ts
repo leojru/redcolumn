@@ -530,7 +530,8 @@ function lineEnding(kind: LineEnding, tip: Point, [ux, uy]: [number, number], si
       return { parts: [{ path: polyline([at(0, -size / 2), at(0, size / 2)]), stroke: true, fill: null, decoration: true }], trim: 0 };
     case 'slash': {
       const k = size / 2 / Math.SQRT2;
-      return { parts: [{ path: polyline([at(-k, -k), at(k, k)]), stroke: true, fill: null, decoration: true }], trim: 0 };
+      // Fork (leojru/redcolumn): leaning as a CAD architectural tick (/ on a line across the page), the same at both ends.
+      return { parts: [{ path: polyline([at(-k, k), at(k, -k)]), stroke: true, fill: null, decoration: true }], trim: 0 };
     }
   }
 }

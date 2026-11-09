@@ -206,7 +206,8 @@ const ARROW_CHOICES: { value: LineEnding; label: string }[] = [
   { value: 'filledArrow', label: 'Filled arrow' },
   { value: 'openArrow', label: 'Open arrow' },
   { value: 'closedArrow', label: 'Closed arrow' },
-  { value: 'tick', label: 'Tick' },
+  { value: 'slash', label: 'Tick (45°)' },
+  { value: 'tick', label: 'Tick (straight)' },
   { value: 'none', label: 'None' },
 ];
 
