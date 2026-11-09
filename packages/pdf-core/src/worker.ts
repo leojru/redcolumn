@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Disable Line Weights sets the page's stroke widths to hairlines while drawing.
 /// <reference lib="webworker" />
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import wasmUrl from '@embedpdf/pdfium/pdfium.wasm?url';
@@ -9,7 +10,6 @@ declare const self: DedicatedWorkerGlobalScope;
 const FPDFBitmap_BGRA = 4;
 const FPDF_ANNOT = 0x01;
 const FPDF_REVERSE_BYTE_ORDER = 0x10;
-const FPDF_THIN_LINE = 0x20;
 const FPDF_PAGEOBJ_PATH = 2;
 const FPDF_PAGEOBJ_FORM = 5;
 const FPDF_SEGMENT_LINETO = 0;
@@ -594,6 +594,38 @@ function bitmapPixels(m: WrappedPdfiumModule, bitmap: number, w: number, h: numb
   return rgba;
 }
 
+/**
+ * Fork (leojru/redcolumn): every path on `page` drawn at hairline weight (PDFium has no render flag
+ * for it). Returns what puts the widths back: the page is not rewritten, and is only thin while drawn.
+ */
+function thinStrokes(m: WrappedPdfiumModule, page: number): () => void {
+  const { malloc, free } = m.pdfium.wasmExports;
+  const ptr = malloc(4);
+  const widths: [number, number][] = [];
+  const walk = (obj: number) => {
+    const type = m.FPDFPageObj_GetType(obj);
+    if (type === FPDF_PAGEOBJ_PATH) {
+      if (m.FPDFPageObj_GetStrokeWidth(obj, ptr)) {
+        const width = m.pdfium.HEAPF32[ptr >> 2]!;
+        if (width > 0) {
+          widths.push([obj, width]);
+          m.FPDFPageObj_SetStrokeWidth(obj, 0);
+        }
+      }
+    } else if (type === FPDF_PAGEOBJ_FORM) {
+      const count = m.FPDFFormObj_CountObjects(obj);
+      for (let i = 0; i < count; i++) walk(m.FPDFFormObj_GetObject(obj, i));
+    }
+  };
+  try {
+    const count = m.FPDFPage_CountObjects(page);
+    for (let i = 0; i < count; i++) walk(m.FPDFPage_GetObject(page, i));
+  } finally {
+    free(ptr);
+  }
+  return () => widths.forEach(([obj, width]) => m.FPDFPageObj_SetStrokeWidth(obj, width));
+}
+
 /** Draws a region of a page (from `host`) into RGBA pixels; null when stopped. */
 async function renderPixels(m: WrappedPdfiumModule, doc: OpenDoc, host: Host, req: TileRequest, stop: () => boolean, parsed?: { ms: number }): Promise<Uint8ClampedArray<ArrayBuffer> | null> {
   const page = getPage(m, doc, req.pageIndex, host, parsed);
@@ -601,12 +633,14 @@ async function renderPixels(m: WrappedPdfiumModule, doc: OpenDoc, host: Host, re
   const bitmap = m.FPDFBitmap_CreateEx(w, h, FPDFBitmap_BGRA, 0, 0);
   if (!bitmap) throw new Error('Failed to allocate bitmap');
   host.busy = req.pageIndex;
+  const restoreStrokes = req.thinLines ? thinStrokes(m, page) : null;
   try {
     m.FPDFBitmap_FillRect(bitmap, 0, 0, w, h, req.transparent ? 0x00ffffff : 0xffffffff);
-    const flags = FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER | (req.thinLines ? FPDF_THIN_LINE : 0);
+    const flags = FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER;
     if (!(await drawPage(m, host, page, bitmap, req.x, req.y, pageSizePx(m, page, req.scale), flags, stop))) return null;
     return bitmapPixels(m, bitmap, w, h);
   } finally {
+    restoreStrokes?.();
     host.busy = null;
     m.FPDFBitmap_Destroy(bitmap);
   }
