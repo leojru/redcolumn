@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds).
+// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); line and text colours kept apart.
 import type { Markup, MarkupStyle, MarkupType } from './model';
 import { TYPE_INFO } from './types';
 
@@ -167,6 +167,17 @@ export function cssFont(style: MarkupStyle, size: number, measure = false): stri
 }
 
 /** Color used for text and labels. */
+/** Fork (leojru/redcolumn): markups with a border and text whose colours are set apart, as in Revu. */
+export function hasOwnTextColor(type: MarkupType): boolean {
+  return type === 'text' || type === 'callout' || type === 'flagLabel' || type === 'flowShape';
+}
+
+/** Fork: `patch` for `style`, a new line colour leaving the text the colour it was. */
+export function keepTextColor(type: MarkupType, style: MarkupStyle, patch: Partial<MarkupStyle>): Partial<MarkupStyle> {
+  if (patch.stroke === undefined || 'textColor' in patch || style.textColor !== undefined || !hasOwnTextColor(type)) return patch;
+  return { ...patch, textColor: style.stroke };
+}
+
 export function textColor(style: MarkupStyle): string {
   return style.textColor ?? style.stroke;
 }

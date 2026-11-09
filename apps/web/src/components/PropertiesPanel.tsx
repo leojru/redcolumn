@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above), frame and align; text box Shape.
+// Modified in the leojru/redcolumn fork: Dimension text position (Inline / Above), frame and align; text box Shape; text color independent of the line color; cloud borders.
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   BLEND_MODES,
@@ -32,7 +32,7 @@ import {
   ROTATABLE,
   TEXT_FRAMES,
   type TextFrame,
-} from '@nb/markup';
+hasOwnTextColor } from '@nb/markup';
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, type Scale, type Slope } from '@nb/measure';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
@@ -482,7 +482,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
         )}
         {caps.dash && (
           <Row label="Line style">
-            <LineStyleSelect style={style} markups={markups} onChange={onChange} />
+            <LineStyleSelect style={style} markups={markups} cloud={type === 'text' || type === 'callout' || type === 'image'} onChange={onChange} />
           </Row>
         )}
         <Row label="Opacity">
@@ -557,7 +557,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
             )}
           </>
         )}
-        {caps.arcRadius === 'Arc size' && (
+        {(caps.arcRadius === 'Arc size' || style.cloudBorder) && (
           <Row label="Arcs">
             <select value={style.cloudInside ? 'inside' : 'outside'} onChange={(e) => set('cloudInside', e.target.value === 'inside' || undefined)}>
               <option value="outside">Bulge outward</option>
@@ -565,8 +565,8 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
             </select>
           </Row>
         )}
-        {caps.arcRadius && (
-          <Row label={caps.arcRadius}>
+        {(caps.arcRadius || style.cloudBorder) && (
+          <Row label={caps.arcRadius ?? 'Arc size'}>
             <NumberField value={style.arcRadius} placeholder="Auto" min={0.5} max={200} step={0.5} unit="pt" onChange={(v) => set('arcRadius', v)} />
           </Row>
         )}
@@ -661,12 +661,12 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
             </span>
           </Row>
           <Row label="Text color">
-            <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={style.textColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('textColor', c ?? undefined)} />
+            <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={hasOwnTextColor(type) ? (style.textColor ?? style.stroke) : (style.textColor ?? null)} fallback={style.stroke} noneLabel={hasOwnTextColor(type) ? undefined : 'Same as line'} onChange={(c) => (c || !hasOwnTextColor(type)) && set('textColor', c ?? undefined)} />
           </Row>
           {/* Fork (leojru/redcolumn): a text box's or callout's border shape; the text sits inside it. */}
           {(type === 'text' || type === 'callout') && (
             <Row label="Shape" title="The border's shape; the text sits inside it">
-              <select value={style.boxShape ?? 'rect'} onChange={(e) => onChange(e.target.value === 'rect' ? { boxShape: undefined } : { boxShape: e.target.value as TextFrame, textAlign: 'center', verticalAlign: 'middle' })}>
+              <select value={style.boxShape ?? 'rect'} onChange={(e) => onChange(e.target.value === 'rect' ? { boxShape: undefined } : { boxShape: e.target.value as TextFrame, cloudBorder: undefined, textAlign: 'center', verticalAlign: 'middle' })}>
                 {TEXT_FRAMES.map((f) => (
                   <option key={f.value} value={f.value}>
                     {f.label}

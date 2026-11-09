@@ -484,3 +484,25 @@ test('a newer importer refreshes other tools\' markups that were not edited, and
   assert.equal(store.importVersion(), 2);
   await store.destroy();
 });
+
+// Fork (leojru/redcolumn).
+test('a text box with a cloud border comes in as one, and goes back out as one', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const ctx = doc.context;
+  const annot = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', NM: text('CLOUDY'), Contents: text('Note'), DA: text('1 0 0 rg /Helv 12 Tf'), C: [], BS: { W: 1, S: 'S' }, BE: { S: 'C', I: 2 }, Rect: [100, 600, 300, 700], RD: [10, 10, 10, 10] }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([annot]));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 1, author: '', intent: '', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const { markups } = importAnnotations(0, [{ ...base, index: 0, objectNumber: annot.objectNumber, subtype: 'FreeText', contents: 'Note' }], () => null, extras);
+  const m = markups[0]!;
+  assert.equal(m.type, 'text');
+  assert.equal(m.style.cloudBorder, true);
+  assert.equal(m.style.arcRadius, 6);
+  assert.ok(markupShape(m)[0]!.path.some((c) => c[0] === 'C'), 'the border is drawn in arcs');
+
+  const out = await PDFDocument.load(await exportWithAnnotations(await PDFDocument.create().then((d) => { d.addPage([600, 800]); return d.save(); }) as unknown as ArrayBuffer, [{ ...m, id: 'x', pageIndex: 0, status: 'none', author: 'A', createdAt: 1, modifiedAt: 1 } as Markup]));
+  const written = out.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).lookup(0, PDFDict);
+  assert.equal(written.lookup(PDFName.of('BE'), PDFDict).get(PDFName.of('S'))?.toString(), '/C');
+});

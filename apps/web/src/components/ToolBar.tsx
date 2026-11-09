@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: text box Shape; Highlight (Multiply); Start/End line endings; Dimension text Inline/Above, Frame and Align.
+// Modified in the leojru/redcolumn fork: text box Shape; Highlight (Multiply); Start/End line endings; Dimension text Inline/Above, Frame and Align; Text color apart from the line color; Cloud in the line style list, with its bubbles and arcs.
 import { Children, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { LINE_ENDINGS, TEXT_FRAMES, type TextFrame, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
@@ -437,7 +437,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
                 value={textStyle.boxShape ?? 'rect'}
                 onChange={(e) => {
                   const shape = e.target.value as TextFrame;
-                  apply(textType, shape === 'rect' ? { boxShape: undefined } : { boxShape: shape, textAlign: 'center', verticalAlign: 'middle' });
+                  apply(textType, shape === 'rect' ? { boxShape: undefined } : { boxShape: shape, cloudBorder: undefined, textAlign: 'center', verticalAlign: 'middle' });
                   tools.autoSizeSelectedText();
                 }}
               >
@@ -454,7 +454,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           {caps!.dash && (
             <label className="field" title="Line style">
               <FieldTag icon={STYLE_ICONS.lineStyle} label="Line" />
-              <LineStyleSelect style={style} mixed={mixedDash} markups={markups} onChange={(patch) => apply(styleType, patch)} />
+              <LineStyleSelect style={style} mixed={mixedDash} markups={markups} cloud={!mixedTypes && (styleType === 'text' || styleType === 'callout' || styleType === 'image')} onChange={(patch) => apply(styleType, patch)} />
             </label>
           )}
           <label className="field" title="Opacity">
@@ -628,6 +628,22 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           </label>
         </Cluster>
       )}
+      {/* Fork (leojru/redcolumn): a border drawn as a cloud (Cloud in the line style list). */}
+      {style && styleType && !mixedTypes && style.cloudBorder && (styleType === 'text' || styleType === 'callout' || styleType === 'image') && (
+        <Cluster label="Cloud">
+          <label className="field" title="Size of the cloud's bubbles (pt)">
+            Bubbles
+            <ComboField title="Bubble size" value={style.arcRadius} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => apply(styleType, { arcRadius: v })} />
+          </label>
+          <label className="field" title="Which way the cloud's bubbles bulge">
+            Arcs
+            <select aria-label="Cloud arcs" value={style.cloudInside ? 'inside' : 'outside'} onChange={(e) => apply(styleType, { cloudInside: e.target.value === 'inside' || undefined })}>
+              <option value="outside">Outward</option>
+              <option value="inside">Inward</option>
+            </select>
+          </label>
+        </Cluster>
+      )}
       <Cluster label="Text" show={!!textStyle && !!textType && textCaps!.font}>
       <PropLine>
       {textStyle && textType && textCaps!.font && (
@@ -650,6 +666,10 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           />
           pt
         </label>
+      )}
+      {/* Fork (leojru/redcolumn): the text's colour, apart from the border's. */}
+      {textStyle && textType && textCaps!.font && (
+        <ColorMenu label="Text color" short="Text" title="Text color: the text only, not its border" icon={STYLE_ICONS.line} value={textStyle.textColor ?? textStyle.stroke} mixed={mixedOf('textColor')} onChange={(c) => c && apply(textType, { textColor: c })} />
       )}
       {textStyle && textType && textCaps!.font && (
         <span className="seg" role="group" aria-label="Text style">

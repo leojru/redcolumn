@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots); MarkupStyle.dimText and labelLift (dimension text); its bounds take in the text; text box border shapes (boxShape).
+// Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots); MarkupStyle.dimText and labelLift (dimension text); its bounds take in the text; text box border shapes (boxShape); cloud borders on text boxes, callouts and pictures.
 import { frameInner, type TextFrame } from './textFrames';
 import { expandArcs, isMeasureKind, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
 import { arcPoints } from './arc';
@@ -216,6 +216,8 @@ export interface MarkupStyle {
   dimFrame?: TextFrame;
   /** Fork (leojru/redcolumn): a text box's or callout's border shape (default a rectangle); the text sits inside it. */
   boxShape?: TextFrame;
+  /** Fork (leojru/redcolumn): a text box's, callout's or picture's border is a cloud (arcRadius and cloudInside apply). */
+  cloudBorder?: boolean;
 }
 
 /** A file embedded in the PDF (File Attachment markups, sound notes). */
@@ -639,7 +641,7 @@ function unrotatedBounds(m: Markup): Rect {
   const pad =
     m.style.width / 2 +
     (ends[0] !== 'none' || ends[1] !== 'none' ? capSize(m) : 0) +
-    (m.type === 'cloud' || m.type === 'polygonCloud' ? cloudReach(m) : 0) +
+    (m.type === 'cloud' || m.type === 'polygonCloud' || hasCloudBorder(m) ? cloudReach(m) : 0) +
     (isMeasureKind(m.type) ? markerSize(m) * (m.type === 'angle' ? 3 : 1) : 0) +
     (m.type === 'length' || m.type === 'dimension' ? Math.abs(m.style.leader ?? 0) : 0);
   const out = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
@@ -719,6 +721,11 @@ export function capSize(m: Markup): number {
   return base * (m.style.capScale ?? 1);
 }
 
+/** Fork (leojru/redcolumn): whether a text box, callout or picture has a cloud for a border. */
+export function hasCloudBorder(m: Pick<Markup, 'type' | 'style'>): boolean {
+  return !!m.style.cloudBorder && (m.type === 'text' || m.type === 'callout' || m.type === 'image');
+}
+
 /** Radius of the arcs along a cloud's edge. */
 export function cloudRadius(m: Markup): number {
   return m.style.arcRadius ?? Math.max(4, m.style.width * 4);
@@ -737,7 +744,7 @@ export function cloudBumps(len: number, radius: number): { n: number; r: number 
  */
 export function cloudReach(m: Markup): number {
   const radius = cloudRadius(m);
-  const pts = m.type === 'cloud' ? cloudCorners(m.points) : m.points;
+  const pts = m.type === 'cloud' || hasCloudBorder(m) ? cloudCorners(m.type === 'callout' ? m.points.slice(2, 4) : m.points) : m.points;
   let reach = radius;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i]!;

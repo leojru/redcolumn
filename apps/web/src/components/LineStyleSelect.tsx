@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Cloud in the list for borders that can be one.
 import { useMemo } from 'react';
 import { documentLineStyles, LINE_DASHES, type CustomLine, type LineDash, type Markup, type MarkupStyle } from '@nb/markup';
 import { lineSetLibrary, useWorkspace } from '../workspace/profiles';
@@ -10,6 +11,8 @@ interface Props {
   onChange: (patch: Partial<MarkupStyle>) => void;
   /** The selected markups have different line styles: nothing is shown as picked. */
   mixed?: boolean;
+  /** Fork (leojru/redcolumn): the border can be a cloud. */
+  cloud?: boolean;
 }
 
 const sameLine = (a: CustomLine, b: CustomLine) => a.name === b.name && JSON.stringify(a.spec) === JSON.stringify(b.spec);
@@ -18,7 +21,7 @@ const sameLine = (a: CustomLine, b: CustomLine) => a.name === b.name && JSON.str
  * The Line style picker: plain dashes, the built-in and imported line style sets, and the custom
  * styles a Revu document brings with it. A style's own pick shows as selected wherever it is listed.
  */
-export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
+export function LineStyleSelect({ style, markups, onChange, mixed, cloud }: Props) {
   const ws = useWorkspace();
   const sets = useMemo(() => lineSetLibrary(ws), [ws]);
   const inDocument = useMemo(() => documentLineStyles(markups, sets.flatMap((s) => s.styles)), [markups, sets]);
@@ -36,6 +39,8 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
     });
   }
 
+  if (cloud && style.cloudBorder) value = 'cloud';
+
   return (
     <select
       value={mixed ? '' : value}
@@ -48,12 +53,17 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
           openLineStyles();
           return;
         }
+        if (v === 'cloud') {
+          onChange({ cloudBorder: true, boxShape: undefined, noBox: undefined, borderless: undefined, dash: undefined, dashArray: undefined, lineStyle: undefined, ...(style.width > 0 ? {} : { width: 1 }) });
+          return;
+        }
+        const notCloud = cloud ? { cloudBorder: undefined } : {};
         // A style from a line set ('line:<set>:<style>') or from the document ('doc:<style>').
         const [kind, a, b] = v.split(':');
         const picked = kind === 'line' ? sets[Number(a)]?.styles[Number(b)] : kind === 'doc' ? inDocument[Number(a)] : undefined;
-        if (picked) onChange({ lineStyle: structuredClone(picked), dash: undefined, dashArray: undefined });
+        if (picked) onChange({ ...notCloud, lineStyle: structuredClone(picked), dash: undefined, dashArray: undefined });
         // A plain style replaces a custom (Bluebeam) one.
-        else onChange({ dash: v === 'solid' ? undefined : (v as LineDash), dashArray: undefined, lineStyle: undefined });
+        else onChange({ ...notCloud, ...(cloud && v !== 'solid' && style.width === 0 ? { width: 1 } : {}), dash: v === 'solid' ? undefined : (v as LineDash), dashArray: undefined, lineStyle: undefined });
       }}
     >
       {mixed && (
@@ -67,6 +77,7 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
           {d.label}
         </option>
       ))}
+      {cloud && <option value="cloud">Cloud</option>}
       {inDocument.length > 0 && (
         <optgroup label="In this document">
           {inDocument.map((l, i) => (

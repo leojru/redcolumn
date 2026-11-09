@@ -1,10 +1,10 @@
-// Modified in the leojru/redcolumn fork: inline dimension text breaks the dimension line; lifted text gets a leader; text box and callout border shapes; hatches under the border.
+// Modified in the leojru/redcolumn fork: inline dimension text breaks the dimension line; lifted text gets a leader; text box and callout border shapes; hatches under the border; cloud borders.
 import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
 import { wrapParagraph } from './textLists';
-import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
+import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, hasCloudBorder, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
@@ -96,7 +96,7 @@ function baseShape(m: Markup): ShapePart[] {
       const b = boundsOf(points);
       const r = m.type === 'rect' ? Math.min(style.cornerRadius ?? 0, b.w / 2, b.h / 2) : 0;
       // Fork (leojru/redcolumn): a text box's border shape (box, circle, triangle, hexagon).
-      const shaped = m.type === 'text' && style.boxShape && style.boxShape !== 'rect' ? framePath(style.boxShape, b) : null;
+      const shaped = hasCloudBorder(m) ? cloudPath(b, cloudRadius(m), !!style.cloudInside) : m.type === 'text' && style.boxShape && style.boxShape !== 'rect' ? framePath(style.boxShape, b) : null;
       const path: PathCmd[] = shaped ?? (r > 0 ? roundedRect(b, r) : [['M', b.x, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x, b.y + b.h], ['Z']]);
       const boxless = style.noBox && m.type === 'text';
       // Without a border the fill still draws.
@@ -113,7 +113,7 @@ function baseShape(m: Markup): ShapePart[] {
         const land = calloutLanding(knee, box);
         return withEnds(m, [tip, land.knee, land.attach]);
       });
-      const rect: PathCmd[] = style.boxShape && style.boxShape !== 'rect' ? framePath(style.boxShape, box) : [['M', box.x, box.y], ['L', box.x + box.w, box.y], ['L', box.x + box.w, box.y + box.h], ['L', box.x, box.y + box.h], ['Z']];
+      const rect: PathCmd[] = hasCloudBorder(m) ? cloudPath(box, cloudRadius(m), !!style.cloudInside) : style.boxShape && style.boxShape !== 'rect' ? framePath(style.boxShape, box) : [['M', box.x, box.y], ['L', box.x + box.w, box.y], ['L', box.x + box.w, box.y + box.h], ['L', box.x, box.y + box.h], ['Z']];
       return [{ path: rect, stroke: style.width > 0 && !style.noBox && !style.borderless, fill: style.fill }, ...leaders];
     }
     case 'note':

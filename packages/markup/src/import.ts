@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): cloud borders on FreeText.
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
 import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
@@ -707,6 +708,8 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       };
       delete style.textColor;
       if (text !== style.stroke) style.textColor = text;
+      // Fork (leojru/redcolumn): a text box or callout with a cloud for a border.
+      if (nameOf(dict(r.BE)?.S) === 'C') Object.assign(style, { cloudBorder: true, arcRadius: Math.max(3, (num(dict(r.BE)?.I) ?? 1) * 3) });
       if (!textStyle.fontSize) style.fontSize = Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || 12;
       let box = innerBox();
       if (intent === 'FreeTextCallout') {

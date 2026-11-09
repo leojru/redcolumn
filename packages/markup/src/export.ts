@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners; dimension text in lines, lifted with a leader; a Length's line breaks around its label; a shape's Highlight blends its fill only.
+// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners; dimension text in lines, lifted with a leader; a Length's line breaks around its label; a shape's Highlight blends its fill only; cloud borders on text boxes and callouts.
 import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
@@ -14,7 +14,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
+import { boundsOf, contentBox, hasCloudBorder, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { breakAroundBox, leaderPart, lengthLabelBox, lengthLeader } from './dimensionInline';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
@@ -1152,6 +1152,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         ...richText(m),
         // A FreeText's /C is its background, not its border.
         C: fill && m.type === 'text' ? fill : [],
+        ...(hasCloudBorder(m) ? { BE: cloudEffect(m) } : {}),
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
       };
@@ -1222,6 +1223,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
         ...richText(m),
         C: fill ? fill : [],
+        ...(hasCloudBorder(m) ? { BE: cloudEffect(m) } : {}),
       };
       delete base.IC;
       break;

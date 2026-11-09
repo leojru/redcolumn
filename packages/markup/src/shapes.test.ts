@@ -339,3 +339,13 @@ test('a callout box dragged past its tip: the leader switches to the side facing
   const two = kneesFacingTips([[0, 0], [80, 50], [100, 40], [200, 60], [400, 0], [80, 45]]);
   assert.deepEqual([two[1], two[5]], [[80, 50], [220, 45]]);
 });
+
+// Fork (leojru/redcolumn).
+test('a new line colour leaves the text the colour it was; a set text colour stays too', async () => {
+  const { keepTextColor } = await import('./style.ts');
+  const style = { stroke: '#ff0000', fill: null, width: 1, opacity: 1 };
+  assert.deepEqual(keepTextColor('text', style, { stroke: '#0000ff' }), { stroke: '#0000ff', textColor: '#ff0000' });
+  assert.deepEqual(keepTextColor('text', { ...style, textColor: '#00ff00' }, { stroke: '#0000ff' }), { stroke: '#0000ff' });
+  assert.deepEqual(keepTextColor('typewriter', style, { stroke: '#0000ff' }), { stroke: '#0000ff' });
+  assert.deepEqual(keepTextColor('text', style, { width: 2 }), { width: 2 });
+});

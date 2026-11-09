@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: Dimension text inline by default.
+// Modified in the leojru/redcolumn fork: Dimension text inline by default; pictures (snapshots) have a line style.
 import type { MarkupStyle, MarkupType } from './model';
 import type { LineEnding, StyleCapabilities } from './style';
 
@@ -116,7 +116,7 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     caps: caps({ font: true, textLayout: true }),
   },
   note: { label: 'Note', style: { stroke: '#a16207', fill: '#fde047', width: 0.75, opacity: 1 }, draw: 'place', closed: false, handles: 'none', solid: true, measure: false, caps: caps({ fill: true }) },
-  image: { label: 'Image', style: { stroke: '#000000', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: caps({ blend: true }) },
+  image: { label: 'Image', style: { stroke: '#000000', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: caps({ dash: true, blend: true }) },
   signature: { label: 'Signature', style: { stroke: '#1e3a8a', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: caps({ blend: true }) },
   stamp: {
     label: 'Stamp',

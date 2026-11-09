@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing; a callout's leader follows its box.
+// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing; a callout's leader follows its box; a new line color leaves the text color alone.
 import {
   align,
   centerOnPage,
@@ -121,7 +121,7 @@ import {
   type ManualRoute,
   type FlowShapeKind,
   type Side,
-} from '@nb/markup';
+keepTextColor } from '@nb/markup';
 import { arcPoints, arcSplit, bulgeThrough, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
@@ -1780,9 +1780,9 @@ export class MarkupTools implements ViewerOverlay {
     // A Tool Library tool keeps its own style; changing it leaves the type's defaults alone.
     if (restyling) {
       // The tool's default stays as it is.
-    } else if (preset?.type === type && preset.style) this.setState({ preset: { ...preset, style: mergeStyle(preset.style, patch) } });
+    } else if (preset?.type === type && preset.style) this.setState({ preset: { ...preset, style: mergeStyle(preset.style, keepTextColor(type, preset.style, patch)) } });
     else {
-      const styles = { ...this.state.styles, [type]: mergeStyle(this.state.styles[type], patch) };
+      const styles = { ...this.state.styles, [type]: mergeStyle(this.state.styles[type], keepTextColor(type, this.state.styles[type], patch)) };
       this.setState({ styles });
       saveToolStyles(styles);
     }
@@ -1792,9 +1792,9 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const id of this.state.selected) {
         const m = store.get(id);
-        if (m && m.type === type && !this.frozen(m)) store.update(id, { style: { ...m.style, ...patch }, ...tableOwnStyleCleared(m, patch) });
+        if (m && m.type === type && !this.frozen(m)) store.update(id, { style: { ...m.style, ...keepTextColor(m.type, m.style, patch) }, ...tableOwnStyleCleared(m, patch) });
         // Fork (leojru/redcolumn): a Cloud+ reads as one markup: its callout follows the cloud's line colour.
-        if (m && type === 'cloud' && patch.stroke && m.type === 'callout' && !this.frozen(m) && this.cloudPlusCallout(m)) store.update(id, { style: { ...m.style, stroke: patch.stroke } });
+        if (m && type === 'cloud' && patch.stroke && m.type === 'callout' && !this.frozen(m) && this.cloudPlusCallout(m)) store.update(id, { style: { ...m.style, ...keepTextColor(m.type, m.style, { stroke: patch.stroke }) } });
       }
     });
   }
@@ -1857,7 +1857,7 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const id of ids) {
         const m = store.get(id);
-        if (m && !this.frozen(m)) store.update(id, { style: mergeStyle(m.style, patch), ...tableOwnStyleCleared(m, patch) });
+        if (m && !this.frozen(m)) store.update(id, { style: mergeStyle(m.style, keepTextColor(m.type, m.style, patch)), ...tableOwnStyleCleared(m, patch) });
       }
     });
   }
