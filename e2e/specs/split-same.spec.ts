@@ -2,6 +2,9 @@
 // a view of its own in each, the markups shared; closing it on one side leaves it open on the other.
 import { expect, test } from '../support/app.ts';
 
+// The classic layout (its Properties row never changes height, so a click lands where it was aimed).
+test.use({ toolbar: 'classic' });
+
 test('split shows the same document twice, each pane its own view, the markups shared', async ({ app }, info) => {
   await app.open('plan.pdf');
   await app.tool('rect');
@@ -40,4 +43,30 @@ test("closing the document's tab in the right pane leaves it open in the left", 
   await app.tool('rect');
   await app.drag([300, 450], [350, 500]);
   await expect.poll(async () => (await app.markups()).length).toBe(1);
+});
+
+test('closing the left side of a split to itself closes that view only: no save prompt, the markups kept', async ({ app }) => {
+  await app.open('plan.pdf');
+  await app.tool('rect');
+  await app.drag([300, 450], [350, 500]);
+  await app.cmd('view.split');
+  await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+  // The left pane's tab (unsaved changes: closing the only view would ask).
+  await app.page.getByRole('tablist', { name: 'Documents', exact: true }).locator('button[title="Close"]').first().click();
+  await expect(app.page.locator('.modal')).toHaveCount(0);
+  await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
+  await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+  await expect.poll(async () => (await app.documents()).map((d) => d.name)).toEqual(['plan.pdf']);
+  // The document is still open and working, with its markup.
+  expect((await app.markups()).length).toBe(1);
+  await app.tool('ellipse');
+  await app.drag([500, 450], [560, 500]);
+  await expect.poll(async () => (await app.markups()).length).toBe(2);
+  // Split again and close the right side: the same.
+  await app.cmd('view.split');
+  await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+  await app.page.getByRole('tablist', { name: 'Right pane documents' }).locator('button[title="Close"]').first().click();
+  await expect(app.page.locator('.modal')).toHaveCount(0);
+  await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
+  expect((await app.markups()).length).toBe(2);
 });

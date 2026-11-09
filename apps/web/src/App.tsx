@@ -4113,6 +4113,9 @@ export function App() {
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
       const closing = tabs[idx]!;
+      // Fork (leojru/redcolumn): split to itself, closing one side closes that view only (as Revu):
+      // asked before the other pane's tabs can move across below.
+      const elsewhere = (pane === 'b' ? tabsARef.current : tabsBRef.current).includes(closing);
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
       const front = pane === 'b' ? openBRef.current : openRef.current;
@@ -4138,7 +4141,7 @@ export function App() {
         }
       }
       // Fork (leojru/redcolumn): the same document split into the other pane stays open there.
-      if ((pane === 'b' ? tabsARef.current : tabsBRef.current).includes(closing)) return;
+      if (elsewhere) return;
       disposeOpen(closing);
     },
     [setTabs, showInPane],
@@ -4176,7 +4179,10 @@ export function App() {
    */
   const requestCloseTab = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
-      if (!(await settleUnsaved(pane, fileId))) return false;
+      // Fork (leojru/redcolumn): a view of a document still open in the other pane closes without asking about saving.
+      const other = pane === 'b' ? tabsARef.current : tabsBRef.current;
+      const elsewhere = other.some((t) => t.file.id === fileId);
+      if (!elsewhere && !(await settleUnsaved(pane, fileId))) return false;
       closeTab(pane, fileId);
       return true;
     },
