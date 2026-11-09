@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Omarchy theme palette bridge.
+// Modified in the leojru/redcolumn fork (revu-layout): Omarchy theme palette bridge; locationOf.
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 const info = ipcRenderer.sendSync('desktop:info') as { nativeFiles: boolean; printMode: 'viewer' | 'verb' | 'images' };
@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
   readToken: async (token: string) => new Uint8Array(await call<Uint8Array>('paths:read', token)),
   writeToken: (token: string, data: Uint8Array) => call('paths:write', token, data),
   showInFolder: (token: string) => call('paths:show', token),
+  locationOf: (token: string) => call<string | null>('paths:location', token),
   forgetToken: (token: string) => call('paths:forget', token),
   takeLaunchFiles: () => call('launch:take'),
   onLaunchFiles(cb: (files: { token: string; name: string }[]) => void) {

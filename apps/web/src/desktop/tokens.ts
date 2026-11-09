@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): fileLocationPath (file location in the tab hover).
 import { desktop } from './host';
 
 const tokens = new WeakMap<object, string>();
@@ -104,6 +105,13 @@ export const hasFileLocation = (id: string) => byDocument.has(id);
 export function subscribeFileLocations(listener: () => void) {
   listeners.add(listener);
   return () => void listeners.delete(listener);
+}
+
+/** Fork (leojru/redcolumn): the full path of a document opened from disk, if it has one. */
+export async function fileLocationPath(id: string): Promise<string | null> {
+  const token = byDocument.get(id);
+  const host = desktop();
+  return token && host ? host.locationOf(token) : null;
 }
 
 export async function revealFileLocation(id: string): Promise<boolean> {

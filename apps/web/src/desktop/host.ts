@@ -94,6 +94,8 @@ export interface RedcolumnDesktop {
   readToken(token: string): Promise<Uint8Array>;
   writeToken(token: string, data: Uint8Array): Promise<boolean>;
   showInFolder(token: string): Promise<boolean>;
+  /** Fork (leojru/redcolumn): where a file already opened is, for its tab's hover text. */
+  locationOf(token: string): Promise<string | null>;
   /** Drops a remembered path, for a document removed from this device. */
   forgetToken(token: string): Promise<boolean>;
   takeLaunchFiles(): Promise<DesktopToken[]>;

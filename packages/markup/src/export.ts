@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners; dimension text in lines, lifted with a leader; a Length's line breaks around its label; a shape's Highlight blends its fill only; cloud borders on text boxes and callouts.
+// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners; dimension text in lines, lifted with a leader; a Length's line breaks around its label; a shape's Highlight blends its fill only; cloud borders on text boxes and callouts; snapshots written as StampSnapshot.
 import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
@@ -984,7 +984,8 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       specific = { Subtype: 'Text', Name: 'Comment', ...(fill ? { C: fill } : {}) };
       break;
     case 'image':
-      specific = { Subtype: 'Stamp', Name: 'Image' };
+      // Fork (leojru/redcolumn): a snapshot is written as Revu writes its own, cloud border included.
+      specific = m.subject === 'Snapshot' ? { Subtype: 'Stamp', IT: 'StampSnapshot', ...(hasCloudBorder(m) ? { BE: cloudEffect(m) } : {}) } : { Subtype: 'Stamp', Name: 'Image' };
       break;
     case 'rect':
       specific = { Subtype: 'Square', RD: rd };

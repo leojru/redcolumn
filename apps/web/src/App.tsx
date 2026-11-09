@@ -3,7 +3,7 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
-import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, redrawMarkupImages, setVectorPictureDrawer } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
@@ -121,6 +121,7 @@ import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { ClassicToolbars } from './components/fork/ClassicToolbars';
 import { StatusCommands } from './components/fork/StatusCommands';
 import { vectorSnapshotOf } from './fork/snapshot';
+import { createVectorPictures } from './fork/vectorPictures';
 import { markupLayersOfHiddenPdf } from './fork/pdfLayerMarkups';
 import { DimensionTextEditor } from './components/fork/DimensionTextEditor';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
@@ -205,7 +206,7 @@ import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readP
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
-import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
+import { droppedPdfs, fileLocationPath, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
 import { hostDocumentId } from './desktop/embedHost';
 import { fileLocationToken, movedFiles, tokenOf } from './desktop/tokens';
@@ -1341,6 +1342,8 @@ export function App() {
   const [combineOpen, setCombineOpen] = useState(false);
   const [docPropsOpen, setDocPropsOpen] = useState(false);
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
+  /** Fork (leojru/redcolumn): each tab's file location, read when the pointer comes over it. */
+  const [tabPaths, setTabPaths] = useState<Record<string, string>>({});
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
   /** A saved drawing standard that fits the document just opened, offered until used or turned down. */
@@ -1532,6 +1535,8 @@ export function App() {
 
   useEffect(() => {
     const engine = new PdfEngine();
+    // Fork (leojru/redcolumn): vector snapshots stay sharp as the view zooms in.
+    setVectorPictureDrawer(createVectorPictures(engine, redrawMarkupImages));
     const viewer = new TileViewer(canvasRef.current!, setStats);
     const tools = createTools('a', viewer);
     viewer.setOverlay(tools);
@@ -5515,7 +5520,7 @@ export function App() {
     const m = store?.get(id);
     if (!store || !m) return;
     // Fork (leojru/redcolumn): a Dimension's text is edited where it sits, without a pop-up.
-    if (m.type === 'dimension') {
+    if (m.type === 'dimension' || m.type === 'length') {
       setEditingDim({ pane, id });
       return;
     }
@@ -6552,7 +6557,8 @@ export function App() {
               role="tab"
               aria-selected={t === front}
               className={`doc-tab${t === front ? ' active' : ''}`}
-              title={session ? `${t.file.name} · Live Session ${sessionName ?? session.sessionId}` : t.file.name}
+              title={session ? `${t.file.name} · Live Session ${sessionName ?? session.sessionId}` : tabPaths[t.file.id] ? `${t.file.name}\n${tabPaths[t.file.id]}` : t.file.name}
+              onMouseEnter={() => void fileLocationPath(t.file.id).then((p) => p && setTabPaths((had) => (had[t.file.id] === p ? had : { ...had, [t.file.id]: p }))).catch(() => undefined)}
               onClick={() => activateTab(pane, t)}
               onContextMenu={(e) => showMenu(e, tabMenu(pane, t))}
               draggable

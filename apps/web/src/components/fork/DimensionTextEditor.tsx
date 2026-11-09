@@ -1,8 +1,11 @@
-// Added in the leojru/redcolumn fork. A Dimension's text edited where it sits, as in Revu: no
+// Added in the leojru/redcolumn fork. A Dimension's or Length's text edited where it sits, as in Revu: no
 // pop-up. It opens on a new dimension and on a double-click on one. Enter finishes, Shift+Enter
-// starts a second line, Esc leaves the text as it was; clicking away finishes too.
+// starts a second line, Esc leaves the text as it was; clicking away finishes too. A Length's text is
+// its measurement: a new one resizes the line.
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { formatLength, realLengthAlong } from '@nb/measure';
 import { cssFont, dimensionLine, dimensionText, textColor, type Markup, type MarkupStore } from '@nb/markup';
+import { pointsForTypedLength } from '../../fork/lengthEdit';
 import { useSettings } from '../../settings/settings';
 import type { TileViewer } from '../../viewer/TileViewer';
 
@@ -27,7 +30,16 @@ function readingAngle(m: Markup): number {
 export function DimensionTextEditor({ markup, store, viewer, onDone }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
-  const [text, setText] = useState(markup.text ?? '');
+  // A Length's text is its measurement: typing a new one resizes the line.
+  const isLength = markup.type === 'length';
+  const lengthScale = store.scaleOf(markup);
+  const measured = () => {
+    const [a, b] = [markup.points[0]!, markup.points[markup.points.length - 1]!];
+    return formatLength(realLengthAlong(lengthScale, b[0] - a[0], b[1] - a[1]), lengthScale);
+  };
+  const initial = isLength ? measured() : (markup.text ?? '');
+  const [text, setText] = useState(initial);
+  const invalid = isLength && text !== initial && !pointsForTypedLength(markup.points, text, lengthScale);
   const { spellCheck } = useSettings();
 
   useEffect(() => {
@@ -37,7 +49,8 @@ export function DimensionTextEditor({ markup, store, viewer, onDone }: Props) {
 
   const layout = dimensionText(markup);
   const line = dimensionLine(markup);
-  const center = layout?.box.center ?? line?.text ?? markup.points[0]!;
+  const [p0, pN] = [markup.points[0]!, markup.points[markup.points.length - 1]!];
+  const center = layout?.box.center ?? line?.text ?? ([(p0[0] + pN[0]) / 2, (p0[1] + pN[1]) / 2] as [number, number]);
   const angle = layout?.angle ?? readingAngle(markup);
   const [cx, cy] = viewer.pageToClient(center, markup.pageIndex);
   const size = markup.style.fontSize ?? 10;
@@ -52,6 +65,15 @@ export function DimensionTextEditor({ markup, store, viewer, onDone }: Props) {
 
   const finish = () => {
     const now = ref.current?.value ?? '';
+    if (isLength) {
+      const points = !cancelled.current && now !== initial ? pointsForTypedLength(markup.points, now, lengthScale) : null;
+      if (points) {
+        store.checkpoint();
+        store.update(markup.id, { points });
+      }
+      onDone();
+      return;
+    }
     if (!cancelled.current && now !== (markup.text ?? '')) {
       store.checkpoint();
       store.update(markup.id, { text: now });
@@ -64,7 +86,7 @@ export function DimensionTextEditor({ markup, store, viewer, onDone }: Props) {
     if (e.key === 'Escape') {
       cancelled.current = true;
       e.currentTarget.blur();
-    } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    } else if (e.key === 'Enter' && (isLength || !e.shiftKey) && !e.nativeEvent.isComposing) {
       // Enter finishes; Shift+Enter is a new line.
       e.preventDefault();
       e.currentTarget.blur();
@@ -76,7 +98,8 @@ export function DimensionTextEditor({ markup, store, viewer, onDone }: Props) {
       ref={ref}
       className="text-editor dimension-text-editor"
       data-dimension-editor={markup.id}
-      aria-label="Dimension text"
+      aria-label={isLength ? 'Length' : 'Dimension text'}
+      aria-invalid={invalid || undefined}
       spellCheck={spellCheck}
       value={text}
       rows={lines.length}
@@ -94,6 +117,7 @@ export function DimensionTextEditor({ markup, store, viewer, onDone }: Props) {
         lineHeight: 1.2,
         textAlign: 'center',
         color: textColor(markup.style),
+        ...(invalid ? { outlineColor: '#dc2626' } : {}),
         padding: `${size * scale * 0.2}px ${size * scale * 0.5}px`,
       }}
     />

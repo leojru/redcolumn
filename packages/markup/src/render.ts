@@ -1,6 +1,7 @@
-// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); dimension text inline, multi-line or lifted with a leader; a Length's line breaks around its label; middle-aligned text centres its capitals; a shape's Highlight blends its fill only.
+// Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); dimension text inline, multi-line or lifted with a leader; a Length's line breaks around its label; middle-aligned text centres its capitals; a shape's Highlight blends its fill only; vector snapshots stay sharp on screen.
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
+import { markupDigest } from './digest';
 import { layoutParagraphs } from './textLists';
 import { breakAroundBox, dimensionLayout, leaderPart, lengthLabelBox, lengthLeader, liftedCenter, readingFrame, type DimensionLayout } from './dimensionInline';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
@@ -26,6 +27,31 @@ const imageListeners = new Set<() => void>();
 export function onImageLoad(listener: () => void): () => void {
   imageListeners.add(listener);
   return () => imageListeners.delete(listener);
+}
+
+/** Fork (leojru/redcolumn): tells the views to draw again (a sharper snapshot is ready). */
+export function redrawMarkupImages() {
+  imageListeners.forEach((l) => l());
+}
+
+/** Fork: draws a vector snapshot sharply; false to show its stored picture instead. */
+export type VectorPictureDrawer = (ctx: CanvasRenderingContext2D, url: string, box: { x: number; y: number; w: number; h: number }, pictureWidth: number) => boolean;
+let vectorPictureDrawer: VectorPictureDrawer | null = null;
+export function setVectorPictureDrawer(drawer: VectorPictureDrawer | null) {
+  vectorPictureDrawer = drawer;
+}
+
+const pictureDigests = new Map<string, string>();
+/** Fork: whether a snapshot's picture is still the one captured with its vector content. */
+function vectorStillCurrent(m: Markup): boolean {
+  if (!m.vector || !m.image || !m.vectorImage) return false;
+  let digest = pictureDigests.get(m.image);
+  if (digest === undefined) {
+    if (pictureDigests.size > 64) pictureDigests.clear();
+    digest = markupDigest({ image: m.image } as Markup);
+    pictureDigests.set(m.image, digest);
+  }
+  return digest === m.vectorImage;
 }
 
 function markupImage(src: string): HTMLImageElement | null {
@@ -471,7 +497,8 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
     const b = boundsOf(m.points);
     const img = markupImage(m.image);
-    if (img) ctx.drawImage(img, b.x, b.y, b.w, b.h);
+    const sharp = m.type === 'image' && !!vectorPictureDrawer && vectorStillCurrent(m) && vectorPictureDrawer(ctx, m.vector!, b, img?.naturalWidth ?? 0);
+    if (img && !sharp) ctx.drawImage(img, b.x, b.y, b.w, b.h);
   }
   if (isTextType(m.type) && m.text) {
     const b = contentBox(m);

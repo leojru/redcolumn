@@ -48,7 +48,8 @@ export async function vectorSnapshotOf(doc: SnapshotDoc, pageIndex: number, rect
       return b.x < area.x + area.w && b.x + b.w > area.x && b.y < area.y + area.h && b.y + b.h > area.y;
     });
     return await makeVectorSnapshot(over ? await withMarkupsDrawnIn(bytes, pageIndex, markups!.all, markups!.options) : bytes, pageIndex, area, polygon);
-  } catch {
+  } catch (err) {
+    console.warn('Vector snapshot failed; keeping the picture.', err);
     return null;
   }
 }

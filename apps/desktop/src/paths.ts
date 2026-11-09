@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): paths:location for the tab's hover text.
 import { dialog, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -125,6 +126,12 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
     if (!filePath) return false;
     shell.showItemInFolder(filePath);
     return true;
+  });
+
+  // Fork (leojru/redcolumn): where an already opened file is, to show when hovering over its tab.
+  ipcMain.handle('paths:location', (event, token: unknown): string | null => {
+    if (!fromApp(event) || typeof token !== 'string') return null;
+    return allowlist.get(token) ?? null;
   });
 
   ipcMain.handle('paths:forget', (event, token: unknown): boolean => {

@@ -1,5 +1,5 @@
-// Added in the leojru/redcolumn fork (revu-layout). The text's colour apart from its border's, and
-// borders drawn as clouds on text boxes and snapshots.
+// Added in the leojru/redcolumn fork (revu-layout). The text's colour apart from its border's, borders
+// drawn as clouds on text boxes and snapshots, and a Length's text typed over.
 import { expect, test } from '../support/app.ts';
 
 test.use({ toolbar: 'classic' });
@@ -75,5 +75,29 @@ test.describe('snapshots', () => {
     const before = (await app.saved()).length;
     await app.cmd('file.saveAs');
     await expect.poll(async () => (await app.saved()).length, { timeout: 30_000 }).toBe(before + 1);
+  });
+});
+
+test.describe('length', () => {
+  test('double-clicking a Length and typing a new length resizes the line', async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.calibrate();
+    await app.tool('length');
+    await app.clicks([[300, 500], [400, 500]]);
+    await app.tool('select');
+    const before = ((await app.raw()) as unknown as { points: number[][] }[])[0]!.points;
+    const mid = await app.at([350, 500]);
+    await app.page.mouse.dblclick(mid.x, mid.y);
+    const editor = app.page.locator('textarea[aria-label="Length"]');
+    await expect(editor).toBeVisible();
+    await expect(editor).toHaveValue(/'-/);
+    await editor.fill(`3'-0"`);
+    await editor.press('Enter');
+    await expect(editor).toBeHidden();
+    const after = ((await app.raw()) as unknown as { points: number[][] }[])[0]!.points;
+    expect(after[0]).toEqual(before[0]);
+    // Calibrated at 100 pt = 10 ft: 3 ft is 30 pt.
+    expect(after[1]![0]).toBeCloseTo(before[0]![0]! + 30, 3);
+    expect(after[1]![1]).toBeCloseTo(before[0]![1]!, 3);
   });
 });

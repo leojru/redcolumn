@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): fileLocationPath (file location in the tab hover).
 /**
  * Links library documents to the file they were opened from, so Save can write over that file
  * (the File System Access API: Chromium browsers and installed PWAs). Handles are kept in
@@ -8,9 +9,9 @@
 import { desktop } from '../desktop/host';
 import { isTokenRecord } from '../desktop/record';
 import { isCadFile } from '../cad/files';
-import { hasFileLocation, mimeFor, noteLocation, ownedBytes, revealFileLocation, subscribeFileLocations, toBytes, tokenHandle, tokenOf } from '../desktop/tokens';
+import { fileLocationPath, hasFileLocation, mimeFor, noteLocation, ownedBytes, revealFileLocation, subscribeFileLocations, toBytes, tokenHandle, tokenOf } from '../desktop/tokens';
 
-export { hasFileLocation, revealFileLocation, subscribeFileLocations };
+export { fileLocationPath, hasFileLocation, revealFileLocation, subscribeFileLocations };
 
 type Mode = 'read' | 'readwrite';
 interface PermissionHandle extends FileSystemFileHandle {

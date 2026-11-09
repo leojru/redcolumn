@@ -84,7 +84,7 @@ export {
 } from './table';
 export { lineRects, markupLines, selectRange, selectWords, wordAt, type WordBox } from './textSelect';
 export { align, centerOnPage, distribute, flip, matchSize, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout, shapeBounds, touchesPolygon, touchesRect, type Alignment, type Axis } from './arrange';
-export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, segmentLabels, onImageLoad, rotateHandle, textBlockShift, textBoxLines } from './render';
+export { BOX_OPPOSITE, dimensionText, drawMarkup, redrawMarkupImages, setVectorPictureDrawer, type VectorPictureDrawer, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, segmentLabels, onImageLoad, rotateHandle, textBlockShift, textBoxLines } from './render';
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
 export { markupDigest, unchangedSinceImport } from './digest';
 export { autoSizedPoints, canAutoSize, keepTextInBox, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits';
@@ -97,7 +97,7 @@ export { markupSnapPoints } from './snapPoints';
 export * from './cad';
 
 // Fork addition (leojru/redcolumn): vector snapshots.
-export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES } from './vectorSnapshot';
+export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES, vectorSnapshotBytes } from './vectorSnapshot';
 // Fork (leojru/redcolumn): Length and Dimension text layout (inline, lines, leaders).
 export { approxTextWidth, dimensionLayout, liftedCenter, readingFrame, type DimensionLayout } from './dimensionInline';
 export { frameAround, frameInner, framePath, TEXT_FRAMES, type TextFrame } from './textFrames';

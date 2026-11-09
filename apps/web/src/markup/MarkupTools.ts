@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing; a callout's leader follows its box; a new line color leaves the text color alone.
+// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing; a callout's leader follows its box; a new line color leaves the text color alone; double-click a Length to type its length.
 import {
   align,
   centerOnPage,
@@ -3772,7 +3772,7 @@ export class MarkupTools implements ViewerOverlay {
     if (hit && isTextType(hit.type) && !this.frozen(hit)) this.options.onEditText(hit.id);
     else if (hit?.type === 'note' || hit?.type === 'flag') this.options.onEditComment?.(hit.id);
     else if (hit?.type === 'attachment') this.options.onOpenAttachment?.(hit);
-    else if ((hit?.type === 'dimension' || hit?.type === 'replaceText' || hit?.type === 'connector') && !this.frozen(hit)) this.options.onEditLabel?.(hit.id);
+    else if ((hit?.type === 'dimension' || hit?.type === 'length' || hit?.type === 'replaceText' || hit?.type === 'connector') && !this.frozen(hit)) this.options.onEditLabel?.(hit.id);
     else if (hit?.type === 'hyperlink' && !this.frozen(hit)) this.options.onEditHyperlink?.(hit.id);
     else if (hit?.type === 'stamp' && hit.stamp?.form && !this.frozen(hit)) this.options.onEditStamp?.(hit.id);
     else if (hit?.type === 'table' && !this.frozen(hit)) {
