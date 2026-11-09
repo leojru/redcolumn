@@ -2987,7 +2987,8 @@ export class MarkupTools implements ViewerOverlay {
         return true;
       }
     }
-    if (e.shiftKey) {
+    // Fork (leojru/redcolumn): with Ctrl held too, Shift keeps a copy straight rather than changing the selection.
+    if (e.shiftKey && !(e.ctrlKey || e.metaKey)) {
       const next = new Set(this.state.selected);
       const on = !next.has(hit.id);
       for (const id of members) {
@@ -3106,7 +3107,10 @@ export class MarkupTools implements ViewerOverlay {
       g.base ??= this.moveBase(g.start);
       const target: PagePoint = [g.base[0] + p[0] - g.start[0], g.base[1] + p[1] - g.start[1]];
       this.snapExclude = this.state.selected;
-      const to = this.resolve(target, e, e.shiftKey ? g.base : null);
+      // Fork: Shift keeps a move (or a Ctrl copy) square: straight across or straight up and down, as Revu.
+      const free = e.shiftKey ? null : this.resolve(target, e, null);
+      if (!free) this.snapHit = null;
+      const to: Point = free ?? (Math.abs(target[0] - g.base[0]) >= Math.abs(target[1] - g.base[1]) ? [target[0], g.base[1]] : [g.base[0], target[1]]);
       this.snapExclude = null;
       g.dx = to[0] - g.base[0];
       g.dy = to[1] - g.base[1];

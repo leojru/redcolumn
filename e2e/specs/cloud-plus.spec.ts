@@ -36,9 +36,17 @@ test('Cloud+: leader without an arrowhead; the cloud styled with fill, hatch and
   const rect = (await raw()).find((m) => m.type === 'rect')!;
   await app.page.keyboard.press('Escape');
   await app.page.evaluate((id) => window.__nb.tools.select([id]), rect.id);
-  await app.page.evaluate(() => (window.__nb.tools as unknown as { setStyle(t: string, p: object): void }).setStyle('rect', { width: 6, fill: '#c8f7c5', hatch: 'grid', hatchColor: '#ff9966' }));
+  await app.page.evaluate(() => (window.__nb.tools as unknown as { setStyle(t: string, p: object): void }).setStyle('rect', { width: 6, stroke: '#1d4ed8', fill: '#ffd7a8', blendMode: 'multiply' }));
+  // A text box with a fill, highlighted: its text keeps its colour.
+  await app.tool('text');
+  await app.clicks([[430, 470]]);
+  await app.page.keyboard.type('HELLO!');
+  await app.page.mouse.click(5, 300);
+  const box = (await raw()).find((m) => m.type === 'text')!;
+  await app.page.evaluate((id) => window.__nb.tools.select([id]), box.id);
+  await app.page.evaluate(() => (window.__nb.tools as unknown as { setStyle(t: string, p: object): void }).setStyle('text', { stroke: '#1d4ed8', textColor: '#1d4ed8', fill: '#ffd7a8', width: 2, fontSize: 18, blendMode: 'multiply' }));
   await app.page.evaluate(() => window.__nb.tools.select([]));
-  await app.page.evaluate(() => (window.__nb.viewer as unknown as { zoomToRect(r: { x: number; y: number; w: number; h: number }, margin: number): void }).zoomToRect({ x: 120, y: 450, w: 520, h: 220 }, 1.05));
+  await app.page.evaluate(() => (window.__nb.viewer as unknown as { zoomToRect(r: { x: number; y: number; w: number; h: number }, margin: number): void }).zoomToRect({ x: 120, y: 420, w: 560, h: 250 }, 1.05));
   await app.page.waitForTimeout(800);
   await app.page.screenshot({ path: info.outputPath('cloud-plus.png') });
   const before = (await app.saved()).length;

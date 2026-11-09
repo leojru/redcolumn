@@ -138,6 +138,15 @@ export function effectiveBlendMode(m: Pick<Markup, 'type' | 'style'>): BlendMode
   return m.style.blendMode ?? (TYPE_INFO[m.type].multiply ? 'multiply' : 'normal');
 }
 
+/**
+ * Fork (leojru/redcolumn): a shape with a fill (rectangle, cloud, text box, callout...) blends only its
+ * fill and hatch, as Revu's Highlight does: its border and text stay as they are. Lines, pen strokes
+ * and highlighters blend whole.
+ */
+export function blendsFillOnly(m: Pick<Markup, 'type' | 'style'>): boolean {
+  return effectiveBlendMode(m) !== 'normal' && styleCapabilities(m.type).fill && !TYPE_INFO[m.type].multiply;
+}
+
 /** The /BM name to write for a markup, or null when it blends normally. */
 export function pdfBlendName(m: Pick<Markup, 'type' | 'style'>): string | null {
   const mode = effectiveBlendMode(m);

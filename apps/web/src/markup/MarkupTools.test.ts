@@ -1601,3 +1601,20 @@ test('Ctrl+drag copies the selection; the originals stay; the copies are selecte
   assert.equal(h.store.all().length, 1);
   await h.store.destroy();
 });
+
+test('Ctrl+Shift+drag copies straight across (or straight up and down)', async () => {
+  const h = await setup();
+  h.tools.setTool('rect');
+  drag(h.tools, [100, 100], [200, 160]);
+  const [orig] = h.store.all();
+  h.tools.setTool('select');
+  h.tools.select([orig!.id]);
+  drag(h.tools, [125, 100], [325, 130], { ctrlKey: true, shiftKey: true });
+  const copy = h.store.all().find((m) => m.id !== orig!.id)!;
+  assert.deepEqual(copy.points, [[300, 100], [400, 160]], 'level with the original');
+  h.tools.select([orig!.id]);
+  drag(h.tools, [125, 100], [140, 300], { ctrlKey: true, shiftKey: true });
+  const down = h.store.all().at(-1)!;
+  assert.deepEqual(down.points, [[100, 300], [200, 360]], 'straight under it');
+  await h.store.destroy();
+});

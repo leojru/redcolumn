@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners; dimension text in lines, lifted with a leader; a Length's line breaks around its label.
+// Modified in the leojru/redcolumn fork (revu-layout): vector snapshots are drawn from their PDF content; flat line ends and sharp corners; dimension text in lines, lifted with a leader; a Length's line breaks around its label; a shape's Highlight blends its fill only.
 import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
@@ -18,7 +18,7 @@ import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSiz
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { breakAroundBox, leaderPart, lengthLabelBox, lengthLeader } from './dimensionInline';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
-import { dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, strokeEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
+import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, strokeEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
@@ -371,6 +371,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     return font ? font.widthOfTextAtSize(safeText(font, text), size) : text.length * size * 0.55;
   };
   // Fork (leojru/redcolumn): a Length's line breaks around its label rather than a white box hiding it.
+  const fillOnly = blendsFillOnly(m);
   const lengthText = measurementLabel(m, ctx.scale);
   const lengthGap = lengthLabelBox(m, lengthText);
   const lengthLead = lengthLeader(m, lengthText);
@@ -399,6 +400,16 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       }
       continue;
     }
+    // Fork (leojru/redcolumn): a shape's Highlight blends its fill only: the fill on its own (GSF), then the line.
+    if (fillOnly && part.fill && !part.decoration) {
+      const [fr, fg, fb] = rgb(part.fill);
+      ops.push('q /GSF gs', `${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`, pathOps(part.path), part.evenOdd ? 'f*' : 'f', 'Q');
+      if (!part.stroke) continue;
+      ops.push(`/GS0 gs ${dashOp(dash)}`);
+      if (style.dashArray) ops.push('0 J');
+      ops.push(pathOps(part.path), 'S');
+      continue;
+    }
     ops.push(part.decoration ? '/GSD gs [] 0 d' : `/GS0 gs ${dashOp(dash)}`);
     // An exact dash pattern has flat ends, as it does in other viewers.
     if (style.dashArray) ops.push(part.decoration ? '1 J' : '0 J');
@@ -413,15 +424,18 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   ops.push('[] 0 d');
 
   const blendName = pdfBlendName(m);
-  const bm = blendName ? { BM: blendName } : {};
+  // Fork (leojru/redcolumn): with the fill alone blending (fillOnly), the lines and text do not.
+  const bm = blendName && !fillOnly ? { BM: blendName } : {};
   const bmExplicit = m.style.blendMode ? bm : {};
+  const fillBm = blendName && fillOnly ? { BM: blendName } : {};
   const resources: LiteralObject = {
     ExtGState: {
       GS0: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...bm },
       GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
-      GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha },
+      GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha, ...fillBm },
+      GSF: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...fillBm },
     },
   };
   if (hatchPattern) {

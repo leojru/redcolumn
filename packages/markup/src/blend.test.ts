@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: a shape blends its fill only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
@@ -133,6 +134,7 @@ test('a Multiply highlighter imports as a highlighter without an explicit blend 
 /** A canvas context that records its composite operation when each markup is drawn. */
 function recordingContext() {
   const seen: unknown[] = [];
+  const stack: unknown[] = [];
   const target: Record<string | symbol, unknown> = { globalCompositeOperation: 'source-over' };
   const ctx = new Proxy(target, {
     get(t, key) {
@@ -140,6 +142,9 @@ function recordingContext() {
       if (key === 'measureText') return () => ({ width: 10 });
       if (key === 'drawImage') return () => seen.push(t.globalCompositeOperation);
       if (key === 'stroke' || key === 'fill') return () => seen.push(t.globalCompositeOperation);
+      // Fork (leojru/redcolumn): save and restore keep the operation, as a canvas does.
+      if (key === 'save') return () => stack.push(t.globalCompositeOperation);
+      if (key === 'restore') return () => (t.globalCompositeOperation = stack.pop() ?? t.globalCompositeOperation);
       return () => undefined;
     },
     set(t, key, value) {
@@ -151,10 +156,14 @@ function recordingContext() {
 }
 
 test('drawing a markup uses the canvas operation of its blend mode', () => {
+  // Fork (leojru/redcolumn): a line blends whole; a shape blends its fill only, its border drawn as it is (Revu's Highlight).
+  const line = recordingContext();
+  drawMarkup(line.ctx, markup('line', 'screen'));
+  assert.ok(line.seen.length > 0);
+  assert.ok(line.seen.every((op) => op === 'screen'));
   const rect = recordingContext();
-  drawMarkup(rect.ctx, markup('rect', 'screen'));
-  assert.ok(rect.seen.length > 0);
-  assert.ok(rect.seen.every((op) => op === 'screen'));
+  drawMarkup(rect.ctx, { ...markup('rect', 'screen'), style: { ...markup('rect', 'screen').style, fill: '#ffcc88' } });
+  assert.deepEqual(rect.seen, ['screen', 'source-over'], 'the fill blends, the border does not');
   const plain = recordingContext();
   drawMarkup(plain.ctx, markup('rect'));
   assert.ok(plain.seen.every((op) => op === 'source-over'));
