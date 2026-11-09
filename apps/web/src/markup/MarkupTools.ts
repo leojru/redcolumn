@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing.
+// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing; a callout's leader follows its box.
 import {
   align,
   centerOnPage,
@@ -79,6 +79,7 @@ import {
   autoSizedPoints,
   keepTextInBox,
   refitCalloutKnees,
+  kneesFacingTips,
   cssFont,
   markupSnapPoints,
   rotateHandle,
@@ -5184,7 +5185,8 @@ function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
 
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */
 function calloutBoxMoved(points: readonly Point[], dx: number, dy: number): Point[] {
-  return points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
+  // Fork (leojru/redcolumn): dragged past its tip, the leader switches to the side facing it.
+  return kneesFacingTips(points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy])));
 }
 
 /** How much a separate Y scale stretches the page up it, relative to across it (1 without one). */

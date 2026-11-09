@@ -322,3 +322,20 @@ test('a callout knee on the box edge lands there instead of jumping to the top o
   assert.deepEqual(calloutLanding([180, 55], box), { side: 'right', knee: [180, 55], attach: [180, 55] });
   assert.deepEqual(calloutLanding([120, 40], box), { side: 'top', knee: [120, 40], attach: [120, 40] });
 });
+
+test('a callout box dragged past its tip: the leader switches to the side facing it', async () => {
+  const { kneesFacingTips } = await import('./callout.ts');
+  // Tip left of the box, landing 20 long on its left: nothing to do.
+  assert.deepEqual(kneesFacingTips([[0, 0], [80, 50], [100, 40], [200, 60]]), [[0, 0], [80, 50], [100, 40], [200, 60]]);
+  // The box now left of the tip: the landing moves to its right, same height and length.
+  assert.deepEqual(kneesFacingTips([[400, 0], [80, 50], [100, 40], [200, 60]])[1], [220, 50]);
+  // And back: on its right with the tip to the left.
+  assert.deepEqual(kneesFacingTips([[0, 0], [220, 50], [100, 40], [200, 60]])[1], [80, 50]);
+  // The tip just past the side, no room for the landing: it stays until there is.
+  assert.deepEqual(kneesFacingTips([[210, 0], [80, 50], [100, 40], [200, 60]])[1], [80, 50]);
+  // Tip under the box: stays. A landing on top stays. A second leader is handled on its own.
+  assert.deepEqual(kneesFacingTips([[150, 300], [80, 50], [100, 40], [200, 60]])[1], [80, 50]);
+  assert.deepEqual(kneesFacingTips([[400, 0], [150, 10], [100, 40], [200, 60]])[1], [150, 10]);
+  const two = kneesFacingTips([[0, 0], [80, 50], [100, 40], [200, 60], [400, 0], [80, 45]]);
+  assert.deepEqual([two[1], two[5]], [[80, 50], [220, 45]]);
+});

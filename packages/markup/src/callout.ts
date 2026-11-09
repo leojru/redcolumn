@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: a callout's leader keeps its place on the box as the box changes (refitCalloutKnees).
+// Modified in the leojru/redcolumn fork: a callout's leader keeps its place on the box as the box changes (refitCalloutKnees) and turns to face its tip as the box is dragged past it (kneesFacingTips).
 import type { Point, Rect } from './model';
 
 export type CalloutSide = 'left' | 'right' | 'top' | 'bottom';
@@ -77,6 +77,26 @@ export function refitCalloutKnees(points: readonly Point[], from: Rect, to: Rect
     if (side === 'right') return [p[0] + to.x + to.w - from.x - from.w, along(p[1], from.y, from.h, to.y, to.h)];
     if (side === 'top') return [along(p[0], from.x, from.w, to.x, to.w), p[1] + to.y - from.y];
     return [along(p[0], from.x, from.w, to.x, to.w), p[1] + to.y + to.h - from.y - from.h];
+  });
+}
+
+/**
+ * Fork (leojru/redcolumn): a callout's `points` with any leader landing on the side of the box away
+ * from its tip moved to the side facing it, at the same height and landing length, once the tip is
+ * far enough past that side to leave room for the landing. Top and bottom landings stay.
+ */
+export function kneesFacingTips(points: readonly Point[]): Point[] {
+  if (points.length < 4) return [...points];
+  const [a, b] = [points[2]!, points[3]!];
+  const box: Rect = { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
+  const right = box.x + box.w;
+  return points.map((knee, i): Point => {
+    if (i !== 1 && (i < 5 || i % 2 === 0)) return knee;
+    const tip = points[i - 1]!;
+    const side = calloutLanding(knee, box).side;
+    const flipped = side === 'left' ? right + box.x - knee[0] : side === 'right' ? box.x + right - knee[0] : null;
+    if (flipped === null) return knee;
+    return (side === 'left' ? tip[0] >= flipped : tip[0] <= flipped) ? [flipped, knee[1]] : knee;
   });
 }
 
