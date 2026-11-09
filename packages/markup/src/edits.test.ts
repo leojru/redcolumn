@@ -101,3 +101,17 @@ test('resizing a text box keeps its text showing: no narrower than a word, as ta
   assert.deepEqual(out.slice(0, 3), [[0, 0], [10, 10], [50, 50]]);
   assert.ok(out[3]![0] > 52 && out[3]![1] > 52);
 });
+
+test("a callout's centred leader stays centred when Auto-size changes the box; on the right it keeps its landing", () => {
+  const measure = (s: string) => s.length * 6;
+  const left = mk('callout', [[0, 200], [80, 100], [100, 60], [300, 140]], { text: 'TEXT', style: { ...DEFAULT_STYLES.callout, fontSize: 10 } });
+  const a = autoSizedPoints(left, measure)!;
+  const middle = (a[2]![1] + a[3]![1]) / 2;
+  assert.ok(Math.abs(a[1]![1] - middle) < 1e-6);
+  assert.equal(a[1]![0], 80);
+  assert.deepEqual(a[0], [0, 200]);
+  const right = mk('callout', [[500, 200], [320, 100], [100, 60], [300, 140]], { text: 'TEXT', style: { ...DEFAULT_STYLES.callout, fontSize: 10 } });
+  const b = autoSizedPoints(right, measure)!;
+  assert.ok(Math.abs(b[1]![0] - b[3]![0] - 20) < 1e-6);
+  assert.ok(Math.abs(b[1]![1] - (b[2]![1] + b[3]![1]) / 2) < 1e-6);
+});

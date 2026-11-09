@@ -78,6 +78,7 @@ import {
   readingFrame,
   autoSizedPoints,
   keepTextInBox,
+  refitCalloutKnees,
   cssFont,
   markupSnapPoints,
   rotateHandle,
@@ -1813,7 +1814,9 @@ export class MarkupTools implements ViewerOverlay {
     const g = (this.textMeasure ??= document.createElement('canvas').getContext('2d'));
     if (!g) return points;
     g.font = cssFont(m.style, m.style.fontSize ?? 12);
-    return keepTextInBox(m, points, (t) => g.measureText(t).width);
+    const kept = keepTextInBox(m, points, (t) => g.measureText(t).width);
+    // A callout's leader keeps its place on the box as a corner is dragged.
+    return m.type === 'callout' && (index === 2 || index === 3) ? refitCalloutKnees(kept, boundsOf(m.points.slice(2, 4)), boundsOf(kept.slice(2, 4))) : kept;
   }
 
   private textMeasure: CanvasRenderingContext2D | null = null;

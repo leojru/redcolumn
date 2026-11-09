@@ -3,6 +3,7 @@ import { frameAround } from './textFrames';
 import { boundsOf, contentBox, flagTip, isTextType, type Markup, type MarkupStyle, type Point } from './model';
 import { textLineHeight, textPadding } from './geometry';
 import { TYPE_INFO } from './types';
+import { refitCalloutKnees } from './callout';
 import { fontKeyword } from './fonts';
 import { TEXT_INK_METRICS } from './render';
 import { layoutParagraphs } from './textLists';
@@ -107,9 +108,11 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number): Poin
   if (m.type === 'callout') {
     if (m.points.length < 4) return null;
     const pts = m.points.map((p) => [p[0], p[1]] as Point);
+    const from = boundsOf(m.points.slice(2, 4));
     pts[2] = [box.x, box.y];
     pts[3] = [box.x + outer.w, box.y + outer.h];
-    return pts;
+    // Fork (leojru/redcolumn): the leader keeps its place on the box (centred stays centred).
+    return refitCalloutKnees(pts, from, { x: box.x, y: box.y, w: outer.w, h: outer.h });
   }
   if (m.type === 'flagLabel') {
     // The pointed end grows with the box's height; solve for the outer width that leaves `w` for text.

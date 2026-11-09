@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: a callout's leader keeps its place on the box as the box changes (refitCalloutKnees).
 import type { Point, Rect } from './model';
 
 export type CalloutSide = 'left' | 'right' | 'top' | 'bottom';
@@ -60,6 +61,23 @@ export function calloutPoints(tip: Point, at: Point, w: number, h: number, landi
   const knee: Point = [at[0] + (right ? -landing : landing), at[1]];
   const x0 = right ? at[0] : at[0] - w;
   return [tip, knee, [x0, at[1] - h / 2], [x0 + w, at[1] + h / 2]];
+}
+
+/**
+ * Fork (leojru/redcolumn): a callout's `points` with its knees carried along as its box goes from
+ * `from` to `to`: each stays at the same share along the side it lands on (a centred leader stays
+ * centred) with its landing the same length. Tips stay put; a knee beyond the side's ends is left.
+ */
+export function refitCalloutKnees(points: readonly Point[], from: Rect, to: Rect): Point[] {
+  const along = (v: number, a0: number, len0: number, a1: number, len1: number) => (len0 > 0 && v >= a0 && v <= a0 + len0 ? a1 + ((v - a0) / len0) * len1 : v);
+  return points.map((p, i): Point => {
+    if (i !== 1 && (i < 5 || i % 2 === 0)) return p;
+    const side = calloutLanding(p, from).side;
+    if (side === 'left') return [p[0] + to.x - from.x, along(p[1], from.y, from.h, to.y, to.h)];
+    if (side === 'right') return [p[0] + to.x + to.w - from.x - from.w, along(p[1], from.y, from.h, to.y, to.h)];
+    if (side === 'top') return [along(p[0], from.x, from.w, to.x, to.w), p[1] + to.y - from.y];
+    return [along(p[0], from.x, from.w, to.x, to.w), p[1] + to.y + to.h - from.y - from.h];
+  });
 }
 
 /**
