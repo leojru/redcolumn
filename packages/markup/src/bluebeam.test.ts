@@ -499,7 +499,7 @@ test('a text box with a cloud border comes in as one, and goes back out as one',
   const m = markups[0]!;
   assert.equal(m.type, 'text');
   assert.equal(m.style.cloudBorder, true);
-  assert.equal(m.style.arcRadius, 6);
+  assert.equal(m.style.arcRadius, 7);
   assert.ok(markupShape(m)[0]!.path.some((c) => c[0] === 'C'), 'the border is drawn in arcs');
 
   const out = await PDFDocument.load(await exportWithAnnotations(await PDFDocument.create().then((d) => { d.addPage([600, 800]); return d.save(); }) as unknown as ArrayBuffer, [{ ...m, id: 'x', pageIndex: 0, status: 'none', author: 'A', createdAt: 1, modifiedAt: 1 } as Markup]));

@@ -457,6 +457,22 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
               <LineStyleSelect style={style} mixed={mixedDash} markups={markups} cloud={!mixedTypes && (styleType === 'text' || styleType === 'callout' || styleType === 'image')} onChange={(patch) => apply(styleType, patch)} />
             </label>
           )}
+          {/* Fork (leojru/redcolumn): a border drawn as a cloud (Cloud in the line style list): its settings beside it. */}
+          {!mixedTypes && style.cloudBorder && (styleType === 'text' || styleType === 'callout' || styleType === 'image') && (
+            <>
+              <label className="field" title="Arc size: how big the cloud's arcs are (pt)">
+                Arc size
+                <ComboField title="Arc size" value={style.arcRadius} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => apply(styleType, { arcRadius: v })} />
+              </label>
+              <label className="field" title="Which way the cloud's arcs bulge">
+                Arcs
+                <select aria-label="Cloud arcs" value={style.cloudInside ? 'inside' : 'outside'} onChange={(e) => apply(styleType, { cloudInside: e.target.value === 'inside' || undefined })}>
+                  <option value="outside">Outward</option>
+                  <option value="inside">Inward</option>
+                </select>
+              </label>
+            </>
+          )}
           <label className="field" title="Opacity">
             <FieldTag icon={STYLE_ICONS.opacity} label="Opacity" />
             <ComboField title="Opacity" value={mixedOf('opacity') ? undefined : Math.round(style.opacity * 100)} placeholder={mixedOf('opacity') ? 'Mixed' : undefined} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => apply(styleType, { opacity: o / 100 })} />
@@ -623,24 +639,8 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
       {cloudBubble && (
         <Cluster label="Cloud">
           <label className="field" title="Size of the cloud's bubbles (pt)">
-            Bubbles
+            Arc size
             <ComboField title="Bubble size" value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />
-          </label>
-        </Cluster>
-      )}
-      {/* Fork (leojru/redcolumn): a border drawn as a cloud (Cloud in the line style list). */}
-      {style && styleType && !mixedTypes && style.cloudBorder && (styleType === 'text' || styleType === 'callout' || styleType === 'image') && (
-        <Cluster label="Cloud">
-          <label className="field" title="Size of the cloud's bubbles (pt)">
-            Bubbles
-            <ComboField title="Bubble size" value={style.arcRadius} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => apply(styleType, { arcRadius: v })} />
-          </label>
-          <label className="field" title="Which way the cloud's bubbles bulge">
-            Arcs
-            <select aria-label="Cloud arcs" value={style.cloudInside ? 'inside' : 'outside'} onChange={(e) => apply(styleType, { cloudInside: e.target.value === 'inside' || undefined })}>
-              <option value="outside">Outward</option>
-              <option value="inside">Inward</option>
-            </select>
           </label>
         </Cluster>
       )}

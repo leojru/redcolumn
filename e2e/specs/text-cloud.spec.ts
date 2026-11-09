@@ -72,6 +72,13 @@ test.describe('snapshots', () => {
     s = ((await app.raw()) as unknown as Raw[]).find((m) => m.type === 'image')!.style;
     expect(s.cloudBorder).toBe(true);
     expect(s.dash).toBeUndefined();
+    // Its arc size sits beside the line style, and it can take a fill.
+    await expect(app.page.locator('.classic-props label[title^="Arc size"]')).toBeVisible();
+    await app.page.locator('.classic-props').getByRole('button', { name: /fill/i }).first().click();
+    const swatch = app.page.locator('.color-pop .color-swatch').nth(20);
+    const fill = (await swatch.getAttribute('title'))!.toLowerCase();
+    await swatch.click();
+    expect(((await app.raw()) as unknown as (Raw & { style: { fill: string } })[]).find((m) => m.type === 'image')!.style.fill.toLowerCase()).toBe(fill);
     const before = (await app.saved()).length;
     await app.cmd('file.saveAs');
     await expect.poll(async () => (await app.saved()).length, { timeout: 30_000 }).toBe(before + 1);

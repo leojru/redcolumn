@@ -140,7 +140,7 @@ export function effectiveBlendMode(m: Pick<Markup, 'type' | 'style'>): BlendMode
  * and highlighters blend whole.
  */
 export function blendsFillOnly(m: Pick<Markup, 'type' | 'style'>): boolean {
-  return effectiveBlendMode(m) !== 'normal' && styleCapabilities(m.type).fill && !TYPE_INFO[m.type].multiply;
+  return effectiveBlendMode(m) !== 'normal' && styleCapabilities(m.type).fill && !TYPE_INFO[m.type].multiply && m.type !== 'image';
 }
 
 /** The /BM name to write for a markup, or null when it blends normally. */
