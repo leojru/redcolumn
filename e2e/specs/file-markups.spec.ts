@@ -1,5 +1,5 @@
 // Added in the leojru/redcolumn fork (revu-layout). As in Revu, a PDF on disk opens with what is saved in it.
-import { copyFileSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -58,6 +58,49 @@ test.describe('markups live in the file', () => {
     await openFile(app, file);
     await expect.poll(async () => (await app.raw().catch(() => [])).length, { timeout: 30_000 }).toBe(1);
     expect((await app.raw())[0]).toMatchObject({ type: 'rect' });
+  });
+
+  const saveAndClose = async (app: Parameters<typeof openFile>[0] & { tool(t: string): Promise<void>; drag(a: [number, number], b: [number, number]): Promise<void>; raw(): Promise<unknown[]> }) => {
+    await app.tool('rect');
+    await app.drag(A, B);
+    await expect.poll(async () => (await app.raw()).length).toBe(1);
+    await app.cmd('file.save');
+    await expect(app.page.locator('.doc-tab.active .dirty')).toHaveCount(0, { timeout: 20_000 });
+    await closeDocument(app.page, app);
+    await expect.poll(async () => (await app.documents()).length).toBe(0);
+  };
+
+  test('what was saved comes back when opened from the recent files', async ({ app }) => {
+    const file = copyOf(app.fixture('plan.pdf'));
+    await openFile(app, file);
+    await saveAndClose(app);
+    await app.page.locator('.library button.file').filter({ hasText: 'drawing' }).first().click();
+    await expect.poll(async () => (await app.documents().catch(() => [])).length, { timeout: 30_000 }).toBe(1);
+    await expect.poll(async () => (await app.raw().catch(() => [])).length, { timeout: 30_000 }).toBe(1);
+  });
+
+  test('what was saved comes back after the app restarts with the tab open', async ({ app }) => {
+    const file = copyOf(app.fixture('plan.pdf'));
+    await openFile(app, file);
+    await app.tool('rect');
+    await app.drag(A, B);
+    await expect.poll(async () => (await app.raw()).length).toBe(1);
+    await app.cmd('file.save');
+    await expect(app.page.locator('.doc-tab.active .dirty')).toHaveCount(0, { timeout: 20_000 });
+    await app.page.reload();
+    await expect.poll(async () => (await app.documents().catch(() => [])).length, { timeout: 30_000 }).toBe(1);
+    await app.page.waitForTimeout(2000);
+    await expect.poll(async () => (await app.raw().catch(() => [])).length, { timeout: 30_000 }).toBe(1);
+  });
+
+  test('a file that can no longer be read keeps what is on this device', async ({ app }) => {
+    const file = copyOf(app.fixture('plan.pdf'));
+    await openFile(app, file);
+    await saveAndClose(app);
+    rmSync(file);
+    await app.page.locator('.library button.file').filter({ hasText: 'drawing' }).first().click();
+    await expect.poll(async () => (await app.documents().catch(() => [])).length, { timeout: 30_000 }).toBe(1);
+    await expect.poll(async () => (await app.raw().catch(() => [])).length, { timeout: 30_000 }).toBe(1);
   });
 
   test('an identical copy from another folder has its own tab and markups', async ({ app }) => {

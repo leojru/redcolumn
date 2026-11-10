@@ -486,12 +486,12 @@ export interface Rect {
 }
 
 /** The box a markup's text or picture sits in: a callout's box, else the bounds of its points. */
-export function contentBox(m: Pick<Markup, 'type' | 'points'> & { flowShape?: FlowShapeKind; style?: { boxShape?: TextFrame } }): Rect {
+export function contentBox(m: Pick<Markup, 'type' | 'points'> & { flowShape?: FlowShapeKind; style?: { boxShape?: TextFrame; textMargin?: number } }): Rect {
   const b = boundsOf(m.type === 'callout' && m.points.length >= 4 ? m.points.slice(2, 4) : m.points);
   if (m.type === 'flowShape') return flowTextBox(m.flowShape ?? 'process', b);
   // Fork (leojru/redcolumn): inside a text box's or callout's border shape.
   const shape = m.style?.boxShape;
-  if ((m.type === 'text' || m.type === 'callout') && shape && shape !== 'rect') return frameInner(shape, b);
+  if ((m.type === 'text' || m.type === 'callout') && shape && shape !== 'rect') return frameInner(shape, b, m.style?.textMargin ?? 4);
   if (m.type !== 'flagLabel') return b;
   // A flag label's text sits right of its pointed end.
   const tip = flagTip(b);

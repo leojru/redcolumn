@@ -2,7 +2,7 @@
 // identical copies are separate documents, and removing a document forgets what was kept for it.
 import { MarkupStore } from '@nb/markup';
 import { contentHash } from '../storage/fileStore';
-import { fileLocationPath, handleLocationPath } from '../storage/diskHandles';
+import { fileLocationPath, handleLocationPath, recallHandle } from '../storage/diskHandles';
 
 interface OpenTab {
   file: { id: string; hash: string };
@@ -22,6 +22,16 @@ export async function idForSeparateCopy(bytes: ArrayBuffer, source: object | nul
     if (there && there !== path) return `${hash}:${await contentHash(new TextEncoder().encode(path).buffer as ArrayBuffer)}`;
   }
   return undefined;
+}
+
+/** A document's file as it is on disk now, or null when it cannot be read (moved, deleted, on a drive not connected). */
+export async function readCurrentFile(id: string): Promise<ArrayBuffer | null> {
+  try {
+    const handle = await recallHandle(id);
+    return handle ? await (await handle.getFile()).arrayBuffer() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Forgets the markups kept for a document that is not open. */

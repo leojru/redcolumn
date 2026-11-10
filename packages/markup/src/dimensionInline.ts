@@ -91,6 +91,11 @@ export const DIM_LINE_HEIGHT = 1.2;
  */
 const FRAME_ROOM: Record<TextFrame, [number, number]> = { rect: [0.35, 0.1], circle: [0, 0], hexagon: [0, 0.56], triangle: [0, 0] };
 
+/** Fork (leojru/redcolumn): a shape around text `w` wide in `n` lines, sized as a Dimension's frame. */
+export function framedTextBox(kind: TextFrame, w: number, n: number, size: number): { w: number; h: number } {
+  return frameAround(kind, w + size * FRAME_ROOM[kind][0], n * size * DIM_LINE_HEIGHT + size * FRAME_ROOM[kind][1]);
+}
+
 /**
  * Where a Dimension's text goes, one or more lines (Shift+Enter): each line's baseline point (its
  * centre, or with `align` left its start), turned `angle` radians (clockwise in page space).
@@ -160,7 +165,7 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
   const p = line.text;
   const kind = m.style.dimFrame;
   // The frame around the text, with a little room: its box, and where the text's middle sits in it.
-  const fw = kind ? frameAround(kind, w + size * FRAME_ROOM[kind][0], h + size * FRAME_ROOM[kind][1]) : { w, h };
+  const fw = kind ? framedTextBox(kind, w, n, size) : { w, h };
   const [fx, fy] = kind ? frameTextCentre(kind) : [0.5, 0.5];
   // Where the text's middle goes.
   let center: Point;

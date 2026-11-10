@@ -122,7 +122,7 @@ import { ClassicToolbars } from './components/fork/ClassicToolbars';
 import { StatusCommands } from './components/fork/StatusCommands';
 import { vectorSnapshotOf } from './fork/snapshot';
 import { createVectorPictures, registerStampSources } from './fork/vectorPictures';
-import { REMOVE_FROM_DEVICE, forgetKeptMarkups, idForSeparateCopy } from './fork/fileCopies';
+import { REMOVE_FROM_DEVICE, forgetKeptMarkups, idForSeparateCopy, readCurrentFile } from './fork/fileCopies';
 import { markupLayersOfHiddenPdf } from './fork/pdfLayerMarkups';
 import { DimensionTextEditor } from './components/fork/DimensionTextEditor';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
@@ -1681,8 +1681,10 @@ export function App() {
 
   /** Opens bytes already in the library (or just added to it) in a new tab; `target` is the split pane. */
   const openStored = useCallback(
-    async (file: StoredFile, bytes: ArrayBuffer, target: Pane = 'a') => {
+    async (given: StoredFile, givenBytes: ArrayBuffer, target: Pane = 'a', { fromDisk = false }: { fromDisk?: boolean } = {}) => {
       if (!ctl) return;
+      let file = given;
+      let bytes = givenBytes;
       const inA = tabsARef.current.find((t) => t.file.id === file.id);
       if (inA) {
         activateTab('a', inA);
@@ -1695,6 +1697,19 @@ export function App() {
       }
       const pane: Pane = target === 'b' && ctlB ? 'b' : 'a';
       setError(null);
+      // Fork (leojru/redcolumn): as in Revu, a file on disk opens with what is saved in it, so its
+      // current contents are read (Save writes only to the file). When it cannot be read, or a crash
+      // left changes unsaved, what is kept on this device stays.
+      const recovering = (settings.get().documentRecovery && recoveredDocs().has(file.id)) || movedDirty.has(file.id);
+      let startFromDisk = fromDisk && !recovering;
+      if (!fromDisk && !recovering && hasFileLocation(file.id) && !studioDocOf(file.id) && !linkOf(file.id)) {
+        const onDisk = await readCurrentFile(file.id);
+        if (onDisk) {
+          if ((await contentHash(onDisk)) !== file.hash) file = await replaceFileContent(file.id, onDisk.slice(0));
+          bytes = onDisk;
+          startFromDisk = true;
+        }
+      }
       const [doc, store] = await Promise.all([ctl.engine.open(bytes), MarkupStore.open(file.id)]);
       // Session documents sync their markups with everyone else in their session.
       const sessionDoc = studioDocOf(file.id);
@@ -1714,9 +1729,7 @@ export function App() {
         const project = link ? projectById(link.projectId) : null;
         if (link && project) await project.attachMarkups(link.fileId, store).catch((err: unknown) => console.warn('Project markups:', err));
       }
-      // Fork (leojru/redcolumn): as in Revu, a file on disk opens with what is saved in it. Changes a crash left unsaved are kept.
-      const recovering = settings.get().documentRecovery && recoveredDocs().has(file.id);
-      if (!sessionDoc && !linkOf(file.id) && !store.readOnly && hasFileLocation(file.id) && !recovering && !movedDirty.has(file.id)) store.startFromFile();
+      if (startFromDisk && !sessionDoc && !linkOf(file.id) && !store.readOnly && hasFileLocation(file.id)) store.startFromFile();
       // Documents without their own custom columns start with the profile's.
       const template = profiles.active().state.columnTemplate;
       // Not shared documents: one person's profile would become everyone's.
@@ -2041,7 +2054,7 @@ export function App() {
           // PDFs (which are kept unprotected here and must not replace the original).
           if (source && bytes === raw) await rememberHandle(stored.id, source);
           if (moved?.dirty) movedDirty.add(stored.id);
-          await openStored(stored, bytes, target);
+          await openStored(stored, bytes, target, { fromDisk: !!source && bytes === raw });
           if (conversion) cadSession.set(stored.id, conversion);
         } catch (err) {
           if (isAbort(err)) continue;
