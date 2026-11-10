@@ -1,6 +1,7 @@
 // The `app` fixture: a fresh redcolumn (a Chromium page on the dev server, or the Electron app with
 // its own profile folder) plus the driver in driver.ts. Specs use it the same way in both projects.
-// Modified in the leojru/redcolumn fork (revu-layout): the toolbar style, built-in shortcuts and panel layout are always seeded explicitly.
+// Modified in the leojru/redcolumn fork (revu-layout): the toolbar style, built-in shortcuts and panel layout are always seeded explicitly; desktop windows are 1440 x 900 under Hyprland.
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -9,6 +10,21 @@ import { PDFDocument } from 'pdf-lib';
 import { driver, type Driver } from './driver.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
+
+/**
+ * Fork (leojru/redcolumn): a tiling compositor picks a new window's size, and the specs are written
+ * for 1440 x 900 (the app's own default). Under Hyprland this floats and sizes just the test's
+ * window, by its process id; the compositor's settings are left alone.
+ */
+async function sizeTestWindow(pid: number | undefined, win: Page) {
+  if (!process.env.HYPRLAND_INSTANCE_SIGNATURE || !pid) return;
+  const target = `pid:${pid}`;
+  const dispatch = (...args: string[]) => spawnSync('hyprctl', ['dispatch', ...args], { encoding: 'utf8' }).stdout.trim() === 'ok';
+  // Hyprland's Lua dispatchers, or the older ones before them.
+  if (!dispatch(`hl.dsp.window.float({ action = "on", window = "${target}" })`)) dispatch('setfloating', target);
+  if (!dispatch(`hl.dsp.window.resize({ window = "${target}", x = 1440, y = 900 })`)) dispatch('resizewindowpixel', `exact 1440 900,${target}`);
+  await win.waitForFunction(() => window.innerWidth === 1440 && window.innerHeight === 900, undefined, { timeout: 5_000 }).catch(() => {});
+}
 
 export interface App extends Driver {
   /** 'web' or 'desktop'. */
@@ -192,6 +208,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
         };
         collectErrors(win, errors);
         await win.waitForSelector('.menubar', { timeout: 30_000 });
+        await sizeTestWindow(electronApp.process().pid, win);
         await win.evaluate(seed, { settings, toolbar, classicLayout });
         await win.reload();
         await win.waitForSelector('.menubar', { timeout: 30_000 });
