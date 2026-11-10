@@ -114,6 +114,8 @@ export interface DimensionLayout {
   box: { center: Point; w: number; h: number };
   /** The shape drawn around the text (`dimFrame`), closed. */
   frame: PathCmd[] | null;
+  /** Fork (leojru/redcolumn): the strip behind the text that a fill covers when there is no frame. */
+  plate: PathCmd[];
 }
 
 /**
@@ -182,16 +184,25 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
     ? mapPath(framePath(kind, { x: -fw.w * fx, y: -fw.h * fy, w: fw.w, h: fw.h }), ([lx, ly]) => at(center, lx, -ly))
     : null;
   const box = { center: boxCenter, w: fw.w, h: fw.h };
+  // The strip a fill covers when there is no frame: the text, with the room the line's gap leaves it.
+  const [pw, ph] = [w + size * 0.5, h];
+  const plate: PathCmd[] = [
+    ['M', ...at(center, -pw / 2, ph / 2)],
+    ['L', ...at(center, pw / 2, ph / 2)],
+    ['L', ...at(center, pw / 2, -ph / 2)],
+    ['L', ...at(center, -pw / 2, -ph / 2)],
+    ['Z'],
+  ];
   if (lifted) {
     // The leader grows from the foot (on the line) to the text, or its frame.
-    return { lines, align, angle, size, inline: false, gap: null, leader: liftLeader(m, boxCenter, fw.w, fw.h), knob: at(boxCenter, 0, -Math.sign(lift) * (fw.h / 2 + size * 0.45)), box, frame };
+    return { lines, align, angle, size, inline: false, gap: null, leader: liftLeader(m, boxCenter, fw.w, fw.h), knob: at(boxCenter, 0, -Math.sign(lift) * (fw.h / 2 + size * 0.45)), box, frame, plate };
   }
   if (inline) {
     // The line breaks where it meets the frame, or around the text; the knob sits at the text's start, in the gap.
     const gap = kind ? frameWidthAt(kind, fw.w, fy) : w + size * 0.5;
-    return { lines, align, angle, size, inline: true, gap, leader: null, knob: at(p, -(gap / 2 + size * 0.25), 0), box, frame };
+    return { lines, align, angle, size, inline: true, gap, leader: null, knob: at(p, -(gap / 2 + size * 0.25), 0), box, frame, plate };
   }
-  return { lines, align, angle, size, inline: false, gap: null, leader: null, knob: at(boxCenter, 0, -(fw.h / 2) + size * 0.4), box, frame };
+  return { lines, align, angle, size, inline: false, gap: null, leader: null, knob: at(boxCenter, 0, -(fw.h / 2) + size * 0.4), box, frame, plate };
 }
 
 /**

@@ -364,3 +364,19 @@ test('a 45° tick leans the same way at both ends of a line across the page', as
     assert.ok(Math.abs(Math.abs(b[1] - a[1]) - Math.abs(b[2] - a[2])) < 1e-6, '45°');
   }
 });
+
+// Fork (leojru/redcolumn).
+test("a Dimension's fill goes behind its frame or text, never on its line or ends", async () => {
+  const dim = (extra: object) => markup('dimension', [[100, 100], [300, 200]], { text: '1.2', style: { ...DEFAULT_STYLES.dimension, fill: '#ffffff', ...extra } });
+  for (const m of [dim({}), dim({ dimFrame: 'hexagon' })]) {
+    const filled = markupShape(m).filter((p) => p.fill === '#ffffff');
+    assert.equal(filled.length, 1, 'one patch');
+    assert.equal(filled[0]!.stroke, false);
+  }
+  // Filled, it is still only grabbed by its line and text, not across its bounding box.
+  assert.equal(hitTest(dim({}), [120, 190], 2), false);
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 800]);
+  const out = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [dim({ startCap: 'none', endCap: 'none' })]));
+  assert.equal(out.getPage(0).node.Annots()!.lookup(0, PDFDict).get(PDFName.of('IC')), undefined);
+});

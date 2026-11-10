@@ -934,7 +934,8 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   // Written empty on measurements and counts too, as Bluebeam does, so clearing a label clears the original's.
   if (markupLabel(m) || label || m.type === 'count') base.Label = pdfText(markupLabel(m));
   if (contents) base.Contents = pdfText(label && markupLabel(m) ? `${markupLabel(m)}\r${contents}` : contents);
-  if (fill) base.IC = fill;
+  // Fork (leojru/redcolumn): a Dimension's fill is behind its text; /IC would colour its line's ends.
+  if (fill && m.type !== 'dimension') base.IC = fill;
   // Bluebeam keeps a shape's hatch as a pattern, its name and its colour; a shape without them is
   // redrawn with no hatch as soon as it is edited. (Our appearance already draws it.)
   const hatch = styleCapabilities(m.type).hatch ? resolveHatch(m.style.hatch, m.style.hatchSpec) : null;

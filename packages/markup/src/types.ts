@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: Dimension text inline by default; pictures (snapshots) have a line style.
+// Modified in the leojru/redcolumn fork: Dimension text inline by default, with a fill behind it; pictures (snapshots) have a line style.
 import type { MarkupStyle, MarkupType } from './model';
 import type { LineEnding, StyleCapabilities } from './style';
 
@@ -186,7 +186,7 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     solid: false,
     ends: ['filledArrow', 'filledArrow'],
     measure: false,
-    caps: caps({ dash: true, lineEnds: true, font: true, leader: true }),
+    caps: caps({ fill: true, dash: true, lineEnds: true, font: true, leader: true }),
   },
   // A file embedded in the PDF, shown as a paperclip icon.
   attachment: { label: 'File Attachment', style: { stroke: '#1d4ed8', fill: '#dbeafe', width: 0.75, opacity: 1 }, draw: 'place', closed: false, handles: 'none', solid: true, measure: false, caps: caps({ fill: true }) },

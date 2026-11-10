@@ -364,6 +364,8 @@ function inlineTextGap(m: Markup, parts: ShapePart[]): ShapePart[] {
   if (!line || !layout) return parts;
   // A shape around the text (dimFrame): drawn solid, as the line's ends are.
   const frame: ShapePart[] = layout.frame ? [{ path: layout.frame, stroke: true, fill: null, decoration: true }] : [];
+  // Fork (leojru/redcolumn): a fill covers the drawing behind the frame, or behind the text without one.
+  if (m.style.fill) frame.unshift({ path: layout.frame ?? layout.plate, stroke: false, fill: m.style.fill });
   if (layout.leader) return [...parts, { path: polyline(layout.leader), stroke: true, fill: null, decoration: true }, ...frame];
   const gap = layout.gap;
   if (!gap) return [...parts, ...frame];
@@ -811,7 +813,7 @@ export function hitTest(m: Markup, p: Point, tolerance: number): boolean {
   } else if (TYPE_INFO[m.type].draw === 'text') {
     // Text markups: anywhere on one of their lines.
     return markupLines(m.points).some((r) => p[0] >= r.x - tolerance && p[0] <= r.x + r.w + tolerance && p[1] >= r.y - tolerance && p[1] <= r.y + r.h + tolerance);
-  } else if (TYPE_INFO[m.type].solid || m.style.fill || resolveHatch(m.style.hatch, m.style.hatchSpec)) {
+  } else if (TYPE_INFO[m.type].solid || (m.type !== 'dimension' && m.style.fill) || resolveHatch(m.style.hatch, m.style.hatchSpec)) {
     // Text boxes and filled shapes are grabbable anywhere inside.
     const inner = contentBox(m);
     if (p[0] >= inner.x && p[0] <= inner.x + inner.w && p[1] >= inner.y && p[1] <= inner.y + inner.h) return true;
