@@ -88,7 +88,7 @@ export { BOX_OPPOSITE, dimensionText, drawMarkup, redrawMarkupImages, setVectorP
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
 export { markupDigest, unchangedSinceImport } from './digest';
 export { autoSizedPoints, canAutoSize, keepTextInBox, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits';
-export { bluebeamColumnId, importColumns, importStatuses, statusIdOf, type PdfExtras } from './bluebeam';
+export { bluebeamColumnId, importColumns, importStatuses, statusIdOf, type PdfExtras, type SnapshotContent, type SnapshotSheet } from './bluebeam';
 export { planPageOps, rotatePagePoint, type PageOperation, type PagePlan } from './pages';
 export { parseBtx, parsePdfObject, pdfColor, toolStyle, toolType, type RevuToolSource, type ToolChestItem, type ToolSet } from './toolchest';
 export { BTX_TYPES, writeBhx, writeBlx, writeBpx, writeBtx } from './revuWrite';
@@ -97,7 +97,7 @@ export { markupSnapPoints } from './snapPoints';
 export * from './cad';
 
 // Fork addition (leojru/redcolumn): vector snapshots.
-export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES, stampAppearanceSheet, vectorSnapshotBytes } from './vectorSnapshot';
+export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES, snapshotContentSheet, stampAppearanceSheet, vectorSnapshotBytes, vectorSnapshotUrl } from './vectorSnapshot';
 // Fork (leojru/redcolumn): Length and Dimension text layout (inline, lines, leaders).
 export { approxTextWidth, dimensionLayout, liftedCenter, readingFrame, type DimensionLayout } from './dimensionInline';
 export { frameAround, frameInner, framePath, TEXT_FRAMES, type TextFrame } from './textFrames';

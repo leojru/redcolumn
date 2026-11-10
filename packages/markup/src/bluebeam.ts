@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Revu snapshots' drawings read apart from their border and fill.
 /**
  * What a PDF's own annotation dictionaries say beyond what PDFium reports: Bluebeam Revu's
  * measurement data, custom columns, Spaces, viewports, review states and replies. `readPdfExtras`
@@ -70,7 +71,30 @@ export interface PdfExtras {
   assemblies?: Assembly[];
   /** Other tools' stamps drawn to pictures (PNG data URLs), by `pageIndex:annotIndex`. */
   appearances?: Map<string, string>;
+  /** Fork (leojru/redcolumn): Revu snapshots' drawings without their border and fill, as one-page PDFs, by `pageIndex:annotIndex`. */
+  snapshotSheets?: Map<string, SnapshotSheet>;
+  /** Fork: those drawings ready to use, by `pageIndex:annotIndex`. */
+  snapshots?: Map<string, SnapshotContent>;
 }
+
+/** Fork: a Revu snapshot's drawing on its own; `inset` is how far inside the annotation's /Rect the sheet lies. */
+export interface SnapshotSheet {
+  bytes: Uint8Array;
+  inset: number;
+}
+
+/** Fork: a Revu snapshot's drawing as a PNG data URL and a PDF data URL. */
+export interface SnapshotContent {
+  image: string;
+  vector: string;
+  inset: number;
+}
+
+/** Fork: the arc radius that matches a Revu cloud of this /BE intensity. */
+export const cloudArcRadius = (intensity: number | null | undefined) => Math.max(3, (intensity ?? 1) * 3.5);
+
+/** Fork: how far inside /Rect a snapshot's outline lies, so a border drawn around it lands where Revu's did. */
+export const snapshotInset = (width: number, cloudIntensity: number | null) => (cloudIntensity === null ? width / 2 : width + cloudArcRadius(cloudIntensity));
 
 // ---- Reading values -------------------------------------------------------------------------
 

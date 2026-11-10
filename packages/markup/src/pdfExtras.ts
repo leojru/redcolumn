@@ -1,5 +1,7 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Revu snapshots' drawings read apart from their border and fill.
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, type PDFObject } from 'pdf-lib';
-import { arr, dict, nameOf, num, PdfName, refNum, str, type PdfDictValue, type PdfExtras, type PdfPageExtras, type PdfValue } from './bluebeam';
+import { arr, dict, nameOf, num, PdfName, refNum, str, type PdfDictValue, type PdfExtras, type PdfPageExtras, type PdfValue, type SnapshotSheet } from './bluebeam';
+import { snapshotContentSheet } from './vectorSnapshot';
 import { toPdfValue } from './pdfValue';
 import { ASSEMBLIES_KEY, pageMatrix } from './export';
 import { sanitizeAssemblies, type Assembly } from './assemblies';
@@ -28,6 +30,8 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
 
   const images = new Map<number, string>();
   const pages: PdfPageExtras[] = [];
+  // Fork (leojru/redcolumn): Revu snapshots' drawings apart from their border and fill.
+  const snapshotSheets = new Map<string, SnapshotSheet>();
   for (const page of doc.getPages()) {
     const annots: (PdfDictValue | null)[] = [];
     const objectNumbers: number[] = [];
@@ -35,6 +39,10 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
       objectNumbers.push(entry instanceof PDFRef ? entry.objectNumber : 0);
       const a = dictValue(entry);
       annots.push(a);
+      if (nameOf(a?.IT) === 'StampSnapshot') {
+        const sheet = await snapshotContentSheet(doc, pages.length, annots.length - 1).catch(() => null);
+        if (sheet) snapshotSheets.set(`${pages.length}:${annots.length - 1}`, sheet);
+      }
       const image = refNum(a?.Image);
       if (image !== null && !images.has(image)) {
         const url = await imageDataUrl(ctx.lookup(PDFRef.of(image)));
@@ -66,7 +74,7 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   const columns = arr(value(doc.catalog.get(PDFName.of('BSIAnnotColumns')), 'BSIAnnotColumns', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
   const statusDefs = arr(value(doc.catalog.get(PDFName.of('BSIStatus')), 'BSIStatus', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
   const assemblies = readAssemblies(str(value(doc.catalog.get(PDFName.of(ASSEMBLIES_KEY)), ASSEMBLIES_KEY, 0)));
-  return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}) };
+  return { pages, ocgNames, columns, statusDefs, images, ...(snapshotSheets.size ? { snapshotSheets } : {}), ...(assemblies.length ? { assemblies } : {}) };
 }
 
 function readAssemblies(json: string | null): Assembly[] {

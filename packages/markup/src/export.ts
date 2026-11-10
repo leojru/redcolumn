@@ -985,7 +985,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       break;
     case 'image':
       // Fork (leojru/redcolumn): a snapshot is written as Revu writes its own, cloud border included.
-      specific = m.subject === 'Snapshot' ? { Subtype: 'Stamp', IT: 'StampSnapshot', ...(hasCloudBorder(m) ? { BE: cloudEffect(m) } : {}) } : { Subtype: 'Stamp', Name: 'Image' };
+      specific = m.subject === 'Snapshot' || m.pdfAnnot?.snapshot ? { Subtype: 'Stamp', IT: 'StampSnapshot', ...(hasCloudBorder(m) ? { BE: cloudEffect(m) } : {}) } : { Subtype: 'Stamp', Name: 'Image' };
       break;
     case 'rect':
       specific = { Subtype: 'Square', RD: rd };
@@ -1400,7 +1400,7 @@ const countContents = (m: Markup, total: number) => (markupLabel(m) ? `${markupL
 /** Keys an edited markup's annotation keeps from the original even when its kind of annotation changes. */
 const KEEP_ALWAYS = new Set(['P', 'Subj', 'T', 'NM', 'CreationDate', 'BSIColumnData', 'OC', 'IRT', 'RT', 'GroupNesting', 'Popup', 'StructParent', 'ITEx']);
 /** Keys of the original an edited markup's annotation drops: they describe the old look or shape. */
-const STALE = new Set(['AP', 'AS', 'RC', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
+const STALE = new Set(['AP', 'AS', 'RC', 'BE', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
 /** Keys where the original's value wins over ours: identity, and the other tool's own kind of markup. */
 const PREFER_ORIGINAL = new Set(['NM', 'CreationDate', 'IT']);
 /** Annotation flags we set (Invisible, Hidden, Print, NoView, Locked); others the original had stay. */
@@ -1461,9 +1461,16 @@ function nativeForm(orig: PDFDict, m: Markup, matrix: Matrix): LiteralObject | n
   }
   if (m.type === 'image' && subtype === 'Square' && orig.has(PDFName.of('Image'))) return { Subtype: 'Square' };
   if (m.type === 'image' && subtype === 'Stamp' && m.pdfAnnot?.image && m.image && markupDigest({ image: m.image } as Markup) === m.pdfAnnot.image) {
+    // Fork (leojru/redcolumn): a Revu snapshot restyled here is drawn again, as ours are.
+    const snapshot = m.pdfAnnot.snapshot;
+    if (snapshot && snapshot.look !== JSON.stringify(m.style)) return { Subtype: 'Stamp', Rotation: 0, ...(m.style.fill ? {} : { IC: null }) };
     // Another tool's stamp, moved or resized only: its own (vector) appearance, fitted to the new box.
     const name = orig.get(PDFName.of('Name'));
-    return { Subtype: 'Stamp', [KEEP_APPEARANCE]: true, ...(name ? { Name: name as never } : {}) };
+    const b = boundsOf(m.points);
+    const reach = snapshot?.inset ?? 0;
+    const corners = ([[b.x - reach, b.y - reach], [b.x + b.w + reach, b.y + b.h + reach]] as Point[]).map((p) => apply(matrix, p));
+    const rect = snapshot ? { Rect: [Math.min(corners[0]![0], corners[1]![0]), Math.min(corners[0]![1], corners[1]![1]), Math.max(corners[0]![0], corners[1]![0]), Math.max(corners[0]![1], corners[1]![1])] } : {};
+    return { Subtype: 'Stamp', [KEEP_APPEARANCE]: true, ...rect, ...(name ? { Name: name as never } : {}) };
   }
   if (m.type === 'attachment' && subtype === 'FileAttachment' && m.pdfAnnot?.image && m.image && markupDigest({ image: m.image } as Markup) === m.pdfAnnot.image) {
     // Another tool's attachment, moved or resized only: its own appearance, fitted to the new box.

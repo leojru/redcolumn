@@ -1,9 +1,10 @@
-// Modified in the leojru/redcolumn fork (revu-layout): cloud borders on FreeText.
+// Modified in the leojru/redcolumn fork (revu-layout): cloud borders on FreeText; Revu snapshots' border and fill as settings.
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
 import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
 import {
   arr,
+  cloudArcRadius,
   cleanText,
   colorHex,
   daTextColor,
@@ -235,6 +236,7 @@ export function importAnnotations(
   }
 
   /** Links a new markup to its annotation and fills in what the annotation's thread and raw values say. */
+  const snapshotFor = (a: ImportableAnnotation) => extras?.snapshots?.get(`${pageIndex}:${a.index}`);
   const finish = (m: Markup, a: ImportableAnnotation, r: PdfDictValue | null, part: number | null, ours: boolean): Markup => {
     const t = threads.get(a.index);
     if (t) {
@@ -284,6 +286,7 @@ export function importAnnotations(
       status: m.status,
       ...(m.checked !== undefined ? { checked: m.checked } : {}),
       ...(m.image && !ours && (a.subtype === 'Stamp' || a.subtype === 'FileAttachment') ? { image: markupDigest({ image: m.image } as Markup) } : {}),
+      ...(m.vector && !ours && snapshotFor(a) ? { snapshot: { look: JSON.stringify(m.style), inset: snapshotFor(a)!.inset } } : {}),
     };
     return m;
   };
@@ -709,7 +712,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       delete style.textColor;
       if (text !== style.stroke) style.textColor = text;
       // Fork (leojru/redcolumn): a text box or callout with a cloud for a border.
-      if (nameOf(dict(r.BE)?.S) === 'C') Object.assign(style, { cloudBorder: true, arcRadius: Math.max(3, (num(dict(r.BE)?.I) ?? 1) * 3.5) });
+      if (nameOf(dict(r.BE)?.S) === 'C') Object.assign(style, { cloudBorder: true, arcRadius: cloudArcRadius(num(dict(r.BE)?.I)) });
       if (!textStyle.fontSize) style.fontSize = Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || 12;
       let box = innerBox();
       if (intent === 'FreeTextCallout') {
@@ -878,6 +881,14 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         const own = bsi.pages.length === 1 && bsi.pages[0] === pageIndex;
         const legend = { scope: bsi.scope, ...(bsi.pages.length && !own ? { pages: bsi.pages } : {}), keys: bsi.keys, ...(bsi.nameId ? { nameId: bsi.nameId } : {}) };
         return [{ type: 'legend', points: [p!, q!], filled: true, style: { width: a.borderWidth > 0 ? a.borderWidth : 0.75 }, extra: { legend, subject: 'Legend' } }];
+      }
+      // Fork (leojru/redcolumn): a Revu snapshot is its drawing, with the border and fill as ordinary settings.
+      const snapshot = intent === 'StampSnapshot' ? extras.snapshots?.get(`${pageIndex}:${a.index}`) : undefined;
+      if (snapshot) {
+        const { inset, image, vector } = snapshot;
+        const [p, q] = innerBox([inset, inset, inset, inset]);
+        const cloud = nameOf(dict(r.BE)?.S) === 'C' ? { cloudBorder: true, arcRadius: cloudArcRadius(num(dict(r.BE)?.I)) } : {};
+        return [{ type: 'image', points: [p!, q!], filled: !!interior, style: { ...base, fill: interior ?? null, opacity: a.opacity, ...cloud }, extra: { image, vector, vectorImage: markupDigest({ image } as Markup) } }];
       }
       // Another tool's stamp (Bluebeam's Approved, a snapshot): its own appearance, as a picture.
       const image = extras.appearances?.get(`${pageIndex}:${a.index}`);

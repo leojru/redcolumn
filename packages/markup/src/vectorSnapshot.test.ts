@@ -5,7 +5,7 @@ import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFName, P
 import { exportWithAnnotations } from './export.ts';
 import { markupDigest } from './digest.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
-import { makeVectorSnapshot, stampAppearanceSheet, vectorSnapshotBytes } from './vectorSnapshot.ts';
+import { makeVectorSnapshot, snapshotContentSheet, stampAppearanceSheet, vectorSnapshotBytes, vectorSnapshotUrl } from './vectorSnapshot.ts';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
@@ -107,4 +107,60 @@ test("another tool's stamp becomes a sheet the size of its Rect, drawn from its 
   const sheet = await PDFDocument.load((await stampAppearanceSheet(doc, 0, 0))!);
   assert.deepEqual([sheet.getPage(0).getWidth(), sheet.getPage(0).getHeight()], [50, 100]);
   assert.equal(await stampAppearanceSheet(doc, 0, 1), null);
+});
+
+/** A Revu snapshot: the drawing as /MWFOForm, with Revu's fill and border painted around it. */
+async function revuSnapshot({ cloud = true, rotate = 0 } = {}) {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const ctx = doc.context;
+  const content = ctx.register(ctx.stream('0 0 m 200 100 l S', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 200, 100] }));
+  const form = ctx.register(ctx.stream('/MWFOForm Do q 1 0 0 RG 3 w 0 0 200 100 re S Q', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 200, 100], Resources: { XObject: { MWFOForm: content } } }));
+  const stamp = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Stamp', IT: 'StampSnapshot', Subj: 'Snapshot', Rect: [100, 200, 300, 300], BS: { W: 3, S: 'S' }, ...(cloud ? { BE: { S: 'C', I: 2 } } : {}), C: [1, 0, 0], IC: [1, 1, 0], Rotation: 270, AP: { N: form } }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([stamp, ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Stamp', Rect: [0, 0, 10, 10], AP: { N: form } }))]));
+  if (rotate) page.setRotation(degrees(rotate));
+  return doc;
+}
+
+test("a Revu snapshot's drawing comes apart from its border, on a sheet the size of its outline", async () => {
+  const doc = await revuSnapshot();
+  const { bytes, inset } = (await snapshotContentSheet(doc, 0, 0))!;
+  assert.equal(inset, 10, 'a cloud: the border width and the arc radius');
+  const sheet = await PDFDocument.load(bytes);
+  assert.deepEqual([sheet.getPage(0).getWidth(), sheet.getPage(0).getHeight()], [180, 80]);
+  const xobjects = sheet.getPage(0).node.Resources()!.lookup(PDFName.of('XObject'), PDFDict);
+  assert.match(text(xobjects.lookup(xobjects.keys()[0]!, PDFStream)), /200 100 l/);
+  assert.equal((await snapshotContentSheet(await revuSnapshot({ cloud: false }), 0, 0))!.inset, 1.5, 'a line: half its width');
+  assert.equal(await snapshotContentSheet(doc, 0, 1), null, 'not a snapshot');
+});
+
+test("a Revu snapshot's sheet on a turned page is upright as the page shows it", async () => {
+  const { bytes } = (await snapshotContentSheet(await revuSnapshot({ rotate: 90 }), 0, 0))!;
+  const sheet = await PDFDocument.load(bytes);
+  assert.deepEqual([sheet.getPage(0).getWidth(), sheet.getPage(0).getHeight()], [80, 180]);
+});
+
+test("a Revu snapshot keeps its own appearance when moved, and is drawn again when restyled", async () => {
+  const doc = await revuSnapshot();
+  const { bytes } = (await snapshotContentSheet(doc, 0, 0))!;
+  const style = { ...DEFAULT_STYLES.image, stroke: '#ff0000', fill: '#ffff00', width: 3, cloudBorder: true, arcRadius: 7 };
+  const image = PNG;
+  const digest = markupDigest({ image } as Markup);
+  const markup: Markup = { id: 'a', type: 'image', pageIndex: 0, points: [[120, 510], [300, 590]], style, image, vector: vectorSnapshotUrl(bytes), vectorImage: digest, subject: 'Snapshot', status: 'none', author: 'x', createdAt: 0, modifiedAt: 0, seq: 1, pdfAnnot: { index: 0, digest: 'stale', id: 'a', image: digest, snapshot: { look: JSON.stringify(style), inset: 10 } } } as unknown as Markup;
+  const annotOf = async (m: Markup) => (await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [m], { imported: { 0: [0] } }))).getPage(0).node.Annots()!.lookup(0, PDFDict);
+  const rectOf = (a: PDFDict) => a.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Number(n.toString()));
+  const apOf = (a: PDFDict) => a.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'), PDFStream);
+
+  const moved = await annotOf(markup);
+  assert.match(text(apOf(moved)), /MWFOForm Do/);
+  assert.deepEqual(rectOf(moved), [110, 200, 310, 300]);
+
+  const plain = { ...style, cloudBorder: false, fill: null };
+  const restyled = await annotOf({ ...markup, style: plain });
+  assert.doesNotMatch(text(apOf(restyled)), /MWFOForm/);
+  assert.match(text(apOf(restyled)), /\/Fm0 Do/);
+  assert.equal(restyled.lookup(PDFName.of('BE')), undefined, 'no longer a cloud');
+  assert.equal(restyled.get(PDFName.of('IC'))?.toString() ?? 'null', 'null', 'no longer filled');
+  assert.equal(restyled.lookup(PDFName.of('Rotation'))?.toString(), '0');
+  assert.equal(restyled.lookup(PDFName.of('IT'))?.toString(), '/StampSnapshot');
 });

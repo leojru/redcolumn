@@ -451,6 +451,8 @@ export interface PdfAnnotLink {
   members?: number[];
   /** Fingerprint of the picture imported from another tool's stamp: while unchanged its own appearance is kept. */
   image?: string;
+  /** Fork (leojru/redcolumn): a Revu snapshot: its style as imported (while unchanged Revu's own appearance is kept) and its outline's inset from /Rect. */
+  snapshot?: { look: string; inset: number };
   /** A Bluebeam Space (/BSISpaces entry) rather than an annotation. */
   space?: boolean;
 }

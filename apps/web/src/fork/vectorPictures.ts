@@ -49,7 +49,7 @@ const parsed = new WeakMap<PdfDocument, Promise<PDFDocument>>();
 /** Lets the stamps another tool wrote (Revu snapshots) in this document be drawn sharply. Saving does not use this. */
 export function registerStampSources(doc: PdfDocument, store: MarkupStore) {
   for (const m of store.all()) {
-    if (m.type !== 'image' || !m.image || !m.pdfAnnot?.image || sources.has(m.image)) continue;
+    if (m.type !== 'image' || !m.image || m.vector || !m.pdfAnnot?.image || sources.has(m.image)) continue;
     const { pageIndex } = m;
     const { index } = m.pdfAnnot;
     sources.set(m.image, async () => {

@@ -1,5 +1,6 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Revu snapshots' drawings read apart from their border and fill.
 import { PdfEngine, type DocumentInfo, type PdfDocument } from '@nb/pdf-core';
-import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, importStatuses, statusIdOf, vectorSnapshotUrl, type ImportedExtras, type Markup, type MarkupStore, type SnapshotContent, type SnapshotSheet, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, detectChainageLinks, idTest, SheetLookup, type DetectedLink, type LinkHints, type SetHints } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
@@ -252,6 +253,22 @@ export async function repairSquareImages(bytes: () => Promise<ArrayBuffer>, stor
   });
 }
 
+/** Fork (leojru/redcolumn): a Revu snapshot's drawing, as a picture over nothing and as PDF. */
+async function snapshotContent(sheet: SnapshotSheet): Promise<SnapshotContent> {
+  const { encodePng } = await import('@nb/markup/pdfExtras');
+  return withBackgroundDoc(sheet.bytes.slice().buffer as ArrayBuffer, async (doc) => {
+    const page = doc.pages[0]!;
+    const scale = Math.min(3, 4096 / Math.max(page.width, page.height));
+    const [w, h] = [Math.max(1, Math.ceil(page.width * scale)), Math.max(1, Math.ceil(page.height * scale))];
+    const { bitmap } = await doc.renderTile(0, scale, 0, 0, w, h, { transparent: true });
+    const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d')!;
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const { data, width, height } = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+    return { image: `data:image/png;base64,${toBase64(await encodePng(width, height, new Uint8Array(data.buffer)))}`, vector: vectorSnapshotUrl(sheet.bytes), inset: sheet.inset };
+  });
+}
+
 /**
  * A PDF's own markups and links, which of its annotations they stand for (to hide those), and the
  * scales, viewports, custom columns, statuses and Spaces other tools (Bluebeam Revu) record with them.
@@ -287,6 +304,10 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
         const url = `data:image/png;base64,${toBase64(await encodePng(image.width, image.height, image.rgba))}`;
         if (raw) raw.appearances!.set(`${i}:${a.index}`, url);
         else (a as { picture?: string }).picture = url;
+        // Fork (leojru/redcolumn): a Revu snapshot's drawing on its own, so its border and fill can be edited.
+        const sheet = raw?.snapshotSheets?.get(`${i}:${a.index}`);
+        const content = sheet && (await snapshotContent(sheet).catch(() => null));
+        if (content) (raw!.snapshots ??= new Map()).set(`${i}:${a.index}`, content);
       }
       const result = importAnnotations(i, annotations, (name) => lookup.find(name), raw);
       markups.push(...result.markups);
