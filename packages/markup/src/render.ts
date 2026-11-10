@@ -774,7 +774,7 @@ export function rotateHandle(m: Markup, zoom: number): { at: [number, number]; s
  * A selected Length or Dimension's text knobs: `move` on the text (drag it along or off the line)
  * and `rotate` beyond its top (turn it), with the text's current turn in degrees clockwise.
  */
-export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { at: Point; stem: Point }; angle: number; offset?: Point; foot?: Point } | null {
+export function labelHandles(m: Markup, zoom: number): { move: Point; pivot: Point; rotate: { at: Point; stem: Point }; angle: number; offset?: Point; foot?: Point } | null {
   if (m.locked) return null;
   const line = dimensionLine(m);
   if (!line || (m.type === 'length' ? m.style.showLabel === false : !m.text)) return null;
@@ -802,7 +802,8 @@ export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { 
   // the way along it; with the text off the line, the leader's foot has one too, to slide it along.
   const offset: Point = [line.a[0] + (line.b[0] - line.a[0]) * 0.2, line.a[1] + (line.b[1] - line.a[1]) * 0.2];
   const foot = lifted ? readingFrame(m)?.foot : undefined;
-  return { move, rotate: { at, stem }, angle: (angle * 180) / Math.PI, offset, ...(foot ? { foot } : {}) };
+  // Fork (leojru/redcolumn): a Dimension's text turns about its middle, not about its knob.
+  return { move, pivot: dim ? dim.box.center : move, rotate: { at, stem }, angle: (angle * 180) / Math.PI, offset, ...(foot ? { foot } : {}) };
 }
 
 /** A box's handles by index: its two defining corners, the other two corners, then the middles of its four edges. */

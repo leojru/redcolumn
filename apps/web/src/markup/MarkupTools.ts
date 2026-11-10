@@ -3144,7 +3144,7 @@ export class MarkupTools implements ViewerOverlay {
       const text = m && !this.frozen(m) && !this.store.readOnly ? labelHandles(m, zoom) : null;
       if (m && text && Math.hypot(text.rotate.at[0] - p[0], text.rotate.at[1] - p[1]) <= tol * 1.5) {
         const rotation = m.style.labelRotation ?? 0;
-        this.setGesture({ kind: 'labelRotate', id: m.id, centre: text.move, base: text.angle - rotation, angle: rotation });
+        this.setGesture({ kind: 'labelRotate', id: m.id, centre: text.pivot, base: text.angle - rotation, angle: rotation });
         return true;
       }
       // Fork (leojru/redcolumn): the text itself can be grabbed, not just its knob.

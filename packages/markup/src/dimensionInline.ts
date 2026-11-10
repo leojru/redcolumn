@@ -31,7 +31,8 @@ export function approxTextWidth(text: string, size: number, family: FontFamily =
 
 /** Whether a Dimension's text sits inline (on the line, which breaks around it) rather than above it. */
 export function dimensionInline(m: Pick<Markup, 'type' | 'style' | 'text'>): boolean {
-  return m.type === 'dimension' && m.style.dimText === 'inline' && !!m.text && !m.style.labelRotation && !m.style.labelLift;
+  // Fork (leojru/redcolumn): turned text stays inline too, the line breaking where it meets the text or frame.
+  return m.type === 'dimension' && m.style.dimText === 'inline' && !!m.text && !m.style.labelLift;
 }
 
 /**
@@ -121,6 +122,42 @@ export interface DimensionLayout {
   frame: PathCmd[] | null;
   /** Fork (leojru/redcolumn): the strip behind the text that a fill covers when there is no frame. */
   plate: PathCmd[];
+  /** Fork: the middle of the line's gap, when it is not the text's own point (turned text). */
+  gapAt?: Point;
+}
+
+/**
+ * Fork (leojru/redcolumn): where the line through `p` along `dir` enters and leaves the closed
+ * outline `path`, as distances from `p` along `dir`; null when it misses.
+ */
+function chordAlong(path: readonly PathCmd[], p: Point, dir: Point): [number, number] | null {
+  const pts: Point[] = [];
+  let from: Point | null = null;
+  for (const c of path) {
+    if (c[0] === 'M' || c[0] === 'L') pts.push((from = [c[1], c[2]]));
+    else if (c[0] === 'C' && from) {
+      const [a, b, d, e] = [from, [c[1], c[2]], [c[3], c[4]], [c[5], c[6]]] as Point[];
+      for (let i = 1; i <= 16; i++) {
+        const t = i / 16;
+        const k = [(1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3] as const;
+        pts.push([k[0] * a![0] + k[1] * b![0] + k[2] * d![0] + k[3] * e![0], k[0] * a![1] + k[1] * b![1] + k[2] * d![1] + k[3] * e![1]]);
+      }
+      from = e!;
+    }
+  }
+  const n: Point = [-dir[1], dir[0]];
+  const side = (q: Point) => (q[0] - p[0]) * n[0] + (q[1] - p[1]) * n[1];
+  const along = (q: Point) => (q[0] - p[0]) * dir[0] + (q[1] - p[1]) * dir[1];
+  const hits: number[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    const [sa, sb] = [side(a), side(b)];
+    if ((sa > 0 && sb > 0) || (sa < 0 && sb < 0) || sa === sb) continue;
+    const t = sa / (sa - sb);
+    hits.push(along(a) + (along(b) - along(a)) * t);
+  }
+  return hits.length >= 2 ? [Math.min(...hits), Math.max(...hits)] : null;
 }
 
 /**
@@ -156,7 +193,13 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
   const lift = m.style.labelLift ?? 0;
   const lifted = Math.abs(lift) > 1e-6;
   const inline = dimensionInline(m);
-  const angle = inline || lifted ? base : base + ((m.style.labelRotation ?? 0) * Math.PI) / 180;
+  let angle = lifted ? base : base + ((m.style.labelRotation ?? 0) * Math.PI) / 180;
+  // Fork (leojru/redcolumn): turned text still reads left to right, never upside down (as CAD keeps it).
+  if (inline) {
+    while (angle > Math.PI / 2 + 1e-9) angle -= Math.PI;
+    while (angle <= -Math.PI / 2 - 1e-9) angle += Math.PI;
+  }
+  const turned = Math.abs(angle - base) > 1e-6;
   // Along the text and up it (its left-hand normal), in page space; and the same unturned.
   const r: Point = [Math.cos(angle), Math.sin(angle)];
   const u: Point = [Math.sin(angle), -Math.cos(angle)];
@@ -201,6 +244,13 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
   if (lifted) {
     // The leader grows from the foot (on the line) to the text, or its frame.
     return { lines, align, angle, size, inline: false, gap: null, leader: liftLeader(m, boxCenter, fw.w, fw.h), knob: at(boxCenter, 0, -Math.sign(lift) * (fw.h / 2 + size * 0.45)), box, frame, plate };
+  }
+  if (inline && turned) {
+    // Fork (leojru/redcolumn): turned text: the line breaks where it enters and leaves the frame, or the text.
+    const [t0, t1] = chordAlong(frame ?? plate, p, line.dir) ?? [-(w + size * 0.5) / 2, (w + size * 0.5) / 2];
+    const gapAt: Point = [p[0] + line.dir[0] * ((t0 + t1) / 2), p[1] + line.dir[1] * ((t0 + t1) / 2)];
+    const knob: Point = [p[0] + line.dir[0] * (t0 - size * 0.25), p[1] + line.dir[1] * (t0 - size * 0.25)];
+    return { lines, align, angle, size, inline: true, gap: t1 - t0, gapAt, leader: null, knob, box, frame, plate };
   }
   if (inline) {
     // The line breaks where it meets the frame, or around the text; the knob sits at the text's start, in the gap.

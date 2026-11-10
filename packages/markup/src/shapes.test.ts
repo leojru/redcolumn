@@ -5,7 +5,8 @@ import { arcPoints, circleThrough } from './arc.ts';
 import { exportWithAnnotations } from './export.ts';
 import { circleBox, hitTest, markupShape, polarPoint, resizedBox, segmentPolar, withSegment } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
-import { dimensionText, measurementLabel } from './render.ts';
+import { dimensionText, labelHandles, measurementLabel } from './render.ts';
+import { dimensionLayout } from './dimensionInline.ts';
 import { DEFAULT_STYLES, markupBounds, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point } from './model.ts';
 
 function markup(type: MarkupType, points: Point[], extra: Partial<Markup> = {}): Markup {
@@ -379,4 +380,19 @@ test("a Dimension's fill goes behind its frame or text, never on its line or end
   doc.addPage([600, 800]);
   const out = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [dim({ startCap: 'none', endCap: 'none' })]));
   assert.equal(out.getPage(0).node.Annots()!.lookup(0, PDFDict).get(PDFName.of('IC')), undefined);
+});
+
+// Fork (leojru/redcolumn).
+test('turned dimension text stays on its line, which breaks at its frame, reads upright and turns about its middle', () => {
+  for (const [from, to] of [[[100, 100], [100, 300]], [[100, 300], [100, 100]]] as [Point, Point][]) {
+    const m = markup('dimension', [from, to], { text: 'x.x', style: { ...DEFAULT_STYLES.dimension, labelRotation: 90, dimFrame: 'hexagon' } });
+    const layout = dimensionLayout(m)!;
+    assert.equal(layout.inline, true);
+    assert.ok(Math.abs(layout.angle) < 1e-9, `upright, not ${layout.angle}`);
+    // The line (x = 100) has a gap just the frame's height, centred on the text.
+    assert.ok(Math.abs(layout.gap! - layout.box.h) < 0.5, `${layout.gap} against ${layout.box.h}`);
+    const ys = markupShape(m).filter((p) => p.stroke && !p.decoration).flatMap((p) => p.path.flatMap((c) => (c[0] === 'Z' ? [] : [c[2] as number])));
+    assert.ok(!ys.some((y) => y > 200 - layout.box.h / 2 + 0.5 && y < 200 + layout.box.h / 2 - 0.5), 'nothing drawn inside the frame');
+    assert.deepEqual(labelHandles(m, 1)!.pivot, layout.box.center);
+  }
 });

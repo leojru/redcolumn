@@ -371,7 +371,7 @@ function inlineTextGap(m: Markup, parts: ShapePart[]): ShapePart[] {
   if (!gap) return [...parts, ...frame];
   return [
     ...parts.flatMap((part) => {
-      const cut = part.decoration || !part.stroke || part.fill ? null : cutSegment(part.path, line.text, line.dir, gap);
+      const cut = part.decoration || !part.stroke || part.fill ? null : cutSegment(part.path, layout.gapAt ?? line.text, line.dir, gap);
       return cut ? cut.map((path) => ({ ...part, path })) : [part];
     }),
     ...frame,

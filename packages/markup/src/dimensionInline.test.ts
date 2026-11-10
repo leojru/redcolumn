@@ -39,7 +39,7 @@ test('new dimensions put their text inline; the line breaks around it, and the t
   assert.equal(strokes(dim('above')).length, 1, 'above: one whole line');
   assert.equal(strokes(dim(undefined)).length, 1, 'unset (older markups): above, as before');
   assert.ok(dimensionText(dim('above'))!.lines[0]!.at[1] < 200);
-  assert.equal(strokes(dim('inline', { labelRotation: 30 })).length, 1, 'turned text: the line stays whole');
+  assert.equal(strokes(dim('inline', { labelRotation: 30 })).length, 2, 'turned text: still inline, the line breaks around it');
 });
 
 test('two lines (Shift+Enter): inline they straddle the line; above they stack over it', () => {
