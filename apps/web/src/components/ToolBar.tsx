@@ -360,6 +360,8 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
   const textStyle = mixedTypes ? style : textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
   const textCaps = textType ? (mixedTypes ? caps : styleCapabilities(textType)) : null;
   const mixedOf = <K extends keyof MarkupStyle>(key: K, resolve?: (v: MarkupStyle[K]) => unknown) => !!sel && styleMixed(sel.markups, key, resolve);
+  // Fork (leojru/redcolumn): a Length's Fill is its label's background; No fill puts the gap in its line back.
+  const lengthLabel = !mixedTypes && styleType === 'length';
   const mixedDash = mixedOf('dash', (v) => v ?? 'solid') || mixedOf('dashArray') || mixedOf('lineStyle');
   // One edit to the whole selection is one undo step.
   const apply = (type: MarkupType, patch: Partial<MarkupStyle>) => {
@@ -487,13 +489,13 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           <ColorMenu
             label="Fill color"
             short="Fill"
-            title="Fill color: the inside of the shape"
+            title={lengthLabel ? 'Fill color: behind the label' : 'Fill color: the inside of the shape'}
             icon={STYLE_ICONS.fill}
-            value={style.fill ?? null}
-            mixed={mixedOf('fill', (v) => v ?? null)}
+            value={lengthLabel ? (style.labelBackground ?? null) : (style.fill ?? null)}
+            mixed={lengthLabel ? mixedOf('labelBackground', (v) => v ?? null) : mixedOf('fill', (v) => v ?? null)}
             noneLabel="No fill"
-            disabled={!caps!.fill}
-            onChange={(c) => apply(styleType, { fill: c })}
+            disabled={!caps!.fill && !lengthLabel}
+            onChange={(c) => apply(styleType, lengthLabel ? { labelBackground: c ?? undefined } : { fill: c })}
           />
           {caps!.fill && (style.fill || (sel && sel.markups.some((m) => m.style.fill))) && (
             <label className="field" title="Opacity of the fill alone">
