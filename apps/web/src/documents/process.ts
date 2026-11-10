@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): flattened markups keep their layer.
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, PDFString, type PDFObject, type PDFPage } from 'pdf-lib';
 import { addTagged, keepContentAsIs, removeTagged } from './taggedContent';
 import { openForEdit } from './incremental';
@@ -85,6 +86,10 @@ export async function flattenAnnotations(
       const stream = doc.context.lookup(ref) as PDFStream;
       stream.dict.set(PDFName.of('Type'), PDFName.of('XObject'));
       stream.dict.set(PDFName.of('Subtype'), PDFName.of('Form'));
+      // Fork (leojru/redcolumn): a markup on a layer stays on it once drawn in (a form's /OC, PDF 8.11.3.3),
+      // so its layer still shows and hides it, here and in Revu.
+      const layer = annot.get(PDFName.of('OC'));
+      if (layer) stream.dict.set(PDFName.of('OC'), layer);
       const [bx0, by0, bx1, by1] = numbers(stream.dict.lookupMaybe(PDFName.of('BBox'), PDFArray), [0, 0, 1, 1]);
       const [a, b, c, d, e, f] = numbers(stream.dict.lookupMaybe(PDFName.of('Matrix'), PDFArray), [1, 0, 0, 1, 0, 0]);
       const pts = [

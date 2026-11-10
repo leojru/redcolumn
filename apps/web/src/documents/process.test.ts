@@ -85,3 +85,17 @@ test('Colour Processing replaces one colour and turns pictures grey', async () =
   assert.equal(pic.dict.get(PDFName.of('ColorSpace'))?.toString(), '/DeviceGray');
   assert.deepEqual([...decodePDFRawStream(pic).decode()], [76, 29]);
 });
+
+// Fork (leojru/redcolumn).
+test('a flattened markup stays on its layer: the drawn form carries the layer', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 300]);
+  const m: Markup = { id: 'r', type: 'rect', pageIndex: 0, points: [[100, 100], [200, 150]], style: { ...DEFAULT_STYLES.rect }, layer: 'Walls', status: 'none', author: 'A', createdAt: 1, modifiedAt: 1 };
+  const bytes = await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [m]);
+  const flat = await PDFDocument.load((await flattenAnnotations(bytes, null)).bytes);
+  const { PDFDict, PDFHexString, PDFRef, PDFStream, PDFString } = await import('pdf-lib');
+  const form = flat.getPage(0).node.Resources()!.lookup(PDFName.of('XObject'), PDFDict).lookup(PDFName.of('NBF0'), PDFStream);
+  const oc = form.dict.get(PDFName.of('OC'));
+  assert.ok(oc instanceof PDFRef, 'the form has a layer');
+  assert.equal(flat.context.lookup(oc, PDFDict).lookup(PDFName.of('Name'), PDFString, PDFHexString).decodeText(), 'Walls');
+});
