@@ -396,3 +396,20 @@ test('turned dimension text stays on its line, which breaks at its frame, reads 
     assert.deepEqual(labelHandles(m, 1)!.pivot, layout.box.center);
   }
 });
+
+// Fork (leojru/redcolumn).
+test('a child layer is saved under its parent in a file that already has layers', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 800]);
+  const ctx = doc.context;
+  const a = ctx.register(ctx.obj({ Type: 'OCG', Name: PDFHexString.fromText('Walls') }));
+  const b = ctx.register(ctx.obj({ Type: 'OCG', Name: PDFHexString.fromText('Doors') }));
+  doc.catalog.set(PDFName.of('OCProperties'), ctx.obj({ OCGs: [a, b], D: { Order: [a, b], ON: [], OFF: [] } }));
+  const m = markup('rect', [[100, 100], [200, 200]], { layer: 'Frames' });
+  const out = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [m], { layerParents: { Frames: 'Doors' } }));
+  const order = out.catalog.lookup(PDFName.of('OCProperties'), PDFDict).lookup(PDFName.of('D'), PDFDict).lookup(PDFName.of('Order'), PDFArray);
+  const name = (x: unknown) => (out.context.lookup(x as never) as PDFDict).lookup(PDFName.of('Name'), PDFString, PDFHexString).decodeText();
+  // Walls, Doors, then Doors' children: Frames.
+  assert.deepEqual([name(order.get(0)), name(order.get(1))], ['Walls', 'Doors']);
+  assert.deepEqual(order.lookup(2, PDFArray).asArray().map(name), ['Frames']);
+});

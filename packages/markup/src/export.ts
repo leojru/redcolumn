@@ -2006,6 +2006,12 @@ export interface ExportOptions {
   open?: (original: ArrayBuffer) => Promise<{ doc: PDFDocument; save: () => Promise<Uint8Array> }>;
 }
 
+/** Fork (leojru/redcolumn): `x` as an array, following a reference; undefined for anything else (a layer's own dictionary). */
+function arrayOf(doc: PDFDocument, x: PDFObject | undefined): PDFArray | undefined {
+  const value = x instanceof PDFRef ? doc.context.lookup(x) : x;
+  return value instanceof PDFArray ? value : undefined;
+}
+
 /**
  * Fork (leojru/redcolumn): puts `child` in the /Order list just under `parent` (the array after a
  * group is its children, PDF 8.11.4.3). False when `parent` is not in the list.
@@ -2016,12 +2022,12 @@ function nestInOrder(doc: PDFDocument, order: PDFArray, parent: PDFRef, child: P
     const item = items[i]!;
     if (item instanceof PDFRef && item.objectNumber === parent.objectNumber) {
       const next = items[i + 1];
-      const kids = next instanceof PDFArray ? next : next instanceof PDFRef ? doc.context.lookupMaybe(next, PDFArray) : undefined;
+      const kids = arrayOf(doc, next);
       if (kids && !(kids.get(0) instanceof PDFString || kids.get(0) instanceof PDFHexString)) kids.push(child);
       else order.insert(i + 1, doc.context.obj([child]));
       return true;
     }
-    const nested = item instanceof PDFArray ? item : item instanceof PDFRef ? doc.context.lookupMaybe(item, PDFArray) : undefined;
+    const nested = arrayOf(doc, item);
     if (nested && nestInOrder(doc, nested, parent, child)) return true;
   }
   return false;
