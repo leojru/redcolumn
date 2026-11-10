@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Set as Default Layer for new markups.
+// Modified in the leojru/redcolumn fork (revu-layout): Set as Default Layer for new markups; Isolate a markup layer.
 import {
   useMemo,
   useState,
@@ -265,6 +265,16 @@ export function LayersPanel({
         )
         .map((r) => r.key),
     );
+  /** Fork (leojru/redcolumn): whether `r` is the only markup layer showing. */
+  const isolatedMarkupLayer = (r: Row) =>
+    all.filter((x) => x.key.startsWith("mk:")).every((x) => (x === r ? !hiddenKeys.has(x.key) : hiddenKeys.has(x.key)));
+  /** Fork: shows only markup layer `r` (or, with null, every markup layer); PDF and locked layers stay as they are. */
+  const isolateMarkupLayer = (r: Row | null) =>
+    setHidden(
+      all
+        .filter((x) => (flagsOf(x).lock || x.key.startsWith("pdf:") ? hiddenKeys.has(x.key) : !!r && x !== r))
+        .map((x) => x.key),
+    );
   const fileDefaults = () =>
     all
       .filter(
@@ -422,6 +432,14 @@ export function LayersPanel({
         label: "Show Only This Layer",
         onClick: () => showWhere((x) => x !== r),
       },
+      // Fork (leojru/redcolumn): as Revu's Isolate, only this layer's markups show; the drawing stays as it is.
+      ...(r.key.startsWith("mk:")
+        ? [
+            isolatedMarkupLayer(r)
+              ? { label: "End Isolate", onClick: () => isolateMarkupLayer(null) }
+              : { label: "Isolate", onClick: () => isolateMarkupLayer(r) },
+          ]
+        : []),
       // Fork (leojru/redcolumn): new markups from every tool go on this layer until another is chosen.
       {
         label: "Set as Default",
