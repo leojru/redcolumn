@@ -1943,6 +1943,8 @@ function geoViewport(doc: PDFDocument, matrix: Matrix, region: GeoRegion): PDFOb
 }
 
 export interface ExportOptions {
+  /** Fork (leojru/redcolumn): markup layers that sit under another (Layers panel › Add Child), by name: their parent's name. */
+  layerParents?: Record<string, string>;
   /** Drawing scale per page, for measurement labels and /Measure dictionaries. */
   scaleFor?: (pageIndex: number) => Scale;
   /** Viewports: regions of pages with their own scale, which measurements inside them use. */
@@ -2005,11 +2007,41 @@ export interface ExportOptions {
 }
 
 /**
+ * Fork (leojru/redcolumn): puts `child` in the /Order list just under `parent` (the array after a
+ * group is its children, PDF 8.11.4.3). False when `parent` is not in the list.
+ */
+function nestInOrder(doc: PDFDocument, order: PDFArray, parent: PDFRef, child: PDFRef): boolean {
+  const items = order.asArray();
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    if (item instanceof PDFRef && item.objectNumber === parent.objectNumber) {
+      const next = items[i + 1];
+      const kids = next instanceof PDFArray ? next : next instanceof PDFRef ? doc.context.lookupMaybe(next, PDFArray) : undefined;
+      if (kids && !(kids.get(0) instanceof PDFString || kids.get(0) instanceof PDFHexString)) kids.push(child);
+      else order.insert(i + 1, doc.context.obj([child]));
+      return true;
+    }
+    const nested = item instanceof PDFArray ? item : item instanceof PDFRef ? doc.context.lookupMaybe(item, PDFArray) : undefined;
+    if (nested && nestInOrder(doc, nested, parent, child)) return true;
+  }
+  return false;
+}
+
+/**
  * An optional-content group (PDF layer) for each markup layer, added to the document's own
  * layers (a layer the file already has with that name is reused).
  */
-function addMarkupLayers(doc: PDFDocument, markups: readonly Markup[]): Map<string, PDFRef> {
-  const names = [...new Set(markups.flatMap((m) => (m.layer ? [m.layer] : [])))];
+function addMarkupLayers(doc: PDFDocument, markups: readonly Markup[], parents: Record<string, string> = {}): Map<string, PDFRef> {
+  // Fork (leojru/redcolumn): a child layer brings its parents, so the file keeps the nesting.
+  const used = [...new Set(markups.flatMap((m) => (m.layer ? [m.layer] : [])))];
+  const names: string[] = [];
+  const addWithParents = (name: string, depth = 0) => {
+    if (names.includes(name) || depth > 50) return;
+    const parent = parents[name];
+    if (parent && parent !== name) addWithParents(parent, depth + 1);
+    names.push(name);
+  };
+  used.forEach((n) => addWithParents(n));
   const out = new Map<string, PDFRef>();
   if (!names.length) return out;
   let props = doc.catalog.lookupMaybe(PDFName.of('OCProperties'), PDFDict);
@@ -2043,7 +2075,8 @@ function addMarkupLayers(doc: PDFDocument, markups: readonly Markup[]): Map<stri
     if (!ref) {
       ref = doc.context.register(doc.context.obj({ Type: 'OCG', Name: pdfText(name) }));
       ocgs.push(ref);
-      order.push(ref);
+      const parent = parents[name] ? out.get(parents[name]!) ?? existing.get(parents[name]!) : undefined;
+      if (!parent || !nestInOrder(doc, order, parent, ref)) order.push(ref);
     }
     out.set(name, ref);
   }
@@ -2167,7 +2200,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   if (options.pageScales || options.viewports?.length || (options.geo && Object.keys(options.geo).length)) {
     pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i), options.geo?.[i] ?? null));
   }
-  const layerRefs = addMarkupLayers(doc, written);
+  const layerRefs = addMarkupLayers(doc, written, options.layerParents);
 
   const byPage = new Map<number, Markup[]>();
   for (const m of markups) {

@@ -197,7 +197,7 @@ import {
   FlagsPanel,
   MeasurementsPanel,
 } from './components/SidePanels';
-import { addedMarkupLayers, defaultMarkupLayer, LayersPanel } from './components/LayersPanel';
+import { addedMarkupLayers, defaultMarkupLayer, markupLayerParents, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
 import { TeachLinksPanel } from './components/TeachLinksPanel';
@@ -804,6 +804,8 @@ async function annotatedBytes(
     viewports: cur.store.allViewports(),
     links: options.links === false ? [] : cur.store.allLinks(),
     imported: cur.store.importedAnnotations(),
+    // Fork (leojru/redcolumn): child markup layers (Layers panel › Add Child) are saved nested.
+    layerParents: markupLayerParents(cur.file.id),
     importedSpaces: cur.store.importedSpaces(),
     pageScales: cur.store.allScales(),
     geo: cur.store.editedGeo(),

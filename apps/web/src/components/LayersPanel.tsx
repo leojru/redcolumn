@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Set as Default Layer for new markups; Isolate a markup layer.
+// Modified in the leojru/redcolumn fork (revu-layout): Set as Default Layer for new markups; Isolate a markup layer; a saved markup layer listed once; Add Child.
 import {
   useMemo,
   useState,
@@ -40,6 +40,8 @@ interface LayerPrefs {
   config: string;
   /** Fork (leojru/redcolumn): the markup layer new markups go on, as Revu's Set as Default. */
   defaultLayer?: string;
+  /** Fork: markup layers added as children (Add Child), by name: the layer each sits under. */
+  parents?: Record<string, string>;
 }
 
 /** How the list is shown, for every document (Show Layers On Page Only is a preference). */
@@ -98,6 +100,11 @@ function useStored<T>(key: string, fallback: T): [T, (next: T) => void] {
 /** Markup layers added in the Layers panel for a document, so menus can offer them before any markup is on them. */
 export function addedMarkupLayers(docKey: string): string[] {
   return load<LayerPrefs>(PREFS_KEY + docKey, EMPTY_PREFS).added;
+}
+
+/** Fork (leojru/redcolumn): the parent of each markup layer added as a child (Add Child), by name. */
+export function markupLayerParents(docKey: string): Record<string, string> {
+  return load<LayerPrefs>(PREFS_KEY + docKey, EMPTY_PREFS).parents ?? {};
 }
 
 /** Fork (leojru/redcolumn): the layer new markups in a document go on (Set as Default), if any. */
@@ -217,18 +224,36 @@ export function LayersPanel({
       const i = prefs.order.indexOf(n);
       return i < 0 ? prefs.order.length + names.indexOf(n) : i;
     };
-    for (const name of names.sort((a, b) => rank(a) - rank(b))) {
-      roots.push({
+    const markupRows = names.sort((a, b) => rank(a) - rank(b)).map(
+      (name): Row => ({
         key: mkKey(name),
         name: name || "(No Layer)",
         depth: 0,
         fileLocked: false,
         count: counts.get(name) ?? 0,
         children: [],
-      });
+      }),
+    );
+    // Fork (leojru/redcolumn): a child layer (Add Child) sits under its parent, a markup or PDF layer.
+    const byName = new Map<string, Row>([...pdfRows]);
+    for (const r of markupRows) if (r.key !== mkKey("")) byName.set(r.key.slice(3), r);
+    const parents = prefs.parents ?? {};
+    const under = (r: Row): Row | undefined => {
+      let parent = byName.get(parents[r.key.slice(3)] ?? "");
+      // Never under itself or its own child.
+      for (let p = parent, seen = 0; p && seen < 50; p = byName.get(parents[p.key.startsWith("mk:") ? p.key.slice(3) : ""] ?? ""), seen++)
+        if (p === r) parent = undefined;
+      return parent;
+    };
+    for (const r of markupRows) {
+      const parent = r.key === mkKey("") ? undefined : under(r);
+      if (parent) {
+        r.depth = parent.depth + 1;
+        parent.children.push(r);
+      } else roots.push(r);
     }
     return roots;
-  }, [pdfLayers, markupLayers, prefs.added, prefs.order]);
+  }, [pdfLayers, markupLayers, prefs.added, prefs.order, prefs.parents]);
 
   const all = useMemo(() => {
     const out: Row[] = [];
@@ -366,7 +391,7 @@ export function LayersPanel({
     showWhere((r) => r !== next);
   };
 
-  const addLayer = (where: "before" | "after") => {
+  const addLayer = (where: "before" | "after" | "child") => {
     void askText("Add Layer", "", {
       label:
         "A markup layer. Move markups to it from their right-click menu › Layer.",
@@ -391,7 +416,10 @@ export function LayersPanel({
         0,
         name,
       );
-      setPrefs({ ...prefs, added: [...prefs.added, name], order });
+      // Fork (leojru/redcolumn): a child sits under the selected layer.
+      const parentRow = where === "child" ? all.find((r) => r.key === selected) : undefined;
+      const parent = parentRow ? (parentRow.key.startsWith("mk:") ? parentRow.key.slice(3) : parentRow.name) : undefined;
+      setPrefs({ ...prefs, added: [...prefs.added, name], order, ...(parent ? { parents: { ...(prefs.parents ?? {}), [name]: parent } } : {}) });
       setSelected(mkKey(name));
     });
   };
@@ -530,7 +558,7 @@ export function LayersPanel({
             open(e, [
               { label: "Add Before…", onClick: () => addLayer("before") },
               { label: "Add After…", onClick: () => addLayer("after") },
-              { label: "Add Child…", disabled: true },
+              { label: "Add Child…", disabled: !selected || selected === mkKey(""), onClick: () => addLayer("child") },
             ])
           }
         >
