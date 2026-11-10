@@ -76,9 +76,14 @@ test('a markup layer saved into the PDF is listed once when the file is opened a
   await app.cmd('window.layers');
   const rows = app.page.locator('.layers-grid tbody tr').filter({ hasText: 'Walls' });
   await expect(rows).toHaveCount(1);
-  // The one row hides the markups too.
+  // The one row hides the markups too, and shows them again.
+  const hiddenLayers = () => app.page.evaluate(() => [...(window as unknown as { __nb: { tools: { hiddenLayers: Set<string> } } }).__nb.tools.hiddenLayers]);
   await rows.first().locator('.layer-eye').click();
   await expect(rows.first()).toHaveClass(/off/);
+  await expect.poll(hiddenLayers).toEqual(['Walls']);
+  await rows.first().locator('.layer-eye').click();
+  await expect(rows.first()).not.toHaveClass(/off/);
+  await expect.poll(hiddenLayers).toEqual([]);
 });
 
 test('Add Child puts a layer under the selected one, and the file keeps it nested', async ({ app }) => {
@@ -122,4 +127,11 @@ test('Add Child puts a layer under the selected one, and the file keeps it neste
   await expect.poll(async () => (await raw()).find((m) => m.type === 'rect')?.layer, { timeout: 30_000 }).toBe('Doors');
   await expect(app.page.locator('.layers-grid tbody tr .layer-label')).toHaveText(['Walls', 'Doors']);
   expect(await indent('Doors')).toBeGreaterThan(await indent('Walls'));
+
+  // Turning the parent off and on again hides and then shows the child's markups.
+  const hiddenLayers = () => app.page.evaluate(() => [...(window as unknown as { __nb: { tools: { hiddenLayers: Set<string> } } }).__nb.tools.hiddenLayers].sort());
+  await row('Walls').locator('.layer-eye').click();
+  await expect.poll(hiddenLayers).toEqual(['Doors', 'Walls']);
+  await row('Walls').locator('.layer-eye').click();
+  await expect.poll(hiddenLayers).toEqual([]);
 });

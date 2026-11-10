@@ -294,9 +294,10 @@ export function LayersPanel({
     ...[...hiddenMarkup].map(mkKey),
   ]);
   const setHidden = (keys: Iterable<string>, faded: string[] = []) => {
-    // Fork (leojru/redcolumn): hiding a merged row hides its markups too.
-    const given = [...keys];
-    const list = [...given, ...all.filter((r) => r.markup !== undefined && given.includes(r.key)).map((r) => mkKey(r.markup!))];
+    // Fork (leojru/redcolumn): a merged row's markups show and hide with it, whatever was hidden before.
+    const merged = all.filter((r) => r.markup !== undefined);
+    const given = [...keys].filter((k) => !merged.some((r) => mkKey(r.markup!) === k));
+    const list = [...given, ...merged.filter((r) => given.includes(r.key)).map((r) => mkKey(r.markup!))];
     onFaded(faded);
     onHidden(
       list.filter((k) => k.startsWith("pdf:")).map((k) => k.slice(4)),
