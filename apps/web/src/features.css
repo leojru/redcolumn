@@ -1,3 +1,4 @@
+/* Modified in the leojru/redcolumn fork (revu-layout): the Layers panel's Default tag. */
 /* File Access groups, Tool Library, Signatures, Markups list, column and profile dialogs. */
 
 /* --- Context menus --- */
@@ -4753,6 +4754,17 @@ tr.hidden-markup td {
 
 .layers-grid tr.off .layer-label {
   color: var(--muted);
+}
+
+/* Fork (leojru/redcolumn): the layer new markups go on (Set as Default). */
+.layer-default {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .layer-twisty,

@@ -6,7 +6,7 @@ import type { Command } from '../../commands/appCommands';
 import { shortcutLabel } from '../../commands/shortcuts';
 import type { Tool } from '../../markup/MarkupTools';
 import { StampMenu } from '../StampsDialog';
-import { MARKUP_TOOLS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from '../ToolBar';
+import { MARKUP_TOOLS, MarkupFields, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from '../ToolBar';
 import { CLASSIC_COMMAND_ICONS, CLASSIC_TOOL_ICONS, MEASURE_TOOL_SET } from './classicIcons';
 import './classic.css';
 
@@ -156,7 +156,10 @@ export function ClassicToolbars(props: ClassicToolbarsProps) {
             <span className="classic-docinfo muted">No document open</span>
           )
         ) : (
-          <StyleControls tools={tools} state={state} styleType={props.styleType} textType={props.textType} textMarkupStyle={props.textMarkupStyle} markups={props.markups} selectedStyle={props.selectedStyle} cloudBubble={props.cloudBubble} geometry={props.geometry} enabled={enabled} />
+          <>
+            <MarkupFields {...props} layerOnly />
+            <StyleControls tools={tools} state={state} styleType={props.styleType} textType={props.textType} textMarkupStyle={props.textMarkupStyle} markups={props.markups} selectedStyle={props.selectedStyle} cloudBubble={props.cloudBubble} geometry={props.geometry} enabled={enabled} />
+          </>
         )}
       </div>
       </div>

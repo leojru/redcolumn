@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork: restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing; a callout's leader follows its box; a new line color leaves the text color alone; double-click a Length to type its length.
+// Modified in the leojru/redcolumn fork: new markups go on the default layer; restyling a selected markup leaves the tool default alone; Click to Place; Shift and dimension text when editing; snapping while moving; resizing keeps a text box's text showing; a callout's leader follows its box; a new line color leaves the text color alone; double-click a Length to type its length.
 import {
   align,
   centerOnPage,
@@ -618,6 +618,12 @@ function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean 
  * live in the MarkupStore; in-progress gestures are kept local and written once when finished,
  * so each gesture is a single undo step and a single sync update.
  */
+/** Fork (leojru/redcolumn): where a document's default layer (Layers panel › Set as Default) is read from, by its id. */
+let defaultLayerOf: (docId: string) => string | undefined = () => undefined;
+export function setDefaultLayerSource(source: (docId: string) => string | undefined) {
+  defaultLayerOf = source;
+}
+
 export class MarkupTools implements ViewerOverlay {
   private store: MarkupStore | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -4047,7 +4053,8 @@ export class MarkupTools implements ViewerOverlay {
 
   /** The Subject, Label and Layer the active tool gives a markup it places: the armed Tool Chest tool's, then the Format tab's edits. */
   private toolFieldsFor(m: Pick<Markup, 'type'>, preset: Pick<ToolPreset, 'label' | 'layer'> | null | undefined): Partial<Markup> {
-    return toolFieldsPatch(m, { ...(preset?.label ? { label: preset.label } : {}), ...(preset?.layer ? { layer: preset.layer } : {}), ...(this.state.toolFields ?? {}) });
+    const fallback = this.store ? defaultLayerOf(this.store.fileHash) : undefined;
+    return toolFieldsPatch(m, { ...(fallback ? { layer: fallback } : {}), ...(preset?.label ? { label: preset.label } : {}), ...(preset?.layer ? { layer: preset.layer } : {}), ...(this.state.toolFields ?? {}) });
   }
 
   /**

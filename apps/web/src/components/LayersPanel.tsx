@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Set as Default Layer for new markups.
 import {
   useMemo,
   useState,
@@ -37,6 +38,8 @@ interface LayerPrefs {
   order: string[];
   configs: Record<string, LayerConfig>;
   config: string;
+  /** Fork (leojru/redcolumn): the markup layer new markups go on, as Revu's Set as Default. */
+  defaultLayer?: string;
 }
 
 /** How the list is shown, for every document (Show Layers On Page Only is a preference). */
@@ -95,6 +98,11 @@ function useStored<T>(key: string, fallback: T): [T, (next: T) => void] {
 /** Markup layers added in the Layers panel for a document, so menus can offer them before any markup is on them. */
 export function addedMarkupLayers(docKey: string): string[] {
   return load<LayerPrefs>(PREFS_KEY + docKey, EMPTY_PREFS).added;
+}
+
+/** Fork (leojru/redcolumn): the layer new markups in a document go on (Set as Default), if any. */
+export function defaultMarkupLayer(docKey: string): string | undefined {
+  return load<LayerPrefs>(PREFS_KEY + docKey, EMPTY_PREFS).defaultLayer || undefined;
 }
 
 interface Row {
@@ -414,6 +422,16 @@ export function LayersPanel({
         label: "Show Only This Layer",
         onClick: () => showWhere((x) => x !== r),
       },
+      // Fork (leojru/redcolumn): new markups from every tool go on this layer until another is chosen.
+      {
+        label: "Set as Default",
+        checked: prefs.defaultLayer === r.name,
+        onClick: () =>
+          setPrefs({
+            ...prefs,
+            defaultLayer: prefs.defaultLayer === r.name ? undefined : r.name,
+          }),
+      },
       ...(empty
         ? [
             SEP,
@@ -654,6 +672,7 @@ export function LayersPanel({
                         {hidden ? ICONS.eyeOff : ICONS.eye}
                       </button>
                       <span className="layer-label">{r.name}</span>
+                      {prefs.defaultLayer === r.name && <span className="layer-default" title="New markups go on this layer">Default</span>}
                     </div>
                   </td>
                   {check(r, "lock", "Lock")}

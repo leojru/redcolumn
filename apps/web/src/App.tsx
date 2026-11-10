@@ -11,7 +11,7 @@ import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
-import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
+import { isMarkupTool, MarkupTools, setDefaultLayerSource, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
@@ -197,7 +197,7 @@ import {
   FlagsPanel,
   MeasurementsPanel,
 } from './components/SidePanels';
-import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
+import { addedMarkupLayers, defaultMarkupLayer, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
 import { TeachLinksPanel } from './components/TeachLinksPanel';
@@ -223,6 +223,9 @@ import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } fr
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
 import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink } from './fonts/fontNotices';
+
+// Fork (leojru/redcolumn): new markups go on the layer set as default in the Layers panel.
+setDefaultLayerSource(defaultMarkupLayer);
 
 interface Controllers {
   engine: PdfEngine;
@@ -6955,7 +6958,7 @@ export function App() {
         label: 'Layer',
         disabled: ro,
         items: [
-          ...[...new Set([...store.all().flatMap((m) => (m.layer ? [m.layer] : [])), ...(o ? addedMarkupLayers(o.file.hash) : [])])].sort().map((name) => ({
+          ...[...new Set([...store.all().flatMap((m) => (m.layer ? [m.layer] : [])), ...(o ? addedMarkupLayers(o.file.id) : [])])].sort().map((name) => ({
             label: name,
             checked: ms.every((m) => m.layer === name),
             onClick: () => setAll(() => ({ layer: name })),
@@ -9142,7 +9145,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           />
         ) : tab === 'layers' ? (
           <LayersPanel
-            docKey={activeOpen?.file.hash ?? null}
+            docKey={activeOpen?.file.id ?? null}
             pdfLayers={activeOpen ? (pdfLayers[activeOpen.file.hash] ?? []) : []}
             hiddenPdf={new Set(activeOpen ? (hiddenPdfLayers[activeOpen.file.id] ?? []) : [])}
             markupLayers={(() => {
@@ -9733,7 +9736,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           geometry: selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null,
           // Whatever is selected: the Markup Format tab edits what they share, together (style needs two or more).
           selection: toolsState.tool === 'select' && activeOpen && toolsState.selected.size > 0 ? { markups: markups.filter((m) => toolsState.selected.has(m.id)), store: activeOpen.store } : null,
-          layerNames: [...new Set([...markups.flatMap((m) => (m.layer ? [m.layer] : [])), ...(activeOpen ? addedMarkupLayers(activeOpen.file.hash) : [])])],
+          layerNames: [...new Set([...markups.flatMap((m) => (m.layer ? [m.layer] : [])), ...(activeOpen ? addedMarkupLayers(activeOpen.file.id) : [])])],
+          defaultLayer: activeOpen ? defaultMarkupLayer(activeOpen.file.id) : undefined,
           askLayer: () => askText('New Markup Layer', '', { label: 'Markups go on it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => name?.trim() || null),
           textType,
           textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,

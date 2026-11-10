@@ -262,6 +262,8 @@ export interface ToolBarProps {
   layerNames?: readonly string[];
   /** Asks for a new layer's name (the Layer field's "New layer…"). */
   askLayer?: () => Promise<string | null>;
+  /** Fork (leojru/redcolumn): the document's default layer (Layers panel › Set as Default). */
+  defaultLayer?: string;
   /** Tools the active profile shows (null: all). */
   visibleTools: readonly Tool[] | null;
   /** Name filled into a stamp preview's {User} field. */
@@ -731,21 +733,21 @@ function Cluster({ label, show = true, children }: { label: string; show?: boole
 const NEW_LAYER = '\u0000new-layer';
 const MIXED = '\u0000mixed';
 
-export type MarkupFieldsProps = Pick<ToolBarProps, 'tools' | 'state' | 'markups' | 'selection' | 'enabled' | 'layerNames' | 'askLayer'>;
+export type MarkupFieldsProps = Pick<ToolBarProps, 'tools' | 'state' | 'markups' | 'selection' | 'enabled' | 'layerNames' | 'askLayer' | 'defaultLayer'> & { /** Fork (leojru/redcolumn): only the Layer field (the classic Properties row). */ layerOnly?: boolean };
 
 /**
  * Subject, Label and Layer in the Markup Format tab. With markups selected they edit those markups
  * (mixed values read "Mixed", and one edit is one undo step); with a drawing tool running they edit what
  * the tool gives the markups it places next, and the command carries on. A Tool Chest tool can be saved back.
  */
-export function MarkupFields({ tools, state, markups, selection, enabled, layerNames = [], askLayer }: MarkupFieldsProps) {
+export function MarkupFields({ tools, state, markups, selection, enabled, layerNames = [], askLayer, defaultLayer, layerOnly }: MarkupFieldsProps) {
   const sel = selection && selection.markups.length > 0 ? selection : null;
   const drawing = !sel && (isMarkupTool(state.tool) || state.tool === 'cloudPlus');
   const preset = state.preset;
   const ws = useWorkspace();
   const item = preset?.id ? ws.toolChests.flatMap((t) => t.items).find((i) => i.id === preset.id) : undefined;
   if (!sel && !drawing) return null;
-  const base = { subject: preset?.subject, label: preset?.label, layer: preset?.layer };
+  const base = { subject: preset?.subject, label: preset?.label, layer: preset?.layer ?? defaultLayer };
   const edits = state.toolFields ?? {};
   // The Markups list names a markup with no subject of its own by its type, so the field shows that name too.
   const shownOf = (m: Markup, f: IdentityField) => identityOf(m, f) || (f === 'subject' ? MARKUP_LABELS[m.type] : '');
@@ -794,6 +796,47 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
       />
     </label>
   );
+  // Fork (leojru/redcolumn): the classic Properties row shows just the Layer.
+  if (layerOnly) return <span className="prop-cluster">
+      <label className="field" title={sel ? 'Layer of the selected markups' : 'Layer the next markups from this tool go on'}>
+        Layer
+        <select
+          className="ident"
+          aria-label="Layer"
+          value={layer.mixed ? MIXED : layer.value}
+          disabled={!enabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === NEW_LAYER) void askLayer?.().then((name) => name && commit('layer', name.trim()));
+            else commit('layer', v);
+          }}
+        >
+          {layer.mixed && (
+            <option value={MIXED} disabled hidden>
+              Mixed
+            </option>
+          )}
+          <option value="">No layer</option>
+          {layers.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+          {askLayer && <option value={NEW_LAYER}>New layer…</option>}
+        </select>
+      </label>
+      {drawing && item && (
+        <button
+          type="button"
+          className="btn"
+          title="Save this subject, label, layer and style back to the Tool Chest tool"
+          disabled={!enabled}
+          onClick={() => saveToolBack(item.id, { fields: edits, ...(preset?.style ? { style: preset.style } : {}) })}
+        >
+          Save to Tool Chest
+        </button>
+      )}
+  </span>;
   return (
     <div className="prop-cluster">
     <div className="prop-cluster-items">
