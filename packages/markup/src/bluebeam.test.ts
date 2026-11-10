@@ -506,3 +506,16 @@ test('a text box with a cloud border comes in as one, and goes back out as one',
   const written = out.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).lookup(0, PDFDict);
   assert.equal(written.lookup(PDFName.of('BE'), PDFDict).get(PDFName.of('S'))?.toString(), '/C');
 });
+
+// Fork (leojru/redcolumn).
+test("a square with no appearance, colour or border (AutoCAD's SHX text notes) stays listed but is not drawn", async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const ctx = doc.context;
+  const square = (extra: Record<string, unknown>) => ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Square', Rect: [10, 10, 100, 40], F: 64, ...extra }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([square({ Border: [0, 0, 0] }), square({ Border: [0, 0, 0], C: [1, 0, 0] }), square({ Border: [0, 0, 1] })]));
+  const extras = (await readPdfExtras(await doc.save()))!;
+  const annotation = (index: number): ImportableAnnotation => ({ index, objectNumber: extras.pages[0]!.objectNumbers[index]!, subtype: 'Square', rect: { x: 10, y: 760, w: 90, h: 30 }, color: null, interior: null, opacity: 1, borderWidth: 0, contents: 'NOTE', author: 'AutoCAD SHX Text', intent: '', cloudy: false, da: '', appData: '', flags: 64, vertices: [], ink: [], line: null, link: null });
+  const { markups } = importAnnotations(0, [annotation(0), annotation(1), annotation(2)], () => null, extras);
+  assert.deepEqual(markups.map((m) => !!m.hidden), [true, false, false]);
+});

@@ -797,7 +797,9 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         const points: Point[] = embedded ? innerBox() : [[a.rect.x, a.rect.y], [a.rect.x + a.rect.w, a.rect.y + a.rect.h]];
         return [{ type: 'image', points, filled: false, style: { ...base, fill: null, ...(embedded ? {} : { width: 0 }) }, ...(image ? { extra: { image } } : {}) }];
       }
-      return [{ type: 'rect', points: innerBox(), filled: true, style: { ...base, ...fill } }];
+      // Fork (leojru/redcolumn): no appearance, colour or border (AutoCAD's SHX text notes): nothing to see, as in other viewers.
+      const nothingToDraw = !r.AP && !color && !interior && width === 0;
+      return [{ type: 'rect', points: innerBox(), filled: true, style: { ...base, ...fill }, ...(nothingToDraw ? { extra: { hidden: true } } : {}) }];
     }
     case 'Circle': {
       const [p, q] = innerBox() as [Point, Point];

@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): page and viewport scales are read through shownScale (feet as feet and inches); import version raised for Revu snapshots.
+// Modified in the leojru/redcolumn fork (revu-layout): page and viewport scales are read through shownScale (feet as feet and inches); import version raised for Revu snapshots and invisible AutoCAD boxes.
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { DEFAULT_SCALE, shownScale, type GeoRegion, type Scale } from '@nb/measure';
@@ -14,7 +14,7 @@ import { TYPE_INFO } from './types';
 import { unchangedSinceImport } from './digest';
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
-export const IMPORT_VERSION = 3;
+export const IMPORT_VERSION = 4;
 import { gluedTo, relinkCopies, routeConnector } from './flowchart';
 
 /**

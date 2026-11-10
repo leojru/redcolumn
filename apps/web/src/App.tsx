@@ -5495,8 +5495,9 @@ export function App() {
               : null;
   // A Cloud+ is a cloud with a callout, so selecting or drawing one also offers the callout's text options.
   const textType = styleType === 'cloud' || styleType === null ? (toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedTypes.has('callout')) ? 'callout' : null) : styleType;
-  // In select mode the style controls show the selected markup's style, not the tool's defaults. A table's controls are its cells'.
-  const selectedStyle = toolsState.tool === 'select' && styleType && styleType !== 'table' ? markups.find((m) => m.type === styleType && toolsState.selected.has(m.id))?.style : undefined;
+  // In select mode the style controls show the selected markup's style, not the tool's defaults.
+  // Fork (leojru/redcolumn): a table too, so its line style and width read true; its cells' font settings come through textMarkupStyle.
+  const selectedStyle = toolsState.tool === 'select' && styleType ? markups.find((m) => m.type === styleType && toolsState.selected.has(m.id))?.style : undefined;
   const selectedText = textType && toolsState.tool === 'select' ? markups.find((m) => m.type === textType && toolsState.selected.has(m.id)) : undefined;
   // Cloud bubble size: shown while drawing a cloud, or when the selection includes one (a Cloud+ is a cloud and its callout).
   // `value` is the selected cloud's size, else the default for new ones (undefined: sized to the zoom).
