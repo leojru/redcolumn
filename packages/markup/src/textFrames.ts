@@ -25,9 +25,20 @@ const INNER: Record<TextFrame, [number, number, number, number]> = {
   triangle: [0.27, 0.73, 0.48, 0.93],
 };
 
-/** The part of a shape's box `b` that text sits in. */
+/**
+ * Where a text box's text sits in its shape. Wider than `INNER`: `frameAroundText` makes the shape
+ * clear the text's own corners, so the text is not boxed into a rectangle that fits every line.
+ */
+const TEXT_INNER: Record<TextFrame, [number, number, number, number]> = {
+  rect: [0, 1, 0, 1],
+  circle: [0.06, 0.94, 0.06, 0.94],
+  hexagon: [0.06, 0.94, 0.06, 0.94],
+  triangle: [0.1, 0.9, 0.4, 1],
+};
+
+/** The part of a text box's shape `b` that its text sits in. */
 export function frameInner(kind: TextFrame, b: Rect): Rect {
-  const [x0, x1, y0, y1] = INNER[kind];
+  const [x0, x1, y0, y1] = TEXT_INNER[kind];
   return { x: b.x + b.w * x0, y: b.y + b.h * y0, w: b.w * (x1 - x0), h: b.h * (y1 - y0) };
 }
 
@@ -45,6 +56,26 @@ export function frameAround(kind: TextFrame, w: number, h: number): { w: number;
   if (!aspect) return need;
   const height = Math.max(need.h, need.w / aspect);
   return { w: height * aspect, h: height };
+}
+
+/** A little air between the text's corners and the outline. */
+const CLEARANCE = 1.08;
+
+/**
+ * Fork (leojru/redcolumn): the smallest shape whose outline clears a text block `w` by `h`, keeping
+ * the shape's proportions. `pad` is the block's padding on each side: a curved or slanted side only
+ * comes near the block's corners, so half of it is enough.
+ */
+export function frameAroundText(kind: TextFrame, w: number, h: number, pad = 0): { w: number; h: number } {
+  if (kind === 'rect') return { w, h };
+  const [x0, x1, y0, y1] = TEXT_INNER[kind];
+  const aspect = ASPECT[kind]!;
+  const [tw, th] = kind === 'circle' ? [w - pad, h] : [w - pad, h - pad];
+  // The block's corners on the outline: through the circle's rim, between the hexagon's slants, or
+  // inside the triangle's sides with the block standing on its base.
+  const corners = kind === 'circle' ? Math.hypot(tw, th) : kind === 'hexagon' ? tw + th / Math.sqrt(3) : tw + th * aspect;
+  const width = Math.max(corners * CLEARANCE, w / (x1 - x0), (th / (y1 - y0)) * aspect);
+  return { w: width, h: width / aspect };
 }
 
 /** Where the text's middle sits in the shape's box, as fractions (across, down). */

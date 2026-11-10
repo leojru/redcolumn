@@ -1,5 +1,5 @@
 // Modified in the leojru/redcolumn fork: auto-size fits a text box's border shape around its text, with even room on every side; resizing keeps the text showing (keepTextInBox).
-import { frameAround } from './textFrames';
+import { frameAroundText } from './textFrames';
 import { boundsOf, contentBox, flagTip, isTextType, type Markup, type MarkupStyle, type Point } from './model';
 import { textLineHeight, textPadding } from './geometry';
 import { TYPE_INFO } from './types';
@@ -104,7 +104,7 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number): Poin
   // Fork (leojru/redcolumn): inside a border shape, the shape's box grows to hold the text.
   const shape = (m.type === 'text' || m.type === 'callout') && m.style.boxShape && m.style.boxShape !== 'rect' ? m.style.boxShape : null;
   const box = shape ? boundsOf(m.type === 'callout' ? m.points.slice(2, 4) : m.points) : contentBox(m);
-  const outer = shape ? frameAround(shape, w, h) : { w, h };
+  const outer = shape ? frameAroundText(shape, w, h, textPadding(m.style)) : { w, h };
   if (m.type === 'callout') {
     if (m.points.length < 4) return null;
     const pts = m.points.map((p) => [p[0], p[1]] as Point);
