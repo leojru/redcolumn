@@ -15,7 +15,7 @@ import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, hasCloudBorder, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
-import { baselineDrop, dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
+import { baselineDrop, centredInShape, dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { breakAroundBox, leaderPart, lengthLabelBox, lengthLeader } from './dimensionInline';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, strokeEnds, styleCapabilities, textColor, type LineEnding } from './style';
@@ -157,8 +157,8 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
   const family = isNamedFont(s.fontFamily) ? s.fontFamily : { sans: 'Helvetica', serif: 'Times New Roman', mono: 'Courier' }[fontKeyword(s.fontFamily)];
   const ds = [
     `font: ${family} ${fmt(s.fontSize ?? 12)}pt`,
-    `text-align:${s.textAlign ?? 'left'}`,
-    ...(s.verticalAlign && s.verticalAlign !== 'top' ? [`text-valign:${s.verticalAlign}`] : []),
+    `text-align:${centredInShape(m) ? 'center' : (s.textAlign ?? 'left')}`,
+    ...(centredInShape(m) ? ['text-valign:middle'] : s.verticalAlign && s.verticalAlign !== 'top' ? [`text-valign:${s.verticalAlign}`] : []),
     ...(s.textMargin !== undefined ? [`margin:${fmt(Math.max(0, s.textMargin - 1))}pt`] : []),
     ...(s.lineHeight ? [`line-height:${fmt((s.fontSize ?? 12) * s.lineHeight)}pt`] : []),
     `color:${textColor(s).toUpperCase()}`,
@@ -1151,7 +1151,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         Subtype: 'FreeText',
         RD: rd,
         DA: PDFString.of(`/${font} ${m.style.fontSize ?? 12} Tf ${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`),
-        Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
+        Q: centredInShape(m) || m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
         ...richText(m),
         // A FreeText's /C is its background, not its border.
         C: fill && m.type === 'text' ? fill : [],
@@ -1223,7 +1223,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         CL: flat(leader.map((p) => apply(matrix, p))),
         LE: PDF_LINE_ENDINGS[startCap],
         DA: PDFString.of(`/${font} ${m.style.fontSize ?? 12} Tf ${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`),
-        Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
+        Q: centredInShape(m) || m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
         ...richText(m),
         C: fill ? fill : [],
         ...(hasCloudBorder(m) ? { BE: cloudEffect(m) } : {}),

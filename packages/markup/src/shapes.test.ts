@@ -5,7 +5,7 @@ import { arcPoints, circleThrough } from './arc.ts';
 import { exportWithAnnotations } from './export.ts';
 import { circleBox, hitTest, markupShape, polarPoint, resizedBox, segmentPolar, withSegment } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
-import { baselineDrop, dimensionText, labelHandles, measurementLabel, textBoxLines } from './render.ts';
+import { baselineDrop, centredInShape, dimensionText, labelHandles, measurementLabel, textBoxLines } from './render.ts';
 import { dimensionLayout } from './dimensionInline.ts';
 import { DEFAULT_STYLES, markupBounds, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point } from './model.ts';
 
@@ -426,4 +426,17 @@ test('saved text sits on the baseline the screen draws it on, so it stays centre
   assert.ok(tm, ops);
   const [line] = textBoxLines(m, (t) => t.length * 6);
   assert.ok(Math.abs(Number(tm[1]) - (line!.y + baselineDrop(m.style, 12))) < 0.05, `${tm[1]} against ${line!.y + baselineDrop(m.style, 12)}`);
+});
+
+test('text in a shape is centred both ways, even when the shape was picked without Middle and Center', () => {
+  for (const type of ['text', 'callout'] as const) {
+    const points: Point[] = type === 'callout' ? [[0, 0], [10, 10], [100, 100], [140, 136]] : [[100, 100], [140, 136]];
+    const m = markup(type, points, { text: 'x.x', style: { ...DEFAULT_STYLES[type], fontSize: 12, boxShape: 'hexagon', textAlign: 'left', verticalAlign: 'top' } });
+    assert.ok(centredInShape(m));
+    const [line] = textBoxLines(m, (t) => t.length * 6);
+    // Its capitals' middle on the box's middle, its width centred.
+    const capMiddle = line!.y + baselineDrop(m.style, 12) - 0.718 * 12 / 2;
+    assert.ok(Math.abs(capMiddle - 118) < 0.6, `${type}: ${capMiddle}`);
+    assert.ok(Math.abs(line!.x + line!.width / 2 - 120) < 0.01, `${type}: ${line!.x}`);
+  }
 });

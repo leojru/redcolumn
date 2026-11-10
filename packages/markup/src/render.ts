@@ -298,6 +298,15 @@ export const TEXT_INK_METRICS = {
  * Where each line of a text box goes: `x` is the line's left edge, `y` its top, both in page
  * space, for the box's alignment. `measure` gives a string's width at the box's font size.
  */
+/**
+ * Fork (leojru/redcolumn): text inside a circle, triangle or hexagon border is always centred both
+ * ways, as Revu draws it, however the shape was picked (the Properties panel and older markups left
+ * it top-left).
+ */
+export function centredInShape(m: Pick<Markup, 'type' | 'style'>): boolean {
+  return (m.type === 'text' || m.type === 'callout') && !!m.style.boxShape && m.style.boxShape !== 'rect';
+}
+
 export function textBoxLines(m: Markup, measure: (s: string) => number): { text: string; x: number; y: number; width: number; gap: number }[] {
   const b = contentBox(m);
   const pad = textPadding(m.style);
@@ -307,7 +316,7 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   const lineH = size * textLineHeight(m.style);
   // Glyphs sit at the top of their line; CSS (the editor, other tools' rich text) splits the extra leading above and below, so shift by half of it. Zero at the default.
   const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * size) / 2;
-  const valign = m.style.verticalAlign ?? 'top';
+  const valign = centredInShape(m) ? 'middle' : (m.style.verticalAlign ?? 'top');
   // Middle and bottom place the visible ink (first line's cap top to last line's descender bottom), not the line boxes, which carry empty space below the glyphs.
   // An installed font uses the metrics of the standard family it falls back to.
   const fm = TEXT_INK_METRICS[fontKeyword(m.style.fontFamily)];
@@ -326,7 +335,7 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
     let width = measure(text);
     // A wrapped list line hangs in from its first line; aligned text treats the indent as part of the line.
     const full = indent + width;
-    const align = m.style.textAlign ?? 'left';
+    const align = centredInShape(m) ? 'center' : (m.style.textAlign ?? 'left');
     const x = (align === 'center' ? b.x + (b.w - full) / 2 : align === 'right' ? b.x + b.w - pad - full : b.x + pad) + indent;
     // Justified: spread the slack over the spaces of every line but a paragraph's last.
     let gap = 0;
@@ -353,7 +362,6 @@ export function textBlockShift(m: Markup, measure: (s: string) => number): numbe
 }
 
 /** Fork (leojru/redcolumn): how far a line's baseline is below its `y`, the same on screen as in the saved PDF on any system's fonts. */
-/** How far a line's baseline sits below its top. Fork (leojru/redcolumn): shared with saving, so saved text sits where it shows. */
 export function baselineDrop(style: Pick<Markup['style'], 'fontFamily'>, size: number): number {
   return TEXT_INK_METRICS[fontKeyword(style.fontFamily)].ascent * size;
 }

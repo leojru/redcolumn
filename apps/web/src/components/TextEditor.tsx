@@ -1,6 +1,6 @@
 // Modified in the leojru/redcolumn fork: a top-aligned box edits where its text renders too.
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { autoFormatList, autoSizedPoints, backspaceList, contentBox, continueList, cssFont, shiftList, textBlockShift, textLineHeight, textPadding, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
+import { autoFormatList, centredInShape, autoSizedPoints, backspaceList, contentBox, continueList, cssFont, shiftList, textBlockShift, textLineHeight, textPadding, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
 import { settings, useSettings } from '../settings/settings';
 import type { TileViewer } from '../viewer/TileViewer';
 
@@ -203,7 +203,7 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
           height,
           font: cssFont(markup.style, fontSize * scale),
           lineHeight: textLineHeight(markup.style),
-          textAlign: markup.style.textAlign ?? 'left',
+          textAlign: centredInShape(markup) ? 'center' : (markup.style.textAlign ?? 'left'),
           textDecoration: [markup.style.underline && 'underline', markup.style.strikethrough && 'line-through'].filter(Boolean).join(' ') || undefined,
           padding: textPadding(markup.style) * scale,
           ...(typewriter ? {} : { paddingTop: padTop, paddingBottom: 0 }),
