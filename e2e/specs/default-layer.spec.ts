@@ -56,3 +56,26 @@ test('Isolate shows only one markup layer, leaving the drawing, and End Isolate 
   await app.page.getByRole('menuitem', { name: 'End Isolate' }).click();
   await expect(row('Doors')).not.toHaveClass(/off/);
 });
+
+test('a markup layer saved into the PDF is listed once when the file is opened again', async ({ app }) => {
+  await app.open('plan.pdf');
+  const raw = async () => (await app.raw()) as unknown as Raw[];
+  await app.tool('rect');
+  await app.drag([200, 300], [300, 380]);
+  await expect.poll(async () => (await raw()).length).toBe(1);
+  await app.page.evaluate((id) => (window as unknown as { __nb: { tools: { store: { update(id: string, p: object): void } } } }).__nb.tools.store.update(id, { layer: 'Walls' }), (await raw())[0]!.id);
+  const before = (await app.saved()).length;
+  await app.cmd('file.saveAs');
+  await expect.poll(async () => (await app.saved()).length, { timeout: 30_000 }).toBe(before + 1);
+  const saved = (await app.saved()).at(-1)!;
+
+  await app.page.locator('input[type=file][accept*="pdf"]').first().setInputFiles({ name: 'walls.pdf', mimeType: 'application/pdf', buffer: saved.bytes });
+  await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('walls.pdf');
+  await expect.poll(async () => (await raw()).find((m) => m.type === 'rect')?.layer, { timeout: 30_000 }).toBe('Walls');
+  await app.cmd('window.layers');
+  const rows = app.page.locator('.layers-grid tbody tr').filter({ hasText: 'Walls' });
+  await expect(rows).toHaveCount(1);
+  // The one row hides the markups too.
+  await rows.first().locator('.layer-eye').click();
+  await expect(rows.first()).toHaveClass(/off/);
+});

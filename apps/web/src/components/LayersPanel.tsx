@@ -109,6 +109,8 @@ interface Row {
   key: string;
   name: string;
   depth: number;
+  /** Fork (leojru/redcolumn): a PDF layer that is also a markup layer of the same name (a saved markup layer): one row for both. */
+  markup?: string;
   /** Locked by the file itself (PDF layers). */
   fileLocked: boolean;
   /** Markups on the layer (markup layers). */
@@ -190,10 +192,27 @@ export function LayersPanel({
       stack.push(row);
     }
     const counts = new Map(markupLayers.map((l) => [l.name, l.count]));
+    // Fork (leojru/redcolumn): a markup layer saved into the PDF comes back as a PDF layer of the
+    // same name; it is listed once, the PDF layer's row standing for both.
+    const pdfRows = new Map<string, Row>();
+    const collect = (rows: Row[]) =>
+      rows.forEach((r) => {
+        if (!pdfRows.has(r.name)) pdfRows.set(r.name, r);
+        collect(r.children);
+      });
+    collect(roots);
+    const merged = new Set<string>();
+    for (const name of [...counts.keys(), ...prefs.added]) {
+      const row = name ? pdfRows.get(name) : undefined;
+      if (!row || merged.has(name)) continue;
+      row.markup = name;
+      row.count = counts.get(name) ?? 0;
+      merged.add(name);
+    }
     const names = [
       ...markupLayers.map((l) => l.name),
       ...prefs.added.filter((n) => !counts.has(n)),
-    ];
+    ].filter((n) => !merged.has(n));
     const rank = (n: string) => {
       const i = prefs.order.indexOf(n);
       return i < 0 ? prefs.order.length + names.indexOf(n) : i;
@@ -226,6 +245,7 @@ export function LayersPanel({
       (r.key.startsWith("pdf:")
         ? onPage.pdf.has(r.key.slice(4))
         : onPage.markup.has(r.key.slice(3))) ||
+      (r.markup !== undefined && onPage.markup.has(r.markup)) ||
       r.children.some(onThisPage);
     const order = (rows: Row[]) =>
       view.sort
@@ -249,7 +269,9 @@ export function LayersPanel({
     ...[...hiddenMarkup].map(mkKey),
   ]);
   const setHidden = (keys: Iterable<string>, faded: string[] = []) => {
-    const list = [...keys];
+    // Fork (leojru/redcolumn): hiding a merged row hides its markups too.
+    const given = [...keys];
+    const list = [...given, ...all.filter((r) => r.markup !== undefined && given.includes(r.key)).map((r) => mkKey(r.markup!))];
     onFaded(faded);
     onHidden(
       list.filter((k) => k.startsWith("pdf:")).map((k) => k.slice(4)),
@@ -266,13 +288,14 @@ export function LayersPanel({
         .map((r) => r.key),
     );
   /** Fork (leojru/redcolumn): whether `r` is the only markup layer showing. */
+  const holdsMarkups = (x: Row) => x.key.startsWith("mk:") || x.markup !== undefined;
   const isolatedMarkupLayer = (r: Row) =>
-    all.filter((x) => x.key.startsWith("mk:")).every((x) => (x === r ? !hiddenKeys.has(x.key) : hiddenKeys.has(x.key)));
+    all.filter(holdsMarkups).every((x) => (x === r ? !hiddenKeys.has(x.key) : hiddenKeys.has(x.key)));
   /** Fork: shows only markup layer `r` (or, with null, every markup layer); PDF and locked layers stay as they are. */
   const isolateMarkupLayer = (r: Row | null) =>
     setHidden(
       all
-        .filter((x) => (flagsOf(x).lock || x.key.startsWith("pdf:") ? hiddenKeys.has(x.key) : !!r && x !== r))
+        .filter((x) => (flagsOf(x).lock || !holdsMarkups(x) ? hiddenKeys.has(x.key) : !!r && x !== r))
         .map((x) => x.key),
     );
   const fileDefaults = () =>
@@ -433,7 +456,7 @@ export function LayersPanel({
         onClick: () => showWhere((x) => x !== r),
       },
       // Fork (leojru/redcolumn): as Revu's Isolate, only this layer's markups show; the drawing stays as it is.
-      ...(r.key.startsWith("mk:")
+      ...(holdsMarkups(r)
         ? [
             isolatedMarkupLayer(r)
               ? { label: "End Isolate", onClick: () => isolateMarkupLayer(null) }
