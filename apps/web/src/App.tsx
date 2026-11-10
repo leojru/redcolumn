@@ -122,6 +122,7 @@ import { ClassicToolbars } from './components/fork/ClassicToolbars';
 import { StatusCommands } from './components/fork/StatusCommands';
 import { vectorSnapshotOf } from './fork/snapshot';
 import { createVectorPictures, registerStampSources } from './fork/vectorPictures';
+import { REMOVE_FROM_DEVICE, forgetKeptMarkups, idForSeparateCopy } from './fork/fileCopies';
 import { markupLayersOfHiddenPdf } from './fork/pdfLayerMarkups';
 import { DimensionTextEditor } from './components/fork/DimensionTextEditor';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
@@ -1713,6 +1714,9 @@ export function App() {
         const project = link ? projectById(link.projectId) : null;
         if (link && project) await project.attachMarkups(link.fileId, store).catch((err: unknown) => console.warn('Project markups:', err));
       }
+      // Fork (leojru/redcolumn): as in Revu, a file on disk opens with what is saved in it. Changes a crash left unsaved are kept.
+      const recovering = settings.get().documentRecovery && recoveredDocs().has(file.id);
+      if (!sessionDoc && !linkOf(file.id) && !store.readOnly && hasFileLocation(file.id) && !recovering && !movedDirty.has(file.id)) store.startFromFile();
       // Documents without their own custom columns start with the profile's.
       const template = profiles.active().state.columnTemplate;
       // Not shared documents: one person's profile would become everyone's.
@@ -2027,7 +2031,9 @@ export function App() {
           const source = moved && !moved.hasFile ? undefined : handleOf(file);
           // The engine takes ownership of the buffer it is given, so store a copy first.
           const hostId = cad ? null : hostDocumentId(tokenOf(source));
-          let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
+          // Fork (leojru/redcolumn): an identical file from another folder is a document of its own.
+          const copyId = hostId || cad || image ? undefined : await idForSeparateCopy(bytes, source, [...tabsARef.current, ...tabsBRef.current]);
+          let stored = await saveFile(name, bytes.slice(0), hostId ?? copyId);
           // An embedding application's document, opened again with other contents (saved over
           // since, say): they come in as a change to it, so its markups and open tab follow.
           if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
@@ -7748,14 +7754,20 @@ export function App() {
       label: 'Remove from Device…',
       danger: true,
       onClick: () => {
-        if (confirm(`Remove "${f.name}" from this device? Its markups are kept and return if you open it again.`)) {
+        if (confirm(REMOVE_FROM_DEVICE(f.name))) {
           fileGroups.forget(f.id);
           drawingSets.forget(f.id);
-          void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary);
+          removeFromDevice(f);
         }
       },
     },
   ];
+
+  /** Fork (leojru/redcolumn): its markups go with it, unless it is still open in a tab. */
+  function removeFromDevice(f: StoredFile) {
+    const open = [...tabsARef.current, ...tabsBRef.current].some((t) => t.file.id === f.id);
+    void removeFile(f).then(() => (open ? undefined : forgetKeptMarkups(f.id))).then(() => forgetHandle(f.id)).then(refreshLibrary);
+  }
 
   /** Links › Teach Links: shows the Links tab, opens Teach Links and turns on the tool for boxing a mark. */
   const startTeachMark = () => {
@@ -9465,7 +9477,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               return at < 0 ? [...base, SEP, ...groupEntries] : [...base.slice(0, at), SEP, ...groupEntries, ...base.slice(at)];
             }}
             reveal={revealFile}
-            onRemove={(f) => void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary)}
+            onRemove={removeFromDevice}
           />
         )}
         <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize, click to collapse" onPointerDown={(e) => onSideResize(side, e)} />

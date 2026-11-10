@@ -9,9 +9,9 @@
 import { desktop } from '../desktop/host';
 import { isTokenRecord } from '../desktop/record';
 import { isCadFile } from '../cad/files';
-import { fileLocationPath, hasFileLocation, mimeFor, noteLocation, ownedBytes, revealFileLocation, subscribeFileLocations, toBytes, tokenHandle, tokenOf } from '../desktop/tokens';
+import { fileLocationPath, handleLocationPath, hasFileLocation, mimeFor, noteLocation, ownedBytes, revealFileLocation, subscribeFileLocations, toBytes, tokenHandle, tokenOf } from '../desktop/tokens';
 
-export { fileLocationPath, hasFileLocation, revealFileLocation, subscribeFileLocations };
+export { fileLocationPath, handleLocationPath, hasFileLocation, revealFileLocation, subscribeFileLocations };
 
 type Mode = 'read' | 'readwrite';
 interface PermissionHandle extends FileSystemFileHandle {

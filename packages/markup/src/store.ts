@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): page and viewport scales are read through shownScale (feet as feet and inches); import version raised for Revu snapshots and invisible AutoCAD boxes.
+// Modified in the leojru/redcolumn fork (revu-layout): page and viewport scales are read through shownScale (feet as feet and inches); import version raised for Revu snapshots and invisible AutoCAD boxes; startFromFile.
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { DEFAULT_SCALE, shownScale, type GeoRegion, type Scale } from '@nb/measure';
@@ -1045,6 +1045,21 @@ export class MarkupStore {
       for (const m of markups) this.map.set(m.id, m);
       this.meta.set('importedAnnotations', {});
       this.meta.set('importedSpaces', {});
+    }, DETECTION);
+    this.forgetHistory();
+  }
+
+  /**
+   * Fork (leojru/redcolumn): drops the markups kept for this document, so it is read from its file
+   * again, as a file opened in Revu shows only what is saved in it. Scales and sheet names stay.
+   */
+  startFromFile() {
+    if (this.locked) return;
+    this.doc.transact(() => {
+      this.map.clear();
+      this.meta.set('importedAnnotations', {});
+      this.meta.set('importedSpaces', {});
+      this.meta.set('annotationsImported', false);
     }, DETECTION);
     this.forgetHistory();
   }

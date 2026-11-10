@@ -107,6 +107,13 @@ export function subscribeFileLocations(listener: () => void) {
   return () => void listeners.delete(listener);
 }
 
+/** Fork (leojru/redcolumn): the full path of a file handle from the desktop app, if it has one. */
+export async function handleLocationPath(handle: object | null | undefined): Promise<string | null> {
+  const token = tokenOf(handle);
+  const host = desktop();
+  return token && host ? host.locationOf(token) : null;
+}
+
 /** Fork (leojru/redcolumn): the full path of a document opened from disk, if it has one. */
 export async function fileLocationPath(id: string): Promise<string | null> {
   const token = byDocument.get(id);

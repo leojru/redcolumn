@@ -1,7 +1,9 @@
+// Modified in the leojru/redcolumn fork (revu-layout): Remove from Device says markups go with the file.
 import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { drawingSets } from '../storage/sets';
 import { fileGroups, useFileGroups, type FileGroup } from '../storage/fileGroups';
 import type { StoredFile } from '../storage/fileStore';
+import { REMOVE_FROM_DEVICE } from '../fork/fileCopies';
 import { InlineName } from './InlineName';
 import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMenu';
 
@@ -53,7 +55,7 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
   const matches = (f: StoredFile) => !q || f.name.toLowerCase().includes(q);
 
   const confirmRemove = (f: StoredFile) => {
-    if (!confirm(`Remove "${f.name}" from this device? Its markups are kept and return if you open it again.`)) return;
+    if (!confirm(REMOVE_FROM_DEVICE(f.name))) return;
     fileGroups.forget(f.id);
     drawingSets.forget(f.id);
     onRemove(f);

@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork (revu-layout): markups no longer come back after Remove from Device.
 /**
  * On-device PDF library backed by the Origin Private File System. File contents are stored by the
  * SHA-256 of their bytes, so re-opening the same file finds its existing entry and markups. Each
@@ -246,7 +247,7 @@ export async function touchFile(id: string): Promise<void> {
   }));
 }
 
-/** Removes the file from the library. Its markups stay in IndexedDB and return if it is re-added. */
+/** Removes the file from the library. */
 export async function removeFile(file: StoredFile): Promise<void> {
   const current = (await readIndex()).find((e) => e.id === file.id);
   await updateIndex((entries) => ({ entries: entries.filter((e) => e.id !== file.id), result: undefined }));
