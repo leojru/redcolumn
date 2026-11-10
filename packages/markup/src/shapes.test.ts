@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
+import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFStream, PDFString } from 'pdf-lib';
 import { arcPoints, circleThrough } from './arc.ts';
 import { exportWithAnnotations } from './export.ts';
 import { circleBox, hitTest, markupShape, polarPoint, resizedBox, segmentPolar, withSegment } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
-import { dimensionText, labelHandles, measurementLabel } from './render.ts';
+import { baselineDrop, dimensionText, labelHandles, measurementLabel, textBoxLines } from './render.ts';
 import { dimensionLayout } from './dimensionInline.ts';
 import { DEFAULT_STYLES, markupBounds, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point } from './model.ts';
 
@@ -412,4 +412,18 @@ test('a child layer is saved under its parent in a file that already has layers'
   // Walls, Doors, then Doors' children: Frames.
   assert.deepEqual([name(order.get(0)), name(order.get(1))], ['Walls', 'Doors']);
   assert.deepEqual(order.lookup(2, PDFArray).asArray().map(name), ['Frames']);
+});
+
+// Fork (leojru/redcolumn).
+test('saved text sits on the baseline the screen draws it on, so it stays centred in its shape in other viewers', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 800]);
+  const m = markup('text', [[100, 100], [130, 124]], { text: 'x.x', style: { ...DEFAULT_STYLES.text, fontSize: 12, boxShape: 'hexagon', textAlign: 'center', verticalAlign: 'middle' } });
+  const out = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [m]));
+  const ap = out.getPage(0).node.Annots()!.lookup(0, PDFDict).lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'), PDFStream);
+  const ops = new TextDecoder().decode(ap instanceof PDFRawStream ? decodePDFRawStream(ap).decode() : ap.getContents());
+  const tm = /1 0 0 -1 [\d.-]+ ([\d.-]+) Tm/.exec(ops);
+  assert.ok(tm, ops);
+  const [line] = textBoxLines(m, (t) => t.length * 6);
+  assert.ok(Math.abs(Number(tm[1]) - (line!.y + baselineDrop(m.style, 12))) < 0.05, `${tm[1]} against ${line!.y + baselineDrop(m.style, 12)}`);
 });

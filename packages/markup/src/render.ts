@@ -353,7 +353,8 @@ export function textBlockShift(m: Markup, measure: (s: string) => number): numbe
 }
 
 /** Fork (leojru/redcolumn): how far a line's baseline is below its `y`, the same on screen as in the saved PDF on any system's fonts. */
-function baselineDrop(style: Markup['style'], size: number): number {
+/** How far a line's baseline sits below its top. Fork (leojru/redcolumn): shared with saving, so saved text sits where it shows. */
+export function baselineDrop(style: Pick<Markup['style'], 'fontFamily'>, size: number): number {
   return TEXT_INK_METRICS[fontKeyword(style.fontFamily)].ascent * size;
 }
 

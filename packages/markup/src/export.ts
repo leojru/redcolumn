@@ -15,7 +15,7 @@ import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, hasCloudBorder, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
-import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
+import { baselineDrop, dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { breakAroundBox, leaderPart, lengthLabelBox, lengthLeader } from './dimensionInline';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, strokeEnds, styleCapabilities, textColor, type LineEnding } from './style';
@@ -594,7 +594,8 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const b = contentBox(m);
     const size = style.fontSize ?? 12;
     const lines = textBoxLines({ ...m, text: safeParagraphs(font, m.text) }, (s) => font.widthOfTextAtSize(s, size));
-    const ascent = font.heightAtSize(size, { descender: false });
+    // Fork (leojru/redcolumn): the baseline where the screen draws it (a cap height put text a fifth of its size too high).
+    const ascent = baselineDrop(style, size);
     ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`, 'BT', `/F0 ${fmt(size)} Tf`);
     for (const line of lines) {
       // Page space is y-down; flip the text matrix so glyphs stay upright.
@@ -687,7 +688,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
         fontRefs[fontNames.get(fontName)!] = font.ref;
       }
       const size = cell.style.fontSize ?? 12;
-      const ascent = font.heightAtSize(size, { descender: false });
+      const ascent = baselineDrop(cell.style, size);
       const [cr, cg, cb] = rgb(textColor(cell.style));
       const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeParagraphs(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
       ops.push('q', '/GS1 gs', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/${fontNames.get(fontName)} ${fmt(size)} Tf`);
