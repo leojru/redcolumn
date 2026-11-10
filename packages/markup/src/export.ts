@@ -38,6 +38,8 @@ import { toPdfDict } from './pdfValue';
  * here restores it exactly. Must match pdf-core's APP_DATA_KEY, which reads it back.
  */
 const APP_DATA_KEY = 'NBData';
+// Fork (leojru/redcolumn).
+import { APPEARANCE_KEY, APPEARANCE_VERSION } from './bluebeam';
 /** The catalog key the document's assemblies are kept under (read back by `readPdfExtras`). */
 export const ASSEMBLIES_KEY = 'NBAssemblies';
 
@@ -921,6 +923,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
     AP: { N: appearance(ctx, source, rect) },
     // An attachment's bytes live once, in its embedded file, not in the data copy too.
     [APP_DATA_KEY]: pdfText(JSON.stringify(appData(source))),
+    [APPEARANCE_KEY]: APPEARANCE_VERSION,
   };
   if (m.style.lineStyle) {
     base.LineStyle = lineStyleValue(m.style.lineStyle.spec) as never;
@@ -2121,7 +2124,8 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     claimed.add(key!);
     link.set(m, kind);
   }
-  const changed = (m: Markup) => !link.has(m) || !unchangedSinceImport(m);
+  // Fork (leojru/redcolumn): our own markups saved by older drawing code are drawn again.
+  const changed = (m: Markup) => !link.has(m) || !unchangedSinceImport(m) || !!m.pdfAnnot?.redraw;
   // A new Space belongs in the page's /BSISpaces, where Bluebeam keeps them, not among its annotations.
   const isNewSpace = (m: Markup) => m.type === 'space' && !link.has(m);
   // What gets an annotation written from it: new and changed markups, never Bluebeam Spaces.

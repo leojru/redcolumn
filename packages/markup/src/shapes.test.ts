@@ -5,6 +5,7 @@ import { arcPoints, circleThrough } from './arc.ts';
 import { exportWithAnnotations } from './export.ts';
 import { circleBox, hitTest, markupShape, polarPoint, resizedBox, segmentPolar, withSegment } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
+import { readPdfExtras } from './pdfExtras.ts';
 import { baselineDrop, centredInShape, dimensionText, labelHandles, measurementLabel, textBoxLines } from './render.ts';
 import { dimensionLayout } from './dimensionInline.ts';
 import { DEFAULT_STYLES, markupBounds, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point } from './model.ts';
@@ -439,4 +440,32 @@ test('text in a shape is centred both ways, even when the shape was picked witho
     assert.ok(Math.abs(capMiddle - 118) < 0.6, `${type}: ${capMiddle}`);
     assert.ok(Math.abs(line!.x + line!.width / 2 - 120) < 0.01, `${type}: ${line!.x}`);
   }
+});
+
+test("a markup this app saved with older drawing code is drawn again on the next save; others are left as they are", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 800]);
+  const m = markup('text', [[100, 100], [140, 136]], { text: 'x.x', style: { ...DEFAULT_STYLES.text, fontSize: 12, boxShape: 'hexagon' } });
+  const saved = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [m]));
+  const annot = saved.getPage(0).node.Annots()!.lookup(0, PDFDict);
+  assert.equal(annot.get(PDFName.of('NBAppearance'))?.toString(), '1');
+  // As an older version saved it: no stamp, its own (old) drawing.
+  annot.delete(PDFName.of('NBAppearance'));
+  const old = saved.context.register(saved.context.stream('% old drawing', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 1, 1] }));
+  annot.set(PDFName.of('AP'), saved.context.obj({ N: old }));
+  const bytes = await saved.save();
+
+  const extras = (await readPdfExtras(bytes))!;
+  const data = (annot.lookup(PDFName.of('NBData'), PDFString, PDFHexString) as PDFString | PDFHexString).decodeText();
+  const found: ImportableAnnotation = { index: 0, objectNumber: extras.pages[0]!.objectNumbers[0]!, subtype: 'FreeText', rect: { x: 0, y: 0, w: 1, h: 1 }, color: null, interior: null, opacity: 1, borderWidth: 1, contents: 'x.x', author: '', intent: '', cloudy: false, da: '', appData: data, flags: 4, vertices: [], ink: [], line: null, link: null };
+  const [back] = importAnnotations(0, [found], () => null, extras).markups;
+  assert.equal(back!.pdfAnnot?.redraw, true);
+  back!.pdfAnnot!.digest = (await import('./digest.ts')).markupDigest(back!);
+
+  const again = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [back!], { imported: { 0: [0] } }));
+  const redrawn = again.getPage(0).node.Annots()!.lookup(0, PDFDict);
+  const ap = redrawn.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'), PDFStream);
+  const ops = new TextDecoder().decode(ap instanceof PDFRawStream ? decodePDFRawStream(ap).decode() : ap.getContents());
+  assert.doesNotMatch(ops, /old drawing/);
+  assert.equal(redrawn.get(PDFName.of('NBAppearance'))?.toString(), '1');
 });

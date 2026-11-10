@@ -3,6 +3,8 @@ import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
 import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
 import {
+  APPEARANCE_KEY,
+  APPEARANCE_VERSION,
   arr,
   cloudArcRadius,
   cleanText,
@@ -286,6 +288,7 @@ export function importAnnotations(
       status: m.status,
       ...(m.checked !== undefined ? { checked: m.checked } : {}),
       ...(m.image && !ours && (a.subtype === 'Stamp' || a.subtype === 'FileAttachment') ? { image: markupDigest({ image: m.image } as Markup) } : {}),
+      ...(ours && r && (num(r[APPEARANCE_KEY]) ?? 0) < APPEARANCE_VERSION ? { redraw: true } : {}),
       ...(m.vector && !ours && snapshotFor(a) ? { snapshot: { look: JSON.stringify(m.style), inset: snapshotFor(a)!.inset } } : {}),
     };
     return m;

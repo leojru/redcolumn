@@ -16,6 +16,15 @@ import type { Viewport } from './viewports';
 /** Where our own copy of a markup rides in a PDF object; must match export.ts's. */
 export const APP_DATA_KEY = 'NBData';
 
+/**
+ * Fork (leojru/redcolumn): which version of this app's drawing code made a markup's appearance,
+ * written beside its data (`NBAppearance`). Raised when saved appearances change (11/10: text
+ * baselines and centring in shapes), so markups saved before are drawn again on the next save
+ * or flatten instead of keeping their old appearance.
+ */
+export const APPEARANCE_KEY = 'NBAppearance';
+export const APPEARANCE_VERSION = 1;
+
 /** A PDF name (without its slash). */
 export class PdfName {
   readonly name: string;
