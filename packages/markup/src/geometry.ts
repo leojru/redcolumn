@@ -52,8 +52,8 @@ export function markupShape(m: Markup): ShapePart[] {
       evenOdd: outline.evenOdd,
       hatch: { id: m.style.hatch!, scale: m.style.hatchScale ?? 100, color: m.style.hatchColor ?? m.style.stroke, ...(m.style.hatchSpec ? { spec: m.style.hatchSpec } : {}) },
     };
-    // Fork (leojru/redcolumn): as Revu draws it, the hatch goes over the fill but under the border,
-    // so it never runs into the line: the outline's fill, the hatch, then the outline's stroke.
+    // As Revu draws it, the hatch goes over the fill but under the border, so it never runs into the
+    // line: the outline's fill, then the hatch, then the outline's stroke.
     if (outline.stroke) parts.splice(0, 1, { ...outline, stroke: false }, hatch, { ...outline, fill: null });
     else parts.splice(1, 0, hatch);
   }

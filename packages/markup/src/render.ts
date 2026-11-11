@@ -407,7 +407,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   ctx.globalAlpha = style.opacity;
   // Highlighters multiply by default so drawing detail stays visible underneath.
   const blend = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
-  // Fork (leojru/redcolumn): a shape's Highlight blends its fill and hatch only (blendsFillOnly).
+  // A filled shape blends its fill and hatch only; its border and text draw normally.
   const fillOnly = blendsFillOnly(m);
   ctx.globalCompositeOperation = fillOnly ? 'source-over' : blend;
   const lineWidth = Math.max(style.width, 1 / zoom);

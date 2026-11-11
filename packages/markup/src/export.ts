@@ -459,7 +459,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       }
       continue;
     }
-    // Fork (leojru/redcolumn): a shape's Highlight blends its fill only: the fill on its own (GSF), then the line.
+    // A filled shape that blends its fill only: the fill on its own (GSF, with the blend mode), then its line.
     if (fillOnly && part.fill && !part.decoration) {
       const [fr, fg, fb] = rgb(part.fill);
       ops.push('q /GSF gs', `${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`, pathOps(part.path), part.evenOdd ? 'f*' : 'f', 'Q');
@@ -483,7 +483,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   ops.push('[] 0 d');
 
   const blendName = pdfBlendName(m);
-  // Fork (leojru/redcolumn): with the fill alone blending (fillOnly), the lines and text do not.
+  // With the fill alone blending (fillOnly), the lines and text do not: the fill and hatch carry /BM.
   const bm = blendName && !fillOnly ? { BM: blendName } : {};
   const bmExplicit = m.style.blendMode ? bm : {};
   const fillBm = blendName && fillOnly ? { BM: blendName } : {};
@@ -1382,7 +1382,7 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
     const target = pages[link.targetPage];
     if (!page || !target || link.status === 'rejected') continue;
     // A match of a taught mark is only a suggestion until a person keeps it.
-    if (link.status === 'review' && link.id.startsWith('mark-')) continue;
+    if (link.status === 'review' && (link.id.startsWith('mark-') || link.id.startsWith('ai-'))) continue;
     const dest = link.targetRect ? [target.ref, 'FitR', ...userRect(pageMatrix(target), link.targetRect)] : [target.ref, 'Fit'];
     const annot = doc.context.obj({
       Type: 'Annot',

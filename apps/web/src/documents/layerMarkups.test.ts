@@ -1,11 +1,9 @@
-// Added in the leojru/redcolumn fork.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { markupLayersOfHiddenPdf } from './pdfLayerMarkups.ts';
-
-const layer = (id: string, name: string, depth = 0) => ({ id, name, on: true, locked: false, depth });
+import { markupLayersOfHiddenPdf } from './layerMarkups.ts';
 
 test('markups on a PDF layer are hidden with it; a repeated name only once all its layers are off', () => {
+  const layer = (id: string, name: string, depth = 0) => ({ id, name, on: true, locked: false, depth });
   const layers = [layer('1 0', 'Markups LR'), layer('2 0', 'Beams', 1), layer('3 0', 'Cols', 1), layer('4 0', '0'), layer('5 0', '0')];
   assert.deepEqual(markupLayersOfHiddenPdf(layers, []), []);
   assert.deepEqual(markupLayersOfHiddenPdf(layers, ['2 0']), ['Beams']);

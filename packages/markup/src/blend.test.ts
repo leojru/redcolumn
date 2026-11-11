@@ -74,6 +74,20 @@ test('an image with Multiply exports /BM on the annotation and its appearance', 
   assert.ok(appearanceBlends(out, dict).includes('/Multiply'));
 });
 
+test('a filled shape writes its blend mode on the fill and hatch alone: its border and text keep Normal', async () => {
+  const m = { ...markup('rect', 'multiply'), style: { ...markup('rect', 'multiply').style, fill: '#ffd7a8', width: 6 } };
+  const { out, dict } = await exported(m);
+  const ap = dict.lookup(PDFName.of('AP'), PDFDict);
+  const stream = ap.lookup(PDFName.of('N')) as unknown as { dict: PDFDict };
+  const gs = stream.dict.lookup(PDFName.of('Resources'), PDFDict).lookup(PDFName.of('ExtGState'), PDFDict);
+  const bm = (key: string) => (gs.lookupMaybe(PDFName.of(key), PDFDict)?.get(PDFName.of('BM')) as { toString(): string } | undefined)?.toString();
+  assert.equal(bm('GSF'), '/Multiply', 'the fill multiplies');
+  assert.equal(bm('GSH'), '/Multiply', 'and so does a hatch');
+  assert.equal(bm('GS0'), undefined, 'the border does not');
+  assert.equal(bm('GS1'), undefined, 'nor the text');
+  assert.ok(appearanceBlends(out, dict).includes('/Multiply'));
+});
+
 test('a normal image exports no /BM', async () => {
   const { out, dict } = await exported(markup('image'));
   assert.equal(dict.has(PDFName.of('BM')), false);
@@ -142,7 +156,7 @@ function recordingContext() {
       if (key === 'measureText') return () => ({ width: 10 });
       if (key === 'drawImage') return () => seen.push(t.globalCompositeOperation);
       if (key === 'stroke' || key === 'fill') return () => seen.push(t.globalCompositeOperation);
-      // Fork (leojru/redcolumn): save and restore keep the operation, as a canvas does.
+      // Save and restore keep the operation, as a canvas does.
       if (key === 'save') return () => stack.push(t.globalCompositeOperation);
       if (key === 'restore') return () => (t.globalCompositeOperation = stack.pop() ?? t.globalCompositeOperation);
       return () => undefined;
@@ -156,7 +170,7 @@ function recordingContext() {
 }
 
 test('drawing a markup uses the canvas operation of its blend mode', () => {
-  // Fork (leojru/redcolumn): a line blends whole; a shape blends its fill only, its border drawn as it is (Revu's Highlight).
+  // A line blends whole; a filled shape blends its fill only, its border drawn as it is (as Revu's highlight).
   const line = recordingContext();
   drawMarkup(line.ctx, markup('line', 'screen'));
   assert.ok(line.seen.length > 0);

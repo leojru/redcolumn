@@ -1,15 +1,15 @@
-// Added in the leojru/redcolumn fork. On Linux a middle click pastes the last text selected anywhere
-// (the "primary selection"), which the app takes as Paste. The middle button pans here, so outside
-// text fields a middle click never pastes.
+// On Linux a middle click pastes the last text selected anywhere (the "primary selection"), which the
+// app takes as Paste. The middle button pans the drawing, so outside text fields a middle click never
+// pastes. In text fields it still does, as Linux users expect.
 
 function editable(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable);
 }
 
-/** How long after a middle button release a paste is taken as the middle click's own. */
+/** How long after a middle button release a paste is taken as that click's own. */
 const PASTE_WINDOW_MS = 500;
 
-export function installNoMiddlePaste(win: Window = window) {
+export function installNoMiddleClickPaste(win: Window = window) {
   let releasedAt = -Infinity;
   win.addEventListener(
     'mouseup',
