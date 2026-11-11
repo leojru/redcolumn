@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): cloud borders on FreeText; Revu snapshots' border and fill as settings.
+// Modified in the leojru/redcolumn fork (revu-layout): cloud borders on FreeText; Revu snapshots' border and fill as settings; text another program changed in /Contents wins over /NBData.
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
 import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
@@ -91,6 +91,20 @@ const NOT_SHOWN = 1 | 2 | 32;
 const LOCKED = 128;
 
 /** The kind, identifier and label a `/Link` we wrote carries in our app data, if it is ours and well formed. */
+/**
+ * Fork (leojru/redcolumn): the text of one of our markups as another program left it, or null when it
+ * did not change it. Our copy (/NBData) is what we wrote; a text box, callout, dimension or connector
+ * also writes its text to /Contents, which other programs edit (and redraw from). Without /Contents
+ * there is nothing to go by.
+ */
+export function textEditedElsewhere(m: Pick<Markup, 'type' | 'text'>, rawContents: string | undefined, contents: string): string | null {
+  if (!(isTextType(m.type) || m.type === 'dimension' || m.type === 'connector')) return null;
+  const now = rawContents ?? (contents || undefined);
+  if (now === undefined) return null;
+  const text = cleanText(now);
+  return text === cleanText(m.text ?? '') ? null : text;
+}
+
 function ourLink(appData: string): { kind: LinkKind; detail: string | null; label: string | null } | null {
   if (!appData) return null;
   try {
@@ -308,7 +322,16 @@ export function importAnnotations(
           // Attachments keep their bytes in the embedded file only.
           const attachment = data.attachment && !data.attachment.data && a.file ? { ...data.attachment, data: toBase64(a.file.data) } : data.attachment;
           const { pdfAnnot: _stale, ...rest } = data;
-          markups.push(finish({ ...rest, pageIndex, ...(attachment ? { attachment } : {}) }, a, r, null, true));
+          // Fork (leojru/redcolumn): text another program changed (Bluebeam, a script) wins over our copy.
+          const edited = textEditedElsewhere(rest, (r && str(r.Contents)) ?? undefined, a.contents);
+          const m = finish({ ...rest, pageIndex, ...(attachment ? { attachment } : {}), ...(edited !== null ? { text: edited } : {}) }, a, r, null, true);
+          if (edited !== null) {
+            // Saved again with an appearance and a copy of its own that say the same.
+            m.pdfAnnot = { ...m.pdfAnnot!, redraw: true };
+            const modified = r ? parsePdfDate(str(r.M)) : null;
+            if (modified && modified > m.modifiedAt) m.modifiedAt = modified;
+          }
+          markups.push(m);
           imported.push(a.index);
           continue;
         }
