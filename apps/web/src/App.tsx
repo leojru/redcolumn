@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar; markups hide with their PDF layer; dimension text edited in place; split view of the same document.
+// Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar; markups hide with their PDF layer; dimension text edited in place; split view of the same document; Copy File Path.
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
@@ -7376,6 +7376,13 @@ export function App() {
     }
   };
 
+  /** Fork (leojru/redcolumn): puts a document's full path on the clipboard (desktop app, files opened from disk). */
+  const copyFilePath = async (id: string) => {
+    const path = await fileLocationPath(id).catch(() => null);
+    if (!path) return setError('That file has no folder on this computer.');
+    await navigator.clipboard?.writeText(path);
+  };
+
   /** Right-click on a document tab: close, save, add to a session, show where it lives, move pane. */
   const tabMenu = (pane: Pane, t: OpenFile): MenuEntry[] => {
     const tabs = pane === 'b' ? tabsB : tabsA;
@@ -7437,6 +7444,14 @@ export function App() {
           : { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
         : { label: 'Show in File Access', onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
       { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(t.file.name) },
+      // Fork (leojru/redcolumn): the full path, to paste into a chat or an email.
+      ...(desktop()
+        ? [{
+            label: 'Copy File Path',
+            disabled: locationTick < 0 || !hasFileLocation(t.file.id),
+            onClick: () => void copyFilePath(t.file.id),
+          }]
+        : []),
       SEP,
       { label: pane === 'a' ? (split ? 'Move to Right Pane' : 'Open in Split View') : 'Move to Left Pane', onClick: () => moveTab(pane, t) },
     ];
@@ -7764,6 +7779,14 @@ export function App() {
     { label: 'Save a Copy…', onClick: () => void readFile(f.hash).then((bytes) => download(f.name, new Blob([bytes], { type: 'application/pdf' }))) },
     { label: 'Use as Template', checked: !!f.template, onClick: () => void setTemplate(f.id, !f.template).then(refreshLibrary) },
     { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(f.name) },
+    // Fork (leojru/redcolumn): the full path, to paste into a chat or an email.
+    ...(desktop()
+      ? [{
+          label: 'Copy File Path',
+          disabled: locationTick < 0 || !hasFileLocation(f.id),
+          onClick: () => void copyFilePath(f.id),
+        }]
+      : []),
     ...(desktop()
       ? [{
           label: 'Open File Location',
