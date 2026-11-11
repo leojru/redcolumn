@@ -71,6 +71,23 @@ test('text dragged off the line: a leader grows from its foot, straight up under
   assert.ok(markupShape(m).some((p) => p.decoration && p.path.length === 3), 'the leader is drawn');
 });
 
+test('text off the line turns too: the leader and its knob meet the turned frame', () => {
+  // A wide framed value off to the right, turned a quarter: it now stands taller than it is wide.
+  const plain = { ...dim('inline', { labelLift: 40, labelShift: 120, dimFrame: 'rect' }), text: '12345' } as Markup;
+  const turned = { ...plain, style: { ...plain.style, labelRotation: 90 } } as Markup;
+  const [a, b] = [dimensionText(plain)!, dimensionText(turned)!];
+  assert.ok(Math.abs(a.angle) < 1e-9, 'unturned reads along the line');
+  assert.ok(Math.abs(Math.abs(b.angle) - Math.PI / 2) < 1e-9, 'turned a quarter');
+  assert.deepEqual(b.box.center, a.box.center, 'it turns about its middle');
+  // The leader's last leg ends at the frame's near side: nearer the middle once the wide text stands up.
+  const reach = (l: { leader: [number, number][] | null; box: { center: [number, number] } }) => l.box.center[0] - l.leader!.at(-1)![0];
+  assert.ok(reach(a) > a.box.w / 2, 'unturned: just short of its side');
+  assert.ok(reach(b) > b.box.h / 2 && reach(b) < a.box.w / 2, `turned: just short of its turned side (${reach(b)})`);
+  // Read upright: turned past upside down comes back the right way up.
+  const over = dimensionText({ ...turned, style: { ...turned.style, labelRotation: 180 } } as Markup)!;
+  assert.ok(Math.abs(over.angle) < 1e-9, 'never upside down');
+});
+
 test('a Length label dragged off its line sits there, with a leader', async () => {
   const { lengthLeader } = await import('./dimensionInline.ts');
   const { measurementLabel } = await import('./render.ts');

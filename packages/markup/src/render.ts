@@ -796,9 +796,12 @@ export function labelHandles(m: Markup, zoom: number): { move: Point; pivot: Poi
   const lifted = liftedCenter(m);
   // A lifted Dimension's knob sits a few screen pixels off its text, on the line's side.
   const liftSide = Math.sign(m.style.labelLift ?? 0);
+  // Fork (leojru/redcolumn): toward the line, past the turned text's reach (the text may be turned).
+  const toLine = dim && lifted ? readingFrame(m)?.u : undefined;
+  const liftReach = (dim?.liftReach ?? (dim ? dim.box.h / 2 : 0)) + 9 / zoom;
   const move: Point =
-    dim && lifted
-      ? [dim.box.center[0] - up[0] * liftSide * (dim.box.h / 2 + 9 / zoom), dim.box.center[1] - up[1] * liftSide * (dim.box.h / 2 + 9 / zoom)]
+    dim && lifted && toLine
+      ? [dim.box.center[0] - toLine[0] * liftSide * liftReach, dim.box.center[1] - toLine[1] * liftSide * liftReach]
       : dim
         ? dim.knob
         : (lifted ?? line.text);

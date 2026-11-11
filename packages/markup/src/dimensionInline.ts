@@ -124,6 +124,8 @@ export interface DimensionLayout {
   plate: PathCmd[];
   /** Fork: the middle of the line's gap, when it is not the text's own point (turned text). */
   gapAt?: Point;
+  /** Fork: with the text off the line, how far it (or its frame) reaches from its middle toward the line. */
+  liftReach?: number;
 }
 
 /**
@@ -193,9 +195,10 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
   const lift = m.style.labelLift ?? 0;
   const lifted = Math.abs(lift) > 1e-6;
   const inline = dimensionInline(m);
-  let angle = lifted ? base : base + ((m.style.labelRotation ?? 0) * Math.PI) / 180;
+  // Fork (leojru/redcolumn): text off the line on a leader turns too.
+  let angle = base + ((m.style.labelRotation ?? 0) * Math.PI) / 180;
   // Fork (leojru/redcolumn): turned text still reads left to right, never upside down (as CAD keeps it).
-  if (inline) {
+  if (inline || lifted) {
     while (angle > Math.PI / 2 + 1e-9) angle -= Math.PI;
     while (angle <= -Math.PI / 2 - 1e-9) angle += Math.PI;
   }
@@ -242,8 +245,18 @@ export function dimensionLayout(m: Markup): DimensionLayout | null {
     ['Z'],
   ];
   if (lifted) {
-    // The leader grows from the foot (on the line) to the text, or its frame.
-    return { lines, align, angle, size, inline: false, gap: null, leader: liftLeader(m, boxCenter, fw.w, fw.h), knob: at(boxCenter, 0, -Math.sign(lift) * (fw.h / 2 + size * 0.45)), box, frame, plate };
+    // The leader grows from the foot (on the line) to the text, or its frame. Fork (leojru/redcolumn):
+    // turned, it meets the frame (or text) where it now reaches, along the line and up from it.
+    const f = readingFrame(m)!;
+    const outline = frame ?? (kind ? null : plate);
+    const span = (dir: Point, whole: number) => {
+      const c = turned && outline ? chordAlong(outline, boxCenter, dir) : null;
+      return c ? Math.max(-c[0], c[1]) * 2 : whole;
+    };
+    const [across, up] = [span(f.r, fw.w), span(f.u, fw.h)];
+    const side = Math.sign(lift);
+    const knob: Point = [boxCenter[0] - f.u[0] * side * (up / 2 + size * 0.45), boxCenter[1] - f.u[1] * side * (up / 2 + size * 0.45)];
+    return { lines, align, angle, size, inline: false, gap: null, leader: liftLeader(m, boxCenter, across, up), knob, box, frame, plate, liftReach: up / 2 };
   }
   if (inline && turned) {
     // Fork (leojru/redcolumn): turned text: the line breaks where it enters and leaves the frame, or the text.
