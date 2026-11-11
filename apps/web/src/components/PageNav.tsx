@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): page size in inches when the units are imperial; foldOrder.
+// Modified in the leojru/redcolumn fork (revu-layout): page size in inches when the units are imperial; foldOrder; before and after.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useSettings } from '../settings/settings';
 
@@ -35,6 +35,10 @@ interface Props {
   canForward?: boolean;
   /** Fork addition: what folds first when the strip is too narrow (default FOLD_ORDER). */
   foldOrder?: readonly Fold[];
+  /** Fork addition (classic status bar): controls at the start of the left side, so the page arrows sit in the middle of the whole bar. */
+  before?: ReactNode;
+  /** Fork addition (classic status bar): controls at the end of the right side, after the scale. */
+  after?: ReactNode;
 }
 
 /** PDF points → centimetres (72 pt = 1 in). Fork change: inches first (as 36.00 × 24.00 in) when the app's units are imperial. */
@@ -64,7 +68,8 @@ function overflowing(el: HTMLElement) {
   if ([el, ...Array.from(el.children)].some((c) => c.scrollWidth > c.clientWidth + 1)) return true;
   return Array.from(el.children).some((side) => {
     const left = side.getBoundingClientRect().left;
-    return Array.from(side.children).some((c) => c.getBoundingClientRect().left < left - 1);
+    // Fork change: a hidden control (display: none, e.g. the status bar's toggles in a narrow window) has no box and reads as left 0.
+    return Array.from(side.children).some((c) => c.getClientRects().length > 0 && c.getBoundingClientRect().left < left - 1);
   });
 }
 
@@ -161,6 +166,7 @@ export function PageNav(p: Props) {
   return (
     <div className="pagenav" ref={navRef}>
       <div className="pagenav-side left">
+        {p.before}
         {show('zoom') && (
           <>
             <button className="btn flat" disabled={disabled} onClick={p.onZoomOut} title="Zoom out (−)">
@@ -342,6 +348,7 @@ export function PageNav(p: Props) {
             )}
           </div>
         )}
+        {p.after}
       </div>
     </div>
   );

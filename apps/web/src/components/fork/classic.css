@@ -79,7 +79,8 @@
   margin-top: auto;
 }
 
-/* Classic layout: one bottom row holding the view splits, the page strip, the toggles and the pointer position. */
+/* Classic layout: one bottom row, the page strip, holding the view splits on its left and the toggles on its
+   right so the page arrows sit in the middle of the bar. No pointer position (X/Y) here. */
 .statusbar.classic {
   height: 30px;
   gap: 8px;
@@ -112,8 +113,7 @@
   padding: 0 5px;
 }
 
-/* A fixed slot: the position changes width as the pointer moves (70'-5 1/2" against 1'-0"), and a
-   slot that followed it pushed everything else in the bar back and forth. */
+/* Latitude and longitude (map PDFs only) in a fixed slot, so the bar does not shift as the pointer moves. */
 .statusbar.classic .status-coords {
   flex: none;
   width: 19em;
@@ -129,13 +129,13 @@
 }
 
 @container (max-width: 1100px) {
-  .statusbar.classic > .status-group:not(.right):not(.status-leading) {
+  .statusbar.classic .status-group:not(.right):not(.status-leading) {
     display: none;
   }
 }
 
 @container (max-width: 900px) {
-  .statusbar.classic > .status-leading,
+  .statusbar.classic .status-leading,
   .statusbar.classic .status-group.right .status-icon {
     display: none;
   }

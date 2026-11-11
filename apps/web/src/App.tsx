@@ -7983,7 +7983,7 @@ export function App() {
 
   const labelPaneParts = labelMode ? paneParts(labelMode.pane) : null;
 
-  const pageNav = (which: 'a' | 'b') => {
+  const pageNav = (which: 'a' | 'b', before?: ReactNode, after?: ReactNode) => {
     const s = which === 'b' ? statsB : stats;
     const viewer = which === 'b' ? ctlB?.viewer : ctl?.viewer;
     const o = which === 'b' ? openB : open;
@@ -8030,6 +8030,8 @@ export function App() {
         canForward={canGoForward}
         // Fork change: in the classic status bar, zoom and scale stay longest (the page size goes to the ⌃ menu first).
         {...(ws.classicLayout ? { foldOrder: ['history', 'layout', 'fit', 'ends', 'sheet', 'size', 'zoom', 'scale'] as const } : {})}
+        before={before}
+        after={after}
       />
     );
   };
@@ -10171,10 +10173,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         {...(split ? { sync, onSync: setSync } : {})}
         {...(ws.classicLayout
           ? {
-              // Fork change: the classic layout's one bottom row: splits, the active pane's page strip, the toggles, dark pages and line weights.
+              // Fork change: the classic layout's one bottom row is the active pane's page strip, holding the splits on its left and the toggles, dark pages and line weights on its right, so the page arrows sit mid-bar.
               compact: true,
               leading: <StatusCommands commands={commandMap} ids={['view.unsplit', 'view.split', 'view.splitHorizontal']} />,
-              middle: pageNav(paneB ? 'b' : 'a'),
+              middle: (before: ReactNode, after: ReactNode) => pageNav(paneB ? 'b' : 'a', before, after),
               trailing: <StatusCommands commands={commandMap} ids={['view.darkPages', 'view.thinLines']} />,
             }
           : {})}

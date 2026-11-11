@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): compact classic status bar (leading, middle, compact).
+// Modified in the leojru/redcolumn fork (revu-layout): compact classic status bar (leading, middle, compact; no X/Y in the classic bar).
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { formatLatLon, formatLength, geoAt, type GeoRegion, type Scale } from '@nb/measure';
 import type { PagePoint, TileViewer } from '../viewer/TileViewer';
@@ -40,8 +40,8 @@ interface Props {
   onSelectTool: () => void;
   /** Fork addition (classic layout): controls at the far left, before the toggles. */
   leading?: ReactNode;
-  /** Fork addition (classic layout): the page strip, between the toggles' sides. */
-  middle?: ReactNode;
+  /** Fork addition (classic layout): the page strip as the whole bar, given the bar's left and right controls to hold, so its page arrows sit in the middle. */
+  middle?: (before: ReactNode, after: ReactNode) => ReactNode;
   /** Fork addition (classic layout): shorter toggle names; Polar, Track, Rulers, Crosshair and Draw to Scale stay in the View and Tools menus. */
   compact?: boolean;
   /** Fork addition (classic layout): controls just before the pointer position. */
@@ -112,69 +112,91 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
   const coord = (pt: number, axis: 'x' | 'y') => (scale ? formatLength(pt * (axis === 'y' ? (scale.yMetersPerPoint ?? scale.metersPerPoint) : scale.metersPerPoint), scale) : `${pt.toFixed(1)} pt`);
   const geo = onPage ? geoAt(geoRegions(), cursor.pageIndex, cursor.point) : null;
 
-  return (
-    <div className={`statusbar${compact ? ' classic' : ''}`}>
-      {leading && <div className="status-group status-leading">{leading}</div>}
-      {middle}
-      <div className="status-group">
-        {tool !== 'select' && !compact && (
-          <>
-            <button type="button" className="status-toggle on status-tool" title="The active tool. Click (or press Esc) to go back to Select." onClick={onSelectTool}>
-              {shortcut ? `${toolLabel(tool)} (${shortcut})` : toolLabel(tool)}
-            </button>
-            <span className="status-sep" />
-          </>
-        )}
-        <Toggle label="Grid" title="Show Grid (Shift+F9)" on={prefs.showGrid} onChange={(v) => settings.set({ showGrid: v })} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label={compact ? 'Snap' : 'Snap Grid'} title="Snap to Grid (Ctrl+Shift+F9)" on={prefs.snapToGrid} onChange={(v) => settings.set({ snapToGrid: v })} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label={compact ? 'Content' : 'Snap Content'} title="Snap to Content (Ctrl+Shift+F8): drawing lines, ends and intersections" on={snapContent} onChange={onSnapContent} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label={compact ? 'Markup' : 'Snap Markup'} title="Snap to Markup (Ctrl+Shift+F7): corners, sides, centres and vertices of other markups" on={prefs.snapToMarkup} onChange={(v) => settings.set({ snapToMarkup: v })} disabled={disabled} {...at('general', 'grid')} />
-        {!compact && <Toggle label="Polar" title={`Polar Tracking (Ctrl+Shift+F10): line up at multiples of ${prefs.polarAngle}° from the last point`} on={prefs.polarTracking} onChange={(v) => settings.set({ polarTracking: v })} disabled={disabled} {...at('general', 'grid')} />}
-        {!compact && <Toggle label="Track" title="Object Snap Tracking (Ctrl+Shift+F11): rest on a snap point to pick it up, then line up with it" on={prefs.objectSnapTracking} onChange={(v) => settings.set({ objectSnapTracking: v })} disabled={disabled} {...at('general', 'grid')} />}
-        {!compact && (
-          <>
-            <span className="status-sep" />
-            <Toggle label="Rulers" title="Rulers (Ctrl+R)" on={prefs.showRulers} onChange={(v) => settings.set({ showRulers: v })} disabled={disabled} {...at('interface', 'display')} />
-            <Toggle label="Crosshair" title="Full-Screen Crosshair" on={prefs.crosshair} onChange={(v) => settings.set({ crosshair: v })} disabled={disabled} {...at('general', 'options')} />
-          </>
-        )}
-        <span className="status-sep" />
-        <Toggle label="Reuse" title="Reuse: keep the markup tool active after placing a markup (off: back to Select)" on={prefs.reuseTool} onChange={(v) => settings.set({ reuseTool: v })} {...at('tools', 'markup')} />
-        {!compact && <Toggle label="Draw to Scale" title="Draw to Scale: type exact lengths, angles and sizes while drawing, and edit a selected line's, rectangle's or polyline's sizes in the toolbar" on={prefs.sketchToScale} onChange={(v) => settings.set({ sketchToScale: v })} {...at('tools', 'sketch')} />}
-        {sync !== undefined && onSync && (
-          <Toggle label="Sync" title="Synchronise the split panes: they pan, zoom and turn pages together (View → Synchronise)" on={!!sync} onChange={(v) => onSync(v ? 'document' : null)} />
-        )}
-      </div>
-      <div className="status-group right">
-        {desktop() && assistantOn && (
-          <button type="button" className="status-toggle on" title="The MCP server can see the open document. File → Preferences → MCP." onClick={() => window.dispatchEvent(new Event('nb-assistant-open'))}>
-            Assistant
+  const leadingGroup = leading && <div className="status-group status-leading">{leading}</div>;
+  const toggles = (
+    <div className="status-group">
+      {tool !== 'select' && !compact && (
+        <>
+          <button type="button" className="status-toggle on status-tool" title="The active tool. Click (or press Esc) to go back to Select." onClick={onSelectTool}>
+            {shortcut ? `${toolLabel(tool)} (${shortcut})` : toolLabel(tool)}
           </button>
-        )}
-        {!online && (
-          <span className="status-offline" role="status" title="No network. Documents, markups and measurements on this device keep working and are saved here; Live Sessions, time stamps and cloud storage wait for the network.">
-            Offline
-          </span>
-        )}
-        {turns !== 0 && (
-          <button className="status-toggle on" title="The view is rotated (View → Rotate View). Click to reset." onClick={() => viewer?.rotateView(-turns)}>
-            View {turns * 90}°
-          </button>
-        )}
-        {trailing}
-        {geo ? (
-          <span
-            className="status-coords"
-            title={`Latitude and longitude at the pointer, from the map registered in this PDF (${geo.region.name}${geo.region.crs ? `, ${geo.region.crs}` : ''}). Right-click the page to copy them.`}
-          >
-            {formatLatLon(geo.lat, geo.lon, prefs.geoFormat)}
-          </span>
-        ) : (
+          <span className="status-sep" />
+        </>
+      )}
+      <Toggle label="Grid" title="Show Grid (Shift+F9)" on={prefs.showGrid} onChange={(v) => settings.set({ showGrid: v })} disabled={disabled} {...at('general', 'grid')} />
+      <Toggle label={compact ? 'Snap' : 'Snap Grid'} title="Snap to Grid (Ctrl+Shift+F9)" on={prefs.snapToGrid} onChange={(v) => settings.set({ snapToGrid: v })} disabled={disabled} {...at('general', 'grid')} />
+      <Toggle label={compact ? 'Content' : 'Snap Content'} title="Snap to Content (Ctrl+Shift+F8): drawing lines, ends and intersections" on={snapContent} onChange={onSnapContent} disabled={disabled} {...at('general', 'grid')} />
+      <Toggle label={compact ? 'Markup' : 'Snap Markup'} title="Snap to Markup (Ctrl+Shift+F7): corners, sides, centres and vertices of other markups" on={prefs.snapToMarkup} onChange={(v) => settings.set({ snapToMarkup: v })} disabled={disabled} {...at('general', 'grid')} />
+      {!compact && <Toggle label="Polar" title={`Polar Tracking (Ctrl+Shift+F10): line up at multiples of ${prefs.polarAngle}° from the last point`} on={prefs.polarTracking} onChange={(v) => settings.set({ polarTracking: v })} disabled={disabled} {...at('general', 'grid')} />}
+      {!compact && <Toggle label="Track" title="Object Snap Tracking (Ctrl+Shift+F11): rest on a snap point to pick it up, then line up with it" on={prefs.objectSnapTracking} onChange={(v) => settings.set({ objectSnapTracking: v })} disabled={disabled} {...at('general', 'grid')} />}
+      {!compact && (
+        <>
+          <span className="status-sep" />
+          <Toggle label="Rulers" title="Rulers (Ctrl+R)" on={prefs.showRulers} onChange={(v) => settings.set({ showRulers: v })} disabled={disabled} {...at('interface', 'display')} />
+          <Toggle label="Crosshair" title="Full-Screen Crosshair" on={prefs.crosshair} onChange={(v) => settings.set({ crosshair: v })} disabled={disabled} {...at('general', 'options')} />
+        </>
+      )}
+      <span className="status-sep" />
+      <Toggle label="Reuse" title="Reuse: keep the markup tool active after placing a markup (off: back to Select)" on={prefs.reuseTool} onChange={(v) => settings.set({ reuseTool: v })} {...at('tools', 'markup')} />
+      {!compact && <Toggle label="Draw to Scale" title="Draw to Scale: type exact lengths, angles and sizes while drawing, and edit a selected line's, rectangle's or polyline's sizes in the toolbar" on={prefs.sketchToScale} onChange={(v) => settings.set({ sketchToScale: v })} {...at('tools', 'sketch')} />}
+      {sync !== undefined && onSync && (
+        <Toggle label="Sync" title="Synchronise the split panes: they pan, zoom and turn pages together (View → Synchronise)" on={!!sync} onChange={(v) => onSync(v ? 'document' : null)} />
+      )}
+    </div>
+  );
+  const right = (
+    <div className="status-group right">
+      {desktop() && assistantOn && (
+        <button type="button" className="status-toggle on" title="The MCP server can see the open document. File → Preferences → MCP." onClick={() => window.dispatchEvent(new Event('nb-assistant-open'))}>
+          Assistant
+        </button>
+      )}
+      {!online && (
+        <span className="status-offline" role="status" title="No network. Documents, markups and measurements on this device keep working and are saved here; Live Sessions, time stamps and cloud storage wait for the network.">
+          Offline
+        </span>
+      )}
+      {turns !== 0 && (
+        <button className="status-toggle on" title="The view is rotated (View → Rotate View). Click to reset." onClick={() => viewer?.rotateView(-turns)}>
+          View {turns * 90}°
+        </button>
+      )}
+      {trailing}
+      {geo ? (
+        <span
+          className="status-coords"
+          title={`Latitude and longitude at the pointer, from the map registered in this PDF (${geo.region.name}${geo.region.crs ? `, ${geo.region.crs}` : ''}). Right-click the page to copy them.`}
+        >
+          {formatLatLon(geo.lat, geo.lon, prefs.geoFormat)}
+        </span>
+      ) : (
+        // Fork change: the classic bar has no X/Y readout (lat/lon above still shows for map PDFs).
+        !compact && (
           <span className="status-coords" title="Pointer position from the page's top-left corner, at the page scale">
             {onPage ? `X ${coord(cursor.point[0], 'x')}   Y ${coord(cursor.point[1], 'y')}` : ''}
           </span>
-        )}
-      </div>
+        )
+      )}
+    </div>
+  );
+
+  return (
+    <div className={`statusbar${compact ? ' classic' : ''}`}>
+      {middle ? (
+        middle(
+          leadingGroup,
+          <>
+            {toggles}
+            {right}
+          </>,
+        )
+      ) : (
+        <>
+          {leadingGroup}
+          {toggles}
+          {right}
+        </>
+      )}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </div>
   );
