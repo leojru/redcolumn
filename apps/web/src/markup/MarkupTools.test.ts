@@ -750,9 +750,25 @@ test('a Cloud+ keeps the grips of its cloud and its callout, and a grip drags on
   assert.deepEqual(h.store.get(callout.id)?.points, callout.points);
   // A callout's arrow tip is a grip too.
   const tip = callout.points[0]!;
-  drag(h.tools, [tip[0], tip[1]], [tip[0] + 10, tip[1] - 10]);
-  assert.deepEqual(h.store.get(callout.id)?.points[0], [tip[0] + 10, tip[1] - 10]);
+  // Fork (leojru/redcolumn): a Cloud+'s tip slides along the cloud's outline; it cannot be pulled off it.
+  drag(h.tools, [tip[0], tip[1]], [tip[0] + 30, tip[1] + 60]);
+  assert.deepEqual(h.store.get(callout.id)?.points[0], [300, 260]);
   assert.deepEqual(h.store.get(cloud.id)?.points, [[80, 200], [300, 320]]);
+  await h.store.destroy();
+});
+
+// Fork (leojru/redcolumn).
+test('dragging a Cloud+ text box to another side of its cloud keeps the leader on the cloud, facing the box', async () => {
+  const h = await setup();
+  const { callout } = h.tools.placeCloudPlus(0, [[100, 200], [300, 300]], { text: 'A' });
+  h.tools.setTool('select');
+  const [a, b] = [callout.points[2]!, callout.points[3]!];
+  const centre: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  drag(h.tools, centre, [200, 420]);
+  const pts = h.store.get(callout.id)!.points;
+  const box = { x: Math.min(pts[2]![0], pts[3]![0]), y: Math.min(pts[2]![1], pts[3]![1]), w: Math.abs(pts[3]![0] - pts[2]![0]), h: Math.abs(pts[3]![1] - pts[2]![1]) };
+  assert.deepEqual(pts[0], [box.x + box.w / 2 > 300 ? 300 : box.x + box.w / 2, 300], 'the tip is on the cloud\'s bottom edge');
+  assert.ok(pts[1]![1] > 300 && pts[1]![1] <= box.y, 'the leader runs down to the top of the box');
   await h.store.destroy();
 });
 

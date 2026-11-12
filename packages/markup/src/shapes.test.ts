@@ -471,3 +471,14 @@ test("a markup this app saved with older drawing code is drawn again on the next
   assert.doesNotMatch(ops, /old drawing/);
   assert.equal(redrawn.get(PDFName.of('NBAppearance'))?.toString(), '1');
 });
+
+// Fork (leojru/redcolumn).
+test('a Cloud+ leader tip is the point on the cloud outline nearest the text box', async () => {
+  const { nearestOnOutline } = await import('./callout.ts');
+  const cloud: [number, number][] = [[100, 100], [300, 200]];
+  assert.deepEqual(nearestOnOutline(cloud, [200, 400]), [200, 200], 'a box below meets the bottom edge');
+  assert.deepEqual(nearestOnOutline(cloud, [500, 150]), [300, 150], 'a box to the right meets the right edge');
+  assert.deepEqual(nearestOnOutline(cloud, [50, 20]), [100, 100], 'past a corner, the corner');
+  assert.deepEqual(nearestOnOutline(cloud, [120, 150]), [100, 150], 'a point inside goes to the nearest edge');
+  assert.deepEqual(nearestOnOutline([[0, 0], [100, 0], [50, 80]], [50, -30]), [50, 0], 'a polygon cloud');
+});

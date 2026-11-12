@@ -131,3 +131,35 @@ export function calloutLeaders(points: readonly Point[]): [Point, Point][] {
 export function isCalloutTip(index: number): boolean {
   return index === 0 || (index >= 4 && index % 2 === 0);
 }
+
+/**
+ * Fork (leojru/redcolumn): the point on a cloud's outline nearest `from`. `cloud` is the cloud's points:
+ * two corners of a box, or the corners of a polygon. A Cloud+'s leader tip stays on this outline.
+ */
+export function nearestOnOutline(cloud: readonly Point[], from: Point): Point {
+  const corners: Point[] =
+    cloud.length === 2
+      ? (() => {
+          const [a, b] = [cloud[0]!, cloud[1]!];
+          const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
+          const [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+          return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+        })()
+      : cloud.map((p): Point => [p[0], p[1]]);
+  let best: Point = corners[0] ?? from;
+  let bestD = Infinity;
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i]!;
+    const b = corners[(i + 1) % corners.length]!;
+    const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+    const len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.min(1, Math.max(0, ((from[0] - a[0]) * dx + (from[1] - a[1]) * dy) / len2)) : 0;
+    const q: Point = [a[0] + t * dx, a[1] + t * dy];
+    const d = Math.hypot(q[0] - from[0], q[1] - from[1]);
+    if (d < bestD) {
+      best = q;
+      bestD = d;
+    }
+  }
+  return best;
+}

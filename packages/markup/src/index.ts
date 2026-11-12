@@ -18,7 +18,7 @@ export { flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, ma
 export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type ListItem, type ListKind, type TextEdit } from './textLists';
 export { arcPoints, circleThrough } from './arc';
 export { addBend, anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STUB, editableRoute, elbowRoute, facingSides, FLOW_SHAPES, flowShapeLabel, gluedTo, manualRoute, moveSegment, nearestSide, relinkCopies, removeSegment, routeConnector, routeHandles, routeOf } from './flowchart';
-export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip, kneesFacingTips, refitCalloutKnees } from './callout';
+export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip, kneesFacingTips, nearestOnOutline, refitCalloutKnees } from './callout';
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
 export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
