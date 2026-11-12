@@ -136,6 +136,7 @@ import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { PictureColoursDialog } from './components/PictureColoursDialog';
+import { recolourVectorSnapshot } from './fork/vectorRecolour';
 import { MENU_ICONS } from './components/menuIcons';
 import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
@@ -6725,7 +6726,7 @@ export function App() {
       if (m.locked || !store.mayEdit(m)) return [];
       // As text boxes draw it: the font at its size in points.
       g.font = cssFont(m.style, m.style.fontSize ?? 12);
-      const points = autoSizedPoints(m, (t) => g.measureText(t).width);
+      const points = autoSizedPoints(m, (t) => g.measureText(t).width, { keepWidth: true });
       return points ? [{ id: m.id, points }] : [];
     });
     if (!sized.length) return;
@@ -10420,8 +10421,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 const pixels = g.getImageData(0, 0, canvas.width, canvas.height);
                 recolourPixels(pixels.data, mode);
                 g.putImageData(pixels, 0, 0);
+                const image = canvas.toDataURL('image/png');
+                // A vector snapshot stays vector: its drawing is recoloured too (picture only when that cannot be done).
+                const vector = m.vector && m.vectorImage === markupDigest({ image: source } as Markup) ? await recolourVectorSnapshot(m.vector, mode) : null;
                 store.checkpoint();
-                store.update(m.id, { image: canvas.toDataURL('image/png') });
+                store.update(m.id, vector ? { image, vector, vectorImage: markupDigest({ image } as Markup) } : { image });
                 setPictureColoursFor(null);
               }}
             />
