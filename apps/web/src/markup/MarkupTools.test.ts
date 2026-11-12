@@ -2069,3 +2069,17 @@ test('restyling a selected markup leaves the tool default alone; with nothing se
   assert.equal(h.tools.getState().styles.line.dash, 'dashed', 'Set as Default still sets it');
   await h.store.destroy();
 });
+
+test('copies keep the stacking order of the originals, whatever order they were selected in', async () => {
+  const h = await setup();
+  await drawWith(h, 'cloud');
+  await drawWith(h, 'arrow');
+  const [under, over] = h.store.all();
+  assert.ok(under!.createdAt <= over!.createdAt);
+  h.tools.select([over!.id, under!.id]); // the top one selected first
+  assert.deepEqual(h.tools.copySelected().map((m) => m.type), [under!.type, over!.type]);
+  h.tools.paste(h.tools.copySelected(), 0, [400, 500]);
+  const copies = h.store.all().filter((m) => m.id !== under!.id && m.id !== over!.id).sort((a, b) => a.createdAt - b.createdAt);
+  assert.deepEqual(copies.map((m) => m.type), [under!.type, over!.type], 'the one that was on top is still on top');
+  await h.store.destroy();
+});

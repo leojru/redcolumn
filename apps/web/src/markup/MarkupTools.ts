@@ -622,6 +622,9 @@ export function setDefaultLayerSource(source: (docId: string) => string | undefi
   defaultLayerOf = source;
 }
 
+/** Markups in the order they are stacked on the page (as the store orders them), not the order they were selected: copies keep who sits on top. */
+const inStackOrder = (ms: Markup[]): Markup[] => ms.sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
 export class MarkupTools implements ViewerOverlay {
   private store: MarkupStore | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -1720,7 +1723,7 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Copies the selected markups onto `pages` (0-based) at the same position, skipping each one's own page. */
   applyToPages(pages: readonly number[]) {
-    const ms = this.editable();
+    const ms = inStackOrder(this.editable());
     if (!this.store || this.store.readOnly || !ms.length) return;
     const now = Date.now();
     const store = this.store;
@@ -1745,7 +1748,7 @@ export class MarkupTools implements ViewerOverlay {
    * `gapX` / `gapY` points apart. The copies become the selection.
    */
   multiply(rows: number, columns: number, gapX: number, gapY: number) {
-    const ms = this.editable();
+    const ms = inStackOrder(this.editable());
     if (!this.store || this.store.readOnly || !ms.length || rows * columns < 2) return;
     const all = ms.map(shapeBounds);
     const x0 = Math.min(...all.map((b) => b.x));
@@ -1955,7 +1958,7 @@ export class MarkupTools implements ViewerOverlay {
   /** Copies of the selected markups, for the clipboard. */
   copySelected(): Markup[] {
     if (!this.store) return [];
-    return [...this.state.selected].map((id) => this.store!.get(id)).filter((m): m is Markup => !!m).map((m) => structuredClone(m));
+    return inStackOrder([...this.state.selected].map((id) => this.store!.get(id)).filter((m): m is Markup => !!m)).map((m) => structuredClone(m));
   }
 
   /**
