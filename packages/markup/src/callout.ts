@@ -81,22 +81,39 @@ export function refitCalloutKnees(points: readonly Point[], from: Rect, to: Rect
 }
 
 /**
- * Fork (leojru/redcolumn): a callout's `points` with any leader landing on the side of the box away
- * from its tip moved to the side facing it, at the same height and landing length, once the tip is
- * far enough past that side to leave room for the landing. Top and bottom landings stay.
+ * Fork (leojru/redcolumn): a callout's `points` with each leader landing on the side of the box that
+ * faces its tip (left or right when the tip is more to the side, top or bottom when it is more above or
+ * below), once the tip is far enough past that side to leave room for the landing. The landing keeps
+ * its length; it keeps its place along the side when it stays on the same pair of sides, and otherwise
+ * lines up with the tip. A tip over the box leaves the leader alone.
  */
 export function kneesFacingTips(points: readonly Point[]): Point[] {
   if (points.length < 4) return [...points];
   const [a, b] = [points[2]!, points[3]!];
   const box: Rect = { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
   const right = box.x + box.w;
+  const bottom = box.y + box.h;
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   return points.map((knee, i): Point => {
     if (i !== 1 && (i < 5 || i % 2 === 0)) return knee;
     const tip = points[i - 1]!;
-    const side = calloutLanding(knee, box).side;
-    const flipped = side === 'left' ? right + box.x - knee[0] : side === 'right' ? box.x + right - knee[0] : null;
-    if (flipped === null) return knee;
-    return (side === 'left' ? tip[0] >= flipped : tip[0] <= flipped) ? [flipped, knee[1]] : knee;
+    const dx = Math.max(box.x - tip[0], tip[0] - right, 0);
+    const dy = Math.max(box.y - tip[1], tip[1] - bottom, 0);
+    if (dx === 0 && dy === 0) return knee;
+    const want: CalloutSide = dx >= dy ? (tip[0] < box.x ? 'left' : 'right') : tip[1] < box.y ? 'top' : 'bottom';
+    const { side, attach } = calloutLanding(knee, box);
+    if (side === want) return knee;
+    // How far out the landing runs, and whether the tip leaves room for it on the facing side.
+    const landing = Math.hypot(knee[0] - attach[0], knee[1] - attach[1]);
+    const gap = want === 'left' ? box.x - tip[0] : want === 'right' ? tip[0] - right : want === 'top' ? box.y - tip[1] : tip[1] - bottom;
+    if (gap < landing) return knee;
+    const sideways = (v: CalloutSide) => v === 'left' || v === 'right';
+    if (sideways(want)) {
+      const y = clamp(sideways(side) ? knee[1] : tip[1], box.y, bottom);
+      return [want === 'left' ? box.x - landing : right + landing, y];
+    }
+    const x = clamp(sideways(side) ? tip[0] : knee[0], box.x, right);
+    return [x, want === 'top' ? box.y - landing : bottom + landing];
   });
 }
 

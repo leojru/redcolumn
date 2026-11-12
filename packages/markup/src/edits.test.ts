@@ -50,6 +50,19 @@ test('Auto-size fits a text box to its text and keeps its top-left corner', () =
   assert.equal(canAutoSize({ type: 'text', text: '' }), false);
 });
 
+// Fork (leojru/redcolumn).
+test('Auto-size with keepWidth keeps the box width and wraps the text in it', () => {
+  const measure = (s: string) => s.length * 6;
+  const box = mk('text', [[20, 30], [140, 300]], { text: 'COPY BEAM SCHEDULE FROM 309 NATHAN', style: { ...DEFAULT_STYLES.text, fontSize: 10 } });
+  const [a, b] = autoSizedPoints(box, measure, { keepWidth: true })!;
+  assert.deepEqual(a, [20, 30]);
+  assert.equal(b![0], 140, 'width kept');
+  // 120 wide less padding fits 18 characters: the text takes 2 lines.
+  assert.ok(Math.abs(b![1] - (30 + 12 + 7.18 + 8)) < 1e-6);
+  const narrow = mk('text', [[0, 0], [20, 300]], { text: 'SCHEDULE', style: { ...DEFAULT_STYLES.text, fontSize: 10 } });
+  assert.ok(autoSizedPoints(narrow, measure, { keepWidth: true })![1]![0] >= 48 + 8, 'never narrower than the longest word');
+});
+
 test('markups left out of legends are not listed', () => {
   const legend = mk('legend', [[0, 0], [100, 100]]);
   const shown = mk('rect', [[0, 0], [10, 10]], { id: 'a' });

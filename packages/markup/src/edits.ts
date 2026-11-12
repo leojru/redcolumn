@@ -92,9 +92,11 @@ export function keepTextInBox(m: Markup, points: Point[], measure: (s: string) =
  * The points of a text box resized to fit its text exactly: as wide as its longest line (no
  * wrapping), as tall as its lines, with the usual padding. The box keeps its top-left corner (a
  * callout keeps its leader). `measure` gives a string's width at the markup's font size. Null when
- * the markup cannot be auto-sized.
+ * the markup cannot be auto-sized. With `keepWidth` (Fork, leojru/redcolumn: the Auto-size command,
+ * as Revu does it) a text box or callout keeps its width and the text wraps in it, so only the height
+ * changes (the width grows only to hold the longest word).
  */
-export function autoSizedPoints(m: Markup, measure: (s: string) => number): Point[] | null {
+export function autoSizedPoints(m: Markup, measure: (s: string) => number, opts?: { keepWidth?: boolean }): Point[] | null {
   if (!canAutoSize(m) || TYPE_INFO[m.type].content !== 'text') return null;
   const lines = (m.text ?? '').split('\n');
   const textW = Math.max(...lines.map((l) => measure(l.trimEnd())));
@@ -104,7 +106,13 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number): Poin
   // Fork (leojru/redcolumn): inside a border shape, the shape's box grows to hold the text.
   const shape = (m.type === 'text' || m.type === 'callout') && m.style.boxShape && m.style.boxShape !== 'rect' ? m.style.boxShape : null;
   const box = shape ? boundsOf(m.type === 'callout' ? m.points.slice(2, 4) : m.points) : contentBox(m);
-  const outer = shape ? framedTextBox(shape, textW, lines.length, m.style.fontSize ?? 12) : { w, h };
+  let outer = shape ? framedTextBox(shape, textW, lines.length, m.style.fontSize ?? 12) : { w, h };
+  if (opts?.keepWidth && !shape && (m.type === 'text' || m.type === 'callout')) {
+    const pad = textPadding(m.style);
+    const word = Math.max(0, ...(m.text ?? '').split(/\s+/).map((t) => measure(t)));
+    const kept = Math.max(box.w, word + pad * 2 + 0.5);
+    outer = { w: kept, h: textBlockHeight(m, layoutParagraphs(m.text ?? '', kept - pad * 2, measure).map((l) => l.text)) };
+  }
   if (m.type === 'callout') {
     if (m.points.length < 4) return null;
     const pts = m.points.map((p) => [p[0], p[1]] as Point);
