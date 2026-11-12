@@ -767,8 +767,29 @@ test('dragging a Cloud+ text box to another side of its cloud keeps the leader o
   drag(h.tools, centre, [200, 420]);
   const pts = h.store.get(callout.id)!.points;
   const box = { x: Math.min(pts[2]![0], pts[3]![0]), y: Math.min(pts[2]![1], pts[3]![1]), w: Math.abs(pts[3]![0] - pts[2]![0]), h: Math.abs(pts[3]![1] - pts[2]![1]) };
-  assert.deepEqual(pts[0], [box.x + box.w / 2 > 300 ? 300 : box.x + box.w / 2, 300], 'the tip is on the cloud\'s bottom edge');
+  // On the cloud's bottom edge, at one of the pointed joins between its bumps nearest the box.
+  assert.equal(pts[0]![1], 300);
+  assert.ok(Math.abs(pts[0]![0] - 200) <= 8, 'the tip is on the cloud\'s bottom edge, near the box');
   assert.ok(pts[1]![1] > 300 && pts[1]![1] <= box.y, 'the leader runs down to the top of the box');
+  await h.store.destroy();
+});
+
+// Fork (leojru/redcolumn).
+test('a cloud can be made a plain rectangle and back, and its Cloud+ leader keeps following it', async () => {
+  const h = await setup();
+  const { cloud, callout } = h.tools.placeCloudPlus(0, [[100, 200], [300, 300]], { text: 'A' });
+  h.tools.setTool('select');
+  h.tools.setCloudShape([cloud.id], 'rect');
+  assert.equal(h.store.get(cloud.id)?.type, 'rect');
+  assert.deepEqual(h.store.get(cloud.id)?.points, cloud.points);
+  // The tip is on the rectangle's edge now, wherever the box goes.
+  const [a, b] = [callout.points[2]!, callout.points[3]!];
+  drag(h.tools, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], [200, 420]);
+  assert.deepEqual(h.store.get(callout.id)?.points[0], [200, 300]);
+  h.tools.setCloudShape([cloud.id], 'cloud');
+  assert.equal(h.store.get(cloud.id)?.type, 'cloud');
+  h.store.undo();
+  assert.equal(h.store.get(cloud.id)?.type, 'rect');
   await h.store.destroy();
 });
 

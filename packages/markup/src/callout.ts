@@ -1,5 +1,5 @@
 // Modified in the leojru/redcolumn fork: a callout's leader keeps its place on the box as the box changes (refitCalloutKnees) and turns to face its tip as the box is dragged past it (kneesFacingTips).
-import type { Point, Rect } from './model';
+import { cloudBumps, cloudRadius, type Markup, type Point, type Rect } from './model';
 
 export type CalloutSide = 'left' | 'right' | 'top' | 'bottom';
 
@@ -159,6 +159,39 @@ export function nearestOnOutline(cloud: readonly Point[], from: Point): Point {
     if (d < bestD) {
       best = q;
       bestD = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Fork (leojru/redcolumn): where a Cloud+'s leader tip lands on its cloud, nearest `from`: a point of the
+ * cloud's outline that shows, so the leader never runs on into a bump. A cloud's outline shows at its
+ * pointed joins between bumps (and its corners), so the tip lands on the nearest of those; a rectangle
+ * (a cloud changed to a plain rectangle) takes the nearest point of its edge.
+ */
+export function nearestOnCloud(cloud: Pick<Markup, 'type' | 'points' | 'style'>, from: Point): Point {
+  if (cloud.type !== 'cloud' || cloud.points.length < 2) return nearestOnOutline(cloud.points, from);
+  const [a, b] = [cloud.points[0]!, cloud.points[1]!];
+  const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
+  const [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+  const corners: Point[] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  const radius = cloudRadius(cloud as Markup);
+  let best: Point = corners[0]!;
+  let bestD = Infinity;
+  for (let i = 0; i < 4; i++) {
+    const p = corners[i]!;
+    const q = corners[(i + 1) % 4]!;
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (!len) continue;
+    const { n } = cloudBumps(len, radius);
+    for (let s = 0; s < n; s++) {
+      const c: Point = [p[0] + ((q[0] - p[0]) * s) / n, p[1] + ((q[1] - p[1]) * s) / n];
+      const d = Math.hypot(c[0] - from[0], c[1] - from[1]);
+      if (d < bestD) {
+        best = c;
+        bestD = d;
+      }
     }
   }
   return best;

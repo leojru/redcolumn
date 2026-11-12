@@ -643,6 +643,15 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
       )}
       {cloudBubble && (
         <Cluster label="Cloud">
+          {state.tool === 'select' && (
+            <label className="field" title="Make the cloud a plain rectangle">
+              Shape
+              <select value="cloud" onChange={(e) => tools.setCloudShape([...state.selected], e.target.value as 'cloud' | 'rect')}>
+                <option value="cloud">Cloud</option>
+                <option value="rect">Rectangle</option>
+              </select>
+            </label>
+          )}
           <label className="field" title="Size of the cloud's bubbles (pt)">
             Arc size
             <ComboField title="Bubble size" value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />

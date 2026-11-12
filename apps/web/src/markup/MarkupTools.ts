@@ -80,7 +80,7 @@ import {
   keepTextInBox,
   refitCalloutKnees,
   kneesFacingTips,
-  nearestOnOutline,
+  nearestOnCloud,
   cssFont,
   markupSnapPoints,
   rotateHandle,
@@ -1810,7 +1810,7 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Fork (leojru/redcolumn): the cloud a Cloud+'s callout is grouped with. */
   private cloudOf(m: Markup): Markup | null {
-    return m.type === 'callout' && m.groupId ? (this.store?.all().find((o) => o.groupId === m.groupId && o.type === 'cloud') ?? null) : null;
+    return m.type === 'callout' && m.groupId ? (this.store?.all().find((o) => o.groupId === m.groupId && (o.type === 'cloud' || o.type === 'rect')) ?? null) : null;
   }
 
   /** Fork (leojru/redcolumn): a Cloud+ callout's points with its leader tip on the cloud's outline, nearest `toward` (the text box's centre by default). */
@@ -1819,15 +1819,34 @@ export class MarkupTools implements ViewerOverlay {
     if (!cloud || points.length < 4) return points;
     const box = boundsOf(points.slice(2, 4));
     const next = points.map((p): Point => [p[0], p[1]]);
-    next[0] = nearestOnOutline(cloud.points, toward ?? [box.x + box.w / 2, box.y + box.h / 2]);
+    next[0] = nearestOnCloud(cloud, toward ?? [box.x + box.w / 2, box.y + box.h / 2]);
     return kneesFacingTips(next);
+  }
+
+  /**
+   * Fork (leojru/redcolumn): clouds and rectangles changed to the other (a cloud made a plain rectangle, as
+   * Revu can; a rectangle made a cloud). Everything else about the markup stays; a Cloud+'s tip follows.
+   */
+  setCloudShape(ids: readonly string[], type: 'cloud' | 'rect') {
+    const store = this.store;
+    if (!store) return;
+    const targets = ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && (m.type === 'cloud' || m.type === 'rect') && m.type !== type && !this.frozen(m));
+    if (!targets.length) return;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of targets) {
+        store.update(m.id, { type, style: type === 'cloud' && m.style.arcRadius === undefined && this.state.styles.cloud.arcRadius !== undefined ? { ...m.style, arcRadius: this.state.styles.cloud.arcRadius } : m.style });
+        this.resnapCloudCallout(m.id);
+      }
+    });
+    this.viewer.invalidate();
   }
 
   /** Fork (leojru/redcolumn): after a cloud changes, its Cloud+ callout's tip stays on the new outline. */
   private resnapCloudCallout(cloudId: string) {
     const store = this.store;
     const cloud = store?.get(cloudId);
-    if (!store || cloud?.type !== 'cloud' || !cloud.groupId) return;
+    if (!store || (cloud?.type !== 'cloud' && cloud?.type !== 'rect') || !cloud.groupId) return;
     const callout = store.all().find((o) => o.groupId === cloud.groupId && o.type === 'callout');
     if (!callout || callout.points.length < 4) return;
     const next = this.tipOnCloud(callout, callout.points as Point[], callout.points[0]!);
@@ -1841,7 +1860,7 @@ export class MarkupTools implements ViewerOverlay {
   /** Fork (leojru/redcolumn): a markup's points with a handle dragged; a text box or callout stays big enough to show its text. */
   private handleMoved(m: Markup, index: number, point: Point): Point[] {
     // A Cloud+'s leader tip slides along the cloud's outline: it cannot be pulled off it.
-    if (isCalloutTip(index) && index === 0 && this.cloudOf(m)) point = nearestOnOutline(this.cloudOf(m)!.points, point);
+    if (isCalloutTip(index) && index === 0 && this.cloudOf(m)) point = nearestOnCloud(this.cloudOf(m)!, point);
     const points = this.cloudOf(m) && (index === 2 || index === 3) ? this.tipOnCloud(m, this.handleMovedBox(m, index, point)) : this.handleMovedBox(m, index, point);
     return points;
   }
@@ -3752,7 +3771,7 @@ export class MarkupTools implements ViewerOverlay {
       } else if (g.drill) this.selectOnly([g.drill]);
     } else if (g.kind === 'calloutBox') {
       const m = this.store.get(g.id);
-      if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m.points, g.dx, g.dy, this.cloudOf(m)?.points) });
+      if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m.points, g.dx, g.dy, this.cloudOf(m) ?? undefined) });
     } else if (g.kind === 'handle') {
       const m = this.store.get(g.id);
       if (m?.type === 'connector') {
@@ -4927,7 +4946,7 @@ export class MarkupTools implements ViewerOverlay {
   private ownPreview(m: Markup): Markup {
     const g = this.gesture;
     if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
-    if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy, this.cloudOf(m)?.points) };
+    if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy, this.cloudOf(m) ?? undefined) };
     if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: this.handleMoved(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'segment' && g.id === m.id) return this.withBends(m, moveSegment(g.route, g.mid, g.to, g.start));
@@ -5222,12 +5241,12 @@ function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
 }
 
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */
-function calloutBoxMoved(points: readonly Point[], dx: number, dy: number, cloud?: readonly Point[]): Point[] {
+function calloutBoxMoved(points: readonly Point[], dx: number, dy: number, cloud?: Markup): Point[] {
   const moved = points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
   // Fork (leojru/redcolumn): a Cloud+'s leader stays on its cloud: its tip goes to the outline nearest the text box.
   if (cloud && moved.length >= 4) {
     const box = boundsOf(moved.slice(2, 4));
-    moved[0] = nearestOnOutline(cloud, [box.x + box.w / 2, box.y + box.h / 2]);
+    moved[0] = nearestOnCloud(cloud, [box.x + box.w / 2, box.y + box.h / 2]);
   }
   // Fork (leojru/redcolumn): dragged past its tip, the leader switches to the side facing it.
   return kneesFacingTips(moved);

@@ -482,3 +482,15 @@ test('a Cloud+ leader tip is the point on the cloud outline nearest the text box
   assert.deepEqual(nearestOnOutline(cloud, [120, 150]), [100, 150], 'a point inside goes to the nearest edge');
   assert.deepEqual(nearestOnOutline([[0, 0], [100, 0], [50, 80]], [50, -30]), [50, 0], 'a polygon cloud');
 });
+
+// Fork (leojru/redcolumn).
+test('a Cloud+ leader tip lands on a pointed join between the cloud’s bumps, not inside a bump', async () => {
+  const { nearestOnCloud } = await import('./callout.ts');
+  const { DEFAULT_STYLES } = await import('./model.ts');
+  const cloud = { type: 'cloud', points: [[0, 0], [100, 40]], style: { ...DEFAULT_STYLES.cloud, arcRadius: 5, width: 1 } } as never;
+  // A 100 long edge with bumps 10 wide: joins every 10.
+  const tip = nearestOnCloud(cloud, [34, 90]);
+  assert.deepEqual(tip, [30, 40]);
+  assert.deepEqual(nearestOnCloud(cloud, [-20, -20]), [0, 0], 'a corner is a join too');
+  assert.deepEqual(nearestOnCloud({ ...(cloud as object), type: 'rect' } as never, [34, 90]), [34, 40], 'a plain rectangle takes any point of its edge');
+});

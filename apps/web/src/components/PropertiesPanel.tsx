@@ -136,6 +136,19 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             </>
           )}
         </dl>
+        {tools && chosen.every((c) => c.type === 'cloud' || c.type === 'rect') && (
+          <Row label="Shape" title="A cloud can be made a plain rectangle, and back">
+            <select value={chosen.every((c) => c.type === m.type) ? m.type : ''} disabled={disabled} onChange={(e) => tools.setCloudShape(ids, e.target.value as 'cloud' | 'rect')}>
+              {!chosen.every((c) => c.type === m.type) && (
+                <option value="" disabled hidden>
+                  Mixed
+                </option>
+              )}
+              <option value="cloud">Cloud</option>
+              <option value="rect">Rectangle</option>
+            </select>
+          </Row>
+        )}
         <Row label="Subject">
           <input
             key={`${m.id}:${m.subject ?? ''}`}
