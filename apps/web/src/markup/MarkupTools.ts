@@ -42,6 +42,7 @@ import {
   MARKUP_LABELS,
   TYPE_INFO,
   multiplyOffsets,
+  type MultiplyOptions,
   offsetCopies,
   offsetDistance,
   onImageLoad,
@@ -1745,9 +1746,9 @@ export class MarkupTools implements ViewerOverlay {
 
   /**
    * Copies the selection into a grid of `rows` × `columns` (the original is the top-left cell),
-   * `gapX` / `gapY` points apart. The copies become the selection.
+   * `gapX` / `gapY` points apart (centre to centre with `opts.centres`). The copies become the selection.
    */
-  multiply(rows: number, columns: number, gapX: number, gapY: number) {
+  multiply(rows: number, columns: number, gapX: number, gapY: number, opts: MultiplyOptions = {}) {
     const ms = inStackOrder(this.editable());
     if (!this.store || this.store.readOnly || !ms.length || rows * columns < 2) return;
     const all = ms.map(shapeBounds);
@@ -1759,7 +1760,7 @@ export class MarkupTools implements ViewerOverlay {
     const store = this.store;
     store.checkpoint();
     store.batch(() => {
-      for (const [dx, dy] of multiplyOffsets(bounds, rows, columns, gapX, gapY)) {
+      for (const [dx, dy] of multiplyOffsets(bounds, rows, columns, gapX, gapY, opts)) {
         const groups = new Map<string, string>();
         const copyOf = new Map(ms.map((m) => [m.id, crypto.randomUUID()]));
         for (const m of relinkCopies(ms, copyOf)) {

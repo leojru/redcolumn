@@ -100,6 +100,13 @@ test('multiplyOffsets lays copies out in a grid, skipping the original', () => {
   ]);
 });
 
+test('multiplyOffsets can step centre to centre and go left or up', () => {
+  const b = { x: 0, y: 0, w: 10, h: 5 };
+  assert.deepEqual(multiplyOffsets(b, 1, 3, 96, 0, { centres: true }), [[96, 0], [192, 0]]);
+  assert.deepEqual(multiplyOffsets(b, 2, 2, 20, 8, { centres: true, left: true, up: true }), [[-20, 0], [0, -8], [-20, -8]]);
+  assert.deepEqual(multiplyOffsets(b, 1, 2, 2, 0, { left: true }), [[-12, 0]]);
+});
+
 test('lasso and box selection need the whole shape inside', () => {
   const m = box('m', 10, 10, 10, 10);
   const lasso: Point[] = [[0, 0], [30, 0], [30, 30], [0, 30]];

@@ -10370,8 +10370,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             <MultiplyDialog
               scale={o.store.scaleFor(first.pageIndex)}
               onCancel={() => setMultiplyFor(null)}
-              onApply={(rows, columns, gapX, gapY) => {
-                c.tools.multiply(rows, columns, gapX, gapY);
+              onApply={(rows, columns, gapX, gapY, opts) => {
+                c.tools.multiply(rows, columns, gapX, gapY, opts);
                 setMultiplyFor(null);
               }}
             />

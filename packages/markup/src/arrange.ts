@@ -163,14 +163,25 @@ export function restack(page: readonly Markup[], ids: ReadonlySet<string>, direc
 /**
  * Where each copy of a selection goes when multiplied into a grid: offsets (dx, dy) for every
  * cell except the original's, in rows then columns. `gapX` and `gapY` are the space between
- * neighbouring copies.
+ * neighbouring copies, or with `centres` the distance from one copy's centre to the next.
+ * Copies run right and down unless `left` / `up` say otherwise.
  */
-export function multiplyOffsets(bounds: Rect, rows: number, columns: number, gapX: number, gapY: number): [number, number][] {
+export interface MultiplyOptions {
+  centres?: boolean;
+  left?: boolean;
+  up?: boolean;
+}
+
+export function multiplyOffsets(bounds: Rect, rows: number, columns: number, gapX: number, gapY: number, opts: MultiplyOptions = {}): [number, number][] {
+  const stepX = opts.centres ? gapX : bounds.w + gapX;
+  const stepY = opts.centres ? gapY : bounds.h + gapY;
+  const sx = opts.left ? -1 : 1;
+  const sy = opts.up ? -1 : 1;
   const out: [number, number][] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < columns; c++) {
       if (r === 0 && c === 0) continue;
-      out.push([c * (bounds.w + gapX), r * (bounds.h + gapY)]);
+      out.push([sx * c * stepX || 0, sy * r * stepY || 0]);
     }
   }
   return out;
