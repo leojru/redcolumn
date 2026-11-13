@@ -2,7 +2,7 @@
 import { Children, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { LINE_ENDINGS, TEXT_FRAMES, type TextFrame, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
-import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
+import { ALIGN_ICONS, LineSpacing, TextMargin, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
@@ -710,6 +710,10 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           <label className="field" title="Line spacing">
             Spacing
             <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => apply(textType, { lineHeight: v })} />
+          </label>
+          <label className="field" title="Margin: gap between the box's edge and its text, in points">
+            Margin
+            <TextMargin key={textType} value={textStyle.textMargin} onChange={(v) => apply(textType, { textMargin: v })} />
           </label>
         </>
       )}

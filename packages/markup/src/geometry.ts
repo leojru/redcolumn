@@ -851,7 +851,7 @@ export function moved(m: Geometry, dx: number, dy: number): Geometry {
   return mapGeometry(m, ([x, y]) => [x + dx, y + dy]);
 }
 
-export const TEXT_PADDING = 4;
+export const TEXT_PADDING = 2;
 export const TEXT_LINE_HEIGHT = 1.2;
 
 /** A text style's inset between box edge and text: its own margin, or the default when unset. */

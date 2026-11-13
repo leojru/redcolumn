@@ -32,7 +32,8 @@ import {
   ROTATABLE,
   TEXT_FRAMES,
   type TextFrame,
-hasOwnTextColor } from '@nb/markup';
+  TEXT_PADDING,
+  hasOwnTextColor } from '@nb/markup';
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, type Scale, type Slope } from '@nb/measure';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
@@ -708,6 +709,9 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
               <Row label="Line spacing">
                 <LineSpacing key={markups?.map((x) => x.id).join(',')} value={style.lineHeight} onChange={(v) => set('lineHeight', v)} />
               </Row>
+              <Row label="Margin" title="Gap between the box's edge and its text, in points">
+                <TextMargin key={markups?.map((x) => x.id).join(',')} value={style.textMargin} onChange={(v) => set('textMargin', v)} />
+              </Row>
             </>
           )}
           {caps.label && (
@@ -936,6 +940,11 @@ export function LineSpacing({ value, onChange }: { value: number | undefined; on
       {choice === 'custom' && <NumberField value={value} min={0.5} max={5} step={0.05} unit="×" onChange={(v) => onChange(v)} />}
     </>
   );
+}
+
+/** Fork (leojru/redcolumn): a text box's margin, as Revu's Style › Margin. */
+export function TextMargin({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
+  return <NumberField value={value} min={0} max={50} step={0.5} unit="pt" placeholder={String(TEXT_PADDING)} onChange={onChange} />;
 }
 
 /** Number input that lets partial entries ("1.") be typed; commits whenever the text is a valid number. */

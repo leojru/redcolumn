@@ -110,7 +110,8 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number, opts?
   if (opts?.keepWidth && !shape && (m.type === 'text' || m.type === 'callout')) {
     const pad = textPadding(m.style);
     const word = Math.max(0, ...(m.text ?? '').split(/\s+/).map((t) => measure(t)));
-    const kept = Math.max(box.w, word + pad * 2 + 0.5);
+    // Fork: a box wider than its text shrinks to it; one too narrow keeps its width and the text wraps.
+    const kept = Math.max(Math.min(box.w, w), word + pad * 2 + 0.5);
     outer = { w: kept, h: textBlockHeight(m, layoutParagraphs(m.text ?? '', kept - pad * 2, measure).map((l) => l.text)) };
   }
   if (m.type === 'callout') {

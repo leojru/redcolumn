@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { autoSizedPoints, canAutoSize, keepTextInBox, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits.ts';
-import { markupShape } from './geometry.ts';
+import { markupShape, TEXT_PADDING } from './geometry.ts';
 import { legendRows } from './legend.ts';
 import { DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
 import { MarkupStore } from './store.ts';
@@ -41,8 +41,8 @@ test('Auto-size fits a text box to its text and keeps its top-left corner', () =
   // 15 characters × 6 + padding; one line down to the second's capitals (10 × 0.718) + padding.
   assert.equal(pts[0]![0], 20);
   assert.equal(pts[0]![1], 30);
-  assert.ok(Math.abs(pts[1]![0] - (20 + 90 + 8 + 0.5)) < 1e-6);
-  assert.ok(Math.abs(pts[1]![1] - (30 + 12 + 7.18 + 8)) < 1e-6);
+  assert.ok(Math.abs(pts[1]![0] - (20 + 90 + 2 * TEXT_PADDING + 0.5)) < 1e-6);
+  assert.ok(Math.abs(pts[1]![1] - (30 + 12 + 7.18 + 2 * TEXT_PADDING)) < 1e-6);
   const callout = mk('callout', [[0, 0], [10, 10], [50, 50], [300, 200]], { text: 'ab', style: { ...DEFAULT_STYLES.callout, fontSize: 10 } });
   const c = autoSizedPoints(callout, measure)!;
   assert.deepEqual(c.slice(0, 3), [[0, 0], [10, 10], [50, 50]], 'the leader stays where it was');
@@ -58,9 +58,9 @@ test('Auto-size with keepWidth keeps the box width and wraps the text in it', ()
   assert.deepEqual(a, [20, 30]);
   assert.equal(b![0], 140, 'width kept');
   // 120 wide less padding fits 18 characters: the text takes 2 lines.
-  assert.ok(Math.abs(b![1] - (30 + 12 + 7.18 + 8)) < 1e-6);
+  assert.ok(Math.abs(b![1] - (30 + 12 + 7.18 + 2 * TEXT_PADDING)) < 1e-6);
   const narrow = mk('text', [[0, 0], [20, 300]], { text: 'SCHEDULE', style: { ...DEFAULT_STYLES.text, fontSize: 10 } });
-  assert.ok(autoSizedPoints(narrow, measure, { keepWidth: true })![1]![0] >= 48 + 8, 'never narrower than the longest word');
+  assert.ok(autoSizedPoints(narrow, measure, { keepWidth: true })![1]![0] >= 48 + 2 * TEXT_PADDING, 'never narrower than the longest word');
 });
 
 test('markups left out of legends are not listed', () => {
@@ -89,8 +89,8 @@ test('an auto-sized text box grows with its line spacing', () => {
     const [a, b] = autoSizedPoints(m, measure)!;
     return b![1] - a![1];
   };
-  assert.ok(Math.abs(height() - (2 * 10 * 1.2 + 7.18 + 8)) < 1e-6);
-  assert.ok(Math.abs(height(2) - (2 * 10 * 2 + 7.18 + 8)) < 1e-6);
+  assert.ok(Math.abs(height() - (2 * 10 * 1.2 + 7.18 + 2 * TEXT_PADDING)) < 1e-6);
+  assert.ok(Math.abs(height(2) - (2 * 10 * 2 + 7.18 + 2 * TEXT_PADDING)) < 1e-6);
   assert.ok(height(2) > height(1));
 });
 
@@ -100,8 +100,8 @@ test('resizing a text box keeps its text showing: no narrower than a word, as ta
   // Dragged small from the bottom right: the top left stays; the word fits; two lines fit.
   const [a, b] = keepTextInBox(m, [[100, 100], [110, 105]], measure) as [[number, number], [number, number]];
   assert.deepEqual(a, [100, 100]);
-  assert.ok(Math.abs(b[0] - (100 + 24 + 8 + 0.5)) < 1e-6);
-  assert.ok(Math.abs(b[1] - (100 + 12 + 7.18 + 8)) < 1e-6);
+  assert.ok(Math.abs(b[0] - (100 + 24 + 2 * TEXT_PADDING + 0.5)) < 1e-6);
+  assert.ok(Math.abs(b[1] - (100 + 12 + 7.18 + 2 * TEXT_PADDING)) < 1e-6);
   // From the top left: the bottom right stays.
   const [c, d] = keepTextInBox(m, [[295, 138], [300, 140]], measure) as [[number, number], [number, number]];
   assert.deepEqual(d, [300, 140]);
@@ -127,4 +127,12 @@ test("a callout's centred leader stays centred when Auto-size changes the box; o
   const b = autoSizedPoints(right, measure)!;
   assert.ok(Math.abs(b[1]![0] - b[3]![0] - 20) < 1e-6);
   assert.ok(Math.abs(b[1]![1] - (b[2]![1] + b[3]![1]) / 2) < 1e-6);
+});
+
+// Fork (leojru/redcolumn).
+test('Auto-size with keepWidth shrinks a box that is wider than its text, and the margin sets the room', () => {
+  const measure = (s: string) => s.length * 6;
+  const box = mk('text', [[0, 0], [300, 100]], { text: 'MF-24', style: { ...DEFAULT_STYLES.text, fontSize: 10, textMargin: 0 } });
+  const [, b] = autoSizedPoints(box, measure, { keepWidth: true })!;
+  assert.ok(Math.abs(b![0] - (30 + 0.5)) < 1e-6);
 });
