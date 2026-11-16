@@ -1,4 +1,4 @@
-// Modified in the leojru/redcolumn fork (revu-layout): Set as Default Layer for new markups; Isolate a markup layer; a saved markup layer listed once; Add Child.
+// Modified in the leojru/redcolumn fork (revu-layout): Set as Default Layer for new markups; Isolate a markup layer; a saved markup layer listed once; Add Child; Move Up / Down and drag to reorder.
 import {
   useMemo,
   useState,
@@ -42,6 +42,8 @@ interface LayerPrefs {
   defaultLayer?: string;
   /** Fork: markup layers added as children (Add Child), by name: the layer each sits under. */
   parents?: Record<string, string>;
+  /** Fork: the order the user gave rows (Move Up / Down, drag), as row keys; each row ranks among its siblings. */
+  rowOrder?: string[];
 }
 
 /** How the list is shown, for every document (Show Layers On Page Only is a preference). */
@@ -252,8 +254,21 @@ export function LayersPanel({
         parent.children.push(r);
       } else roots.push(r);
     }
+    // Fork (leojru/redcolumn): rows the user moved keep that order among their siblings; the others follow in their usual order.
+    const rowOrder = prefs.rowOrder ?? [];
+    if (rowOrder.length) {
+      const rankOf = (r: Row) => {
+        const i = rowOrder.indexOf(r.key);
+        return i < 0 ? Infinity : i;
+      };
+      const arrange = (rows: Row[]) => {
+        rows.sort((a, b) => (rankOf(a) === rankOf(b) ? 0 : rankOf(a) < rankOf(b) ? -1 : 1));
+        rows.forEach((r) => arrange(r.children));
+      };
+      arrange(roots);
+    }
     return roots;
-  }, [pdfLayers, markupLayers, prefs.added, prefs.order, prefs.parents]);
+  }, [pdfLayers, markupLayers, prefs.added, prefs.order, prefs.parents, prefs.rowOrder]);
 
   const all = useMemo(() => {
     const out: Row[] = [];
@@ -469,7 +484,20 @@ export function LayersPanel({
     },
   ];
 
+  /** Fork: the rows sharing `r`'s parent, in the order shown. */
+  const siblingsOf = (r: Row): Row[] => all.find((x) => x.children.includes(r))?.children ?? tree;
+  /** Fork: puts `r` at place `to` among its siblings (Move Up / Down, drag). */
+  const moveRow = (r: Row, to: number) => {
+    const rows = siblingsOf(r).filter((x) => x !== r);
+    rows.splice(Math.max(0, Math.min(to, rows.length)), 0, r);
+    const keys = new Set(rows.map((x) => x.key));
+    setPrefs({ ...prefs, rowOrder: [...(prefs.rowOrder ?? []).filter((k) => !keys.has(k)), ...rows.map((x) => x.key)] });
+  };
+  const [dragKey, setDragKey] = useState<string | null>(null);
+
   const rowMenu = (r: Row): MenuEntry[] => {
+    const rows = siblingsOf(r);
+    const at = rows.indexOf(r);
     const empty =
       r.key.startsWith("mk:") &&
       prefs.added.includes(r.key.slice(3)) &&
@@ -492,6 +520,12 @@ export function LayersPanel({
               : { label: "Isolate", onClick: () => isolateMarkupLayer(r) },
           ]
         : []),
+      SEP,
+      { label: "Move Up", disabled: view.sort || at <= 0, onClick: () => moveRow(r, at - 1) },
+      { label: "Move Down", disabled: view.sort || at >= rows.length - 1, onClick: () => moveRow(r, at + 1) },
+      { label: "Move to Top", disabled: view.sort || at <= 0, onClick: () => moveRow(r, 0) },
+      { label: "Move to Bottom", disabled: view.sort || at >= rows.length - 1, onClick: () => moveRow(r, rows.length) },
+      SEP,
       // Fork (leojru/redcolumn): new markups from every tool go on this layer until another is chosen.
       {
         label: "Set as Default",
@@ -685,6 +719,23 @@ export function LayersPanel({
                 <tr
                   key={r.key}
                   className={`${selected === r.key ? "selected" : ""}${hidden ? " off" : ""}`}
+                  draggable={!view.sort}
+                  onDragStart={(e) => {
+                    setDragKey(r.key);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragOver={(e) => {
+                    if (dragKey && dragKey !== r.key) e.preventDefault();
+                  }}
+                  onDragEnd={() => setDragKey(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const from = all.find((x) => x.key === dragKey);
+                    setDragKey(null);
+                    // Only among rows of the same parent: the dragged row takes the place of the one dropped on.
+                    const rows = from ? siblingsOf(from) : [];
+                    if (from && rows.includes(r)) moveRow(from, rows.indexOf(r));
+                  }}
                   onClick={() => setSelected(r.key)}
                   onContextMenu={(e) => {
                     e.preventDefault();
