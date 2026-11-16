@@ -1,11 +1,11 @@
 // Added in the leojru/redcolumn fork (revu-layout): vector snapshots.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFRef, PDFStream, rgb } from 'pdf-lib';
+import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFOperatorNames as Ops, PDFRawStream, PDFRef, PDFStream, rgb } from 'pdf-lib';
 import { exportWithAnnotations } from './export.ts';
 import { markupDigest } from './digest.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
-import { makeVectorSnapshot, snapshotContentSheet, stampAppearanceSheet, vectorSnapshotBytes, vectorSnapshotUrl } from './vectorSnapshot.ts';
+import { makeVectorSnapshot, snapshotContentSheet, stampAppearanceSheet, trimVectorSnapshot, trimVectorSnapshotUrl, vectorSnapshotBytes, vectorSnapshotUrl } from './vectorSnapshot.ts';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
@@ -163,4 +163,49 @@ test("a Revu snapshot keeps its own appearance when moved, and is drawn again wh
   assert.equal(restyled.get(PDFName.of('IC'))?.toString() ?? 'null', 'null', 'no longer filled');
   assert.equal(restyled.lookup(PDFName.of('Rotation'))?.toString(), '0');
   assert.equal(restyled.lookup(PDFName.of('IT'))?.toString(), '/StampSnapshot');
+});
+
+/** A busy 1000 × 1000 page: a grid of 2,500 squares, the one at (100, 100) among them. */
+async function busyPage() {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([1000, 1000]);
+  const font = await doc.embedFont('Helvetica');
+  for (let i = 0; i < 50; i++) {
+    for (let j = 0; j < 50; j++) {
+      page.drawRectangle({ x: i * 20, y: j * 20, width: 10, height: 10, borderColor: rgb(0, 0, 0), borderWidth: 1 });
+    }
+    page.drawText(`row ${i}`, { x: 5, y: i * 20 + 12, size: 6, font });
+  }
+  return doc.save();
+}
+
+test('a vector snapshot keeps only what reaches its box, not the whole page', async () => {
+  const url = await makeVectorSnapshot(await busyPage(), 0, { x: 95, y: 895, w: 30, h: 30 });
+  assert.ok(url);
+  const bytes = vectorSnapshotBytes(url)!;
+  assert.ok(bytes.length < 6_000, `${bytes.length} bytes`);
+  const { form } = await snapshotPage(url);
+  const content = text(form);
+  // The square at x 100..110 stays (as lines); the other 2,499 do not.
+  assert.match(content, /\bl\b/);
+  assert.ok((content.match(/\bm\b/g) ?? []).length < 20);
+  // Trimming it again finds nothing more to cut.
+  assert.equal(await trimVectorSnapshotUrl(url), url);
+});
+
+test('an untrimmed snapshot (one kept from before) is cut down to the same picture', async () => {
+  const src = await PDFDocument.load(await busyPage());
+  const out = await PDFDocument.create();
+  const sheet = out.addPage([30, 30]);
+  const embedded = await out.embedPage(src.getPage(0), { left: 95, bottom: 75, right: 125, top: 105 });
+  const name = sheet.node.newXObject('Snap', embedded.ref);
+  sheet.pushOperators(PDFOperator.of(Ops.PushGraphicsState), PDFOperator.of(Ops.ConcatTransformationMatrix, [1, 0, 0, 1, 0, 0].map((n) => PDFNumber.of(n))), PDFOperator.of(Ops.DrawObject, [name]), PDFOperator.of(Ops.PopGraphicsState));
+  const full = await out.save({ useObjectStreams: true });
+  const trimmed = await trimVectorSnapshot(full);
+  assert.ok(trimmed.length < full.length / 3, `${full.length} -> ${trimmed.length}`);
+  const back = await PDFDocument.load(trimmed);
+  assert.equal(back.getPageCount(), 1);
+  // Something that is not one of ours, or already small, comes back as it was.
+  const plain = await (await PDFDocument.create()).save();
+  assert.equal(await trimVectorSnapshot(plain), plain);
 });

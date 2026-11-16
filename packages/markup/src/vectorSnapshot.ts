@@ -1,6 +1,7 @@
 // Added in the leojru/redcolumn fork (revu-layout). Vector snapshots: an area of a PDF page kept as
 // PDF content (lines, text and fills stay vector), not as a picture.
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFObjectCopier, PDFOperator, PDFNumber, PDFOperatorNames as Ops, PDFRef, PDFStream } from 'pdf-lib';
+import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFObjectCopier, PDFOperator, PDFNumber, PDFOperatorNames as Ops, PDFRawStream, PDFRef, PDFStream } from 'pdf-lib';
+import { cullContent, type XObjectInfo } from './contentCull';
 import type { Point } from './model';
 import { snapshotInset, type SnapshotSheet } from './bluebeam';
 import { pageMatrix, type Matrix } from './export';
@@ -80,9 +81,144 @@ export async function makeVectorSnapshot(source: ArrayBuffer | Uint8Array, pageI
   ops.push(op(Ops.ConcatTransformationMatrix, ...m), PDFOperator.of(Ops.DrawObject, [name]), op(Ops.PopGraphicsState));
   sheet.pushOperators(...ops);
   sheet.node.set(PDFName.of('NBSnapshot'), PDFName.of('Vector'));
-  const bytes = await out.save({ useObjectStreams: true });
+  const bytes = await trimVectorSnapshot(await out.save({ useObjectStreams: true }));
   if (bytes.length > MAX_VECTOR_SNAPSHOT_BYTES) return null;
   return PDF_DATA_URL + toBase64(bytes);
+}
+
+const latin1 = (b: Uint8Array) => {
+  let s = '';
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return s;
+};
+const fromLatin1 = (s: string) => {
+  const b = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 0xff;
+  return b;
+};
+
+/** A stream's decoded bytes, or null when it cannot be decoded here. */
+function decoded(stream: unknown): Uint8Array | null {
+  if (!(stream instanceof PDFRawStream)) return null;
+  try {
+    return decodePDFRawStream(stream).decode();
+  } catch {
+    return null;
+  }
+}
+
+/** What the culler needs of an XObject: its box and matrix (an image is the unit square). */
+function xobjectInfo(stream: unknown): XObjectInfo | null {
+  if (!(stream instanceof PDFStream)) return null;
+  const subtype = stream.dict.get(PDFName.of('Subtype'));
+  if (subtype === PDFName.of('Image')) return { bbox: { x0: 0, y0: 0, x1: 1, y1: 1 }, matrix: [1, 0, 0, 1, 0, 0] };
+  if (subtype !== PDFName.of('Form')) return null;
+  const b = numbersOf(stream.dict.lookupMaybe(PDFName.of('BBox'), PDFArray), 4);
+  if (!b) return null;
+  const matrix = (numbersOf(stream.dict.lookupMaybe(PDFName.of('Matrix'), PDFArray), 6) ?? [1, 0, 0, 1, 0, 0]) as Matrix;
+  return { bbox: { x0: Math.min(b[0]!, b[2]!), y0: Math.min(b[1]!, b[3]!), x1: Math.max(b[0]!, b[2]!), y1: Math.max(b[1]!, b[3]!) }, matrix };
+}
+
+/** Cuts one form's content down to what its /BBox shows and drops the resources that leaves unused. True if it changed. */
+function trimForm(doc: PDFDocument, ref: PDFRef, form: PDFRawStream): boolean {
+  const info = xobjectInfo(form);
+  const bytes = decoded(form);
+  if (!info || !bytes) return false;
+  const resources = form.dict.lookupMaybe(PDFName.of('Resources'), PDFDict);
+  const named = resources?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+  const result = cullContent(latin1(bytes), info.bbox, (name) => xobjectInfo(named?.lookupMaybe(PDFName.of(name), PDFStream)));
+  if (!result || !result.removed) return false;
+  const next = doc.context.flateStream(fromLatin1(result.content));
+  for (const [key, value] of form.dict.entries()) {
+    if (key !== PDFName.of('Length') && key !== PDFName.of('Filter') && key !== PDFName.of('DecodeParms')) next.dict.set(key, value);
+  }
+  doc.context.assign(ref, next);
+  if (resources) {
+    for (const [, group] of resources.entries()) {
+      const names = group instanceof PDFRef ? doc.context.lookup(group) : group;
+      if (!(names instanceof PDFDict)) continue;
+      for (const [key] of names.entries()) if (!result.names.has(key.decodeText())) names.delete(key);
+    }
+  }
+  return true;
+}
+
+/**
+ * A vector snapshot's PDF without what its box cannot show. A snapshot embeds its whole source page
+ * clipped to a box, so a small one still carried the page's every line, font and picture. This cuts
+ * the page's content down to what reaches the box and keeps only what is still used. The bytes come
+ * back as they were when nothing can be cut or the PDF is not one of ours.
+ */
+export async function trimVectorSnapshot(bytes: Uint8Array): Promise<Uint8Array> {
+  try {
+    const src = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+    if (src.getPageCount() !== 1) return bytes;
+    const page = src.getPage(0);
+    const box = numbersOf(page.node.lookupMaybe(PDFName.of('MediaBox'), PDFArray), 4);
+    const resources = page.node.lookupMaybe(PDFName.of('Resources'), PDFDict);
+    const xobjects = resources?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+    if (!box || box[0] !== 0 || box[1] !== 0 || !resources || !xobjects) return bytes;
+    let changed = false;
+    for (const [, value] of xobjects.entries()) {
+      if (!(value instanceof PDFRef)) continue;
+      const form = src.context.lookup(value);
+      if (form instanceof PDFRawStream && form.dict.get(PDFName.of('Subtype')) === PDFName.of('Form')) changed = trimForm(src, value, form) || changed;
+    }
+    if (!changed) return bytes;
+    // The page again, in a new file that holds only what it still reaches.
+    const contents = page.node.Contents();
+    const parts = contents instanceof PDFArray ? contents.asArray().map((r) => src.context.lookup(r)) : [contents];
+    const content = parts.map((p) => decoded(p));
+    if (content.some((c) => !c)) return bytes;
+    const out = await PDFDocument.create({ updateMetadata: false });
+    const sheet = out.addPage([box[2]!, box[3]!]);
+    sheet.node.set(PDFName.of('Resources'), PDFObjectCopier.for(src.context, out.context).copy(resources));
+    sheet.node.set(PDFName.of('Contents'), out.context.register(out.context.flateStream(fromLatin1(content.map((c) => latin1(c!)).join('\n')))));
+    const tag = page.node.get(PDFName.of('NBSnapshot'));
+    if (tag) sheet.node.set(PDFName.of('NBSnapshot'), tag);
+    const trimmed = await out.save({ useObjectStreams: true });
+    return trimmed.length < bytes.length ? trimmed : bytes;
+  } catch {
+    return bytes;
+  }
+}
+
+/** Snapshots smaller than this (as a data URL) are not worth cutting down, and are left as they are, whoever made them. */
+const TRIM_FROM_CHARS = 200_000;
+const trimmedUrls = new Map<string, Promise<string>>();
+
+/**
+ * `markups` with each large vector snapshot's PDF trimmed (see trimVectorSnapshot); the same array
+ * when none is. Done as a file is saved, so snapshots made before trimming existed shrink too.
+ */
+export async function trimmedVectors<T extends { vector?: string }>(markups: readonly T[]): Promise<readonly T[]> {
+  if (!markups.some((m) => m.vector && m.vector.length > TRIM_FROM_CHARS)) return markups;
+  const out: T[] = [];
+  for (const m of markups) {
+    const url = m.vector;
+    if (!url || url.length <= TRIM_FROM_CHARS) {
+      out.push(m);
+      continue;
+    }
+    let trimmed = trimmedUrls.get(url);
+    if (!trimmed) {
+      trimmed = trimVectorSnapshotUrl(url);
+      trimmedUrls.set(url, trimmed);
+      // Remember only the last few: the URLs are large.
+      if (trimmedUrls.size > 8) trimmedUrls.delete(trimmedUrls.keys().next().value!);
+    }
+    const next = await trimmed;
+    out.push(next === url ? m : { ...m, vector: next });
+  }
+  return out;
+}
+
+/** A vector snapshot's data URL, trimmed (the same URL when nothing can be cut). */
+export async function trimVectorSnapshotUrl(url: string): Promise<string> {
+  const bytes = vectorSnapshotBytes(url);
+  if (!bytes) return url;
+  const trimmed = await trimVectorSnapshot(bytes);
+  return trimmed === bytes ? url : vectorSnapshotUrl(trimmed);
 }
 
 const numbersOf = (a: PDFArray | undefined, n: number): number[] | null => {
