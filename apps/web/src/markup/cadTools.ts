@@ -36,6 +36,7 @@ import {
   type Point,
   type Rect,
   relinkCopies,
+  regroup,
 } from '@nb/markup';
 import { settings } from '../settings/settings';
 
@@ -279,8 +280,8 @@ function transformSelection(ctx: CadContext, ts: readonly Affine[], copy: boolea
     for (const m of ctx.selected) {
       const patch = transformMarkup(m, t);
       if (copy) {
-        const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)) : undefined;
-        const c = ctx.clone(m, { ...patch, groupId });
+        const groupOf = (g: string) => groups.get(g) ?? groups.set(g, crypto.randomUUID()).get(g)!;
+        const c = ctx.clone(m, { ...patch, ...regroup(m, groupOf) });
         copies.push(c);
         select.push(c.id);
       } else out.update.push([m.id, patch]);

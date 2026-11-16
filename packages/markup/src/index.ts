@@ -101,3 +101,4 @@ export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES, snapshotContentSheet, st
 // Fork (leojru/redcolumn): Length and Dimension text layout (inline, lines, leaders).
 export { approxTextWidth, dimensionLayout, liftedCenter, readingFrame, type DimensionLayout } from './dimensionInline';
 export { frameAround, frameInner, framePath, TEXT_FRAMES, type TextFrame } from './textFrames';
+export { addOuterGroup, groupChain, regroup, removeOuterGroup } from './groups';

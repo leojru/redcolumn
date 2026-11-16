@@ -97,7 +97,7 @@ export function stitchedMarkups(markups: readonly Markup[], stitched: Pick<Stitc
     const poly = stitched.visible.get(m.pageIndex);
     if (!t || !poly || !m.points.some((p) => pointInPolygon(p, poly))) continue;
     // Copies stand alone: not the PDF's annotation, not in the originals' groups, no thread.
-    const { pdfAnnot: _annot, seq: _seq, replies: _replies, groupId: _group, ...rest } = m;
+    const { pdfAnnot: _annot, seq: _seq, replies: _replies, groupId: _group, innerGroups: _inner, ...rest } = m;
     out.push({ ...rest, ...transformMarkup(m, { a: t[0], b: t[1], c: t[2], d: t[3], e: t[4], f: t[5] }), id: newId(), pageIndex: stitched.pageIndex, createdAt: now, modifiedAt: now });
   }
   return out;

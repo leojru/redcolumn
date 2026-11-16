@@ -6,6 +6,7 @@ import { SOURCE_RANK, type DetectedLink, type SheetInfo } from '@nb/sheets';
 import { DEFAULT_STATUSES, type ColumnSet, type CustomColumn, type MarkupStatusDef } from './columns';
 import { mergeAssemblies, sanitizeAssemblies, type Assembly } from './assemblies';
 import { mapGeometry, type Markup, type Point } from './model';
+import { regroup } from './groups';
 import { openPatch, type EditRule } from './ownership';
 import { rotatePagePoint, type PagePlan } from './pages';
 import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
@@ -919,7 +920,7 @@ export class MarkupStore {
       let seq = this.lastSeq();
       relinkCopies(all, ids).forEach((m, i) => {
         const copy: Markup = { ...m, id: ids.get(m.id)!, seq: ++seq, author: MarkupStore.author, status: 'none', createdAt: now + i, modifiedAt: now + i };
-        if (m.groupId) copy.groupId = groupOf(m.groupId);
+        if (m.groupId) Object.assign(copy, regroup(m, groupOf));
         else delete copy.groupId;
         // New annotations when saved: none of the original's PDF or Bluebeam ids, its replies' included.
         delete copy.pdfAnnot;

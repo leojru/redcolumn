@@ -397,6 +397,8 @@ export interface Markup {
   locked?: boolean;
   /** Markups sharing a group id are selected, moved and deleted together. */
   groupId?: string;
+  /** Fork addition: groups nested inside `groupId`, outer to inner (Ungroup opens one level at a time). */
+  innerGroups?: string[];
   /** The markup layer it is on (Layers panel); exported as a PDF layer of that name. */
   layer?: string;
   /** Flagged for follow-up (a linked flag, listed in the Flags panel). */

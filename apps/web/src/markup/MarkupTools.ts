@@ -5,6 +5,9 @@ import {
   matchSize,
   boundsOf,
   canOffset,
+  addOuterGroup,
+  removeOuterGroup,
+  regroup,
   canExplode,
   canJoin,
   canReverse,
@@ -1691,7 +1694,7 @@ export class MarkupTools implements ViewerOverlay {
     const store = this.store;
     store.checkpoint();
     store.batch(() => {
-      for (const m of ms) store.update(m.id, { groupId });
+      for (const m of ms) store.update(m.id, addOuterGroup(m, groupId));
     });
   }
 
@@ -1703,7 +1706,7 @@ export class MarkupTools implements ViewerOverlay {
     const store = this.store;
     store.checkpoint();
     store.batch(() => {
-      for (const m of grouped) store.update(m.id, { groupId: undefined });
+      for (const m of grouped) store.update(m.id, removeOuterGroup(m));
     });
   }
 
@@ -1736,8 +1739,8 @@ export class MarkupTools implements ViewerOverlay {
         const onPage = ms.filter((m) => m.pageIndex !== page);
         const ids = new Map(onPage.map((m) => [m.id, crypto.randomUUID()]));
         for (const m of relinkCopies(onPage, ids)) {
-          const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
-          store.add({ ...structuredClone(m), id: ids.get(m.id)!, pageIndex: page, groupId, status: 'none', author: this.options.author(), createdAt: now + n, modifiedAt: now + n });
+          const groupOf = (g: string) => groups.get(g) ?? groups.set(g, crypto.randomUUID()).get(g)!;
+          store.add({ ...structuredClone(m), id: ids.get(m.id)!, pageIndex: page, ...regroup(m, groupOf), status: 'none', author: this.options.author(), createdAt: now + n, modifiedAt: now + n });
           n++;
         }
       }
@@ -1766,8 +1769,8 @@ export class MarkupTools implements ViewerOverlay {
         for (const m of relinkCopies(ms, copyOf)) {
           const id = copyOf.get(m.id)!;
           ids.push(id);
-          const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
-          store.add({ ...structuredClone(m), id, groupId, ...moved(m, dx, dy), status: 'none', author: this.options.author(), createdAt: now + ids.length, modifiedAt: now + ids.length });
+          const groupOf = (g: string) => groups.get(g) ?? groups.set(g, crypto.randomUUID()).get(g)!;
+          store.add({ ...structuredClone(m), id, ...regroup(m, groupOf), ...moved(m, dx, dy), status: 'none', author: this.options.author(), createdAt: now + ids.length, modifiedAt: now + ids.length });
         }
       }
     });
@@ -1982,12 +1985,12 @@ export class MarkupTools implements ViewerOverlay {
     markups.forEach((m, i) => {
       const id = ids[i]!;
       // Pasted groups stay grouped, as new groups of their own.
-      const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
+      const groupOf = (g: string) => groups.get(g) ?? groups.set(g, crypto.randomUUID()).get(g)!;
       this.store!.add({
         ...structuredClone(m),
         id,
         pageIndex,
-        groupId,
+        ...regroup(m, groupOf),
         locked: undefined,
         // Preferences › Markup › Retain Layer Information when copying Markups.
         layer: settings.get().retainLayerOnCopy ? m.layer : undefined,
@@ -2021,11 +2024,11 @@ export class MarkupTools implements ViewerOverlay {
     this.store.checkpoint();
     template.forEach((m, i) => {
       const id = ids[i]!;
-      const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
+      const groupOf = (g: string) => groups.get(g) ?? groups.set(g, crypto.randomUUID()).get(g)!;
       this.store!.add({
         ...structuredClone(m),
         id,
-        groupId,
+        ...regroup(m, groupOf),
         pageIndex,
         ...moved(m, dx, dy),
         status: 'none',
@@ -3044,7 +3047,7 @@ export class MarkupTools implements ViewerOverlay {
       if (!copies.length) return true;
       const store = this.store;
       const now = Date.now();
-      const made = copies.map((points, k): Markup => ({ ...structuredClone(source), id: crypto.randomUUID(), points, groupId: undefined, locked: undefined, status: 'none', author: this.options.author(), createdAt: now + k, modifiedAt: now + k }));
+      const made = copies.map((points, k): Markup => ({ ...structuredClone(source), id: crypto.randomUUID(), points, groupId: undefined, innerGroups: undefined, locked: undefined, status: 'none', author: this.options.author(), createdAt: now + k, modifiedAt: now + k }));
       store.checkpoint();
       store.batch(() => made.forEach((m) => store.add(m)));
       this.ghost = null;
@@ -4676,6 +4679,7 @@ export class MarkupTools implements ViewerOverlay {
         id: crypto.randomUUID(),
         seq: undefined,
         groupId: patch.groupId,
+        innerGroups: patch.innerGroups,
         locked: undefined,
         pdfAnnot: undefined,
         replies: undefined,
