@@ -6871,6 +6871,7 @@ export function App() {
     const theirs = ms.some((m) => !store.mayEdit(m));
     const allLocked = ms.every((m) => m.locked || !store.mayEdit(m));
     const grouped = ms.some((m) => m.groupId);
+    const oneWholeGroup = oneGroup && store.all().filter((m) => m.groupId === first.groupId).length === ms.length;
     const roundable = ms.filter((m) => canRoundCorners(m));
     const allRound = roundable.length > 0 && roundable.every((m) => m.style.cornerRadius);
     const pageCount = o.doc.pages.length;
@@ -7034,9 +7035,9 @@ export function App() {
         ],
       },
       { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
-      grouped
-        ? { label: 'Ungroup', shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
-        : { label: 'Group', shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() },
+      // Fork: a selection of groups can be grouped again (groups inside a group); only one whole group has nothing to join.
+      ...(!grouped || !oneWholeGroup ? [{ label: 'Group', shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() }] : []),
+      ...(grouped ? [{ label: 'Ungroup', shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }] : []),
       { label: anyLocked ? 'Unlock' : 'Lock', shortcut: shortcutLabel('edit.lock'), disabled: ro || theirs, onClick: () => c.tools.setLocked(!anyLocked) },
       {
         label: ms.every((m) => m.hidden) ? 'Show' : 'Hide',

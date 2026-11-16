@@ -1690,6 +1690,9 @@ export class MarkupTools implements ViewerOverlay {
   group() {
     const ms = this.editable();
     if (!this.store || this.store.readOnly || ms.length < 2) return;
+    // One whole group on its own has nothing to join.
+    const only = ms[0]!.groupId;
+    if (only && ms.every((m) => m.groupId === only) && this.store.all().filter((m) => m.groupId === only).length === ms.length) return;
     const groupId = crypto.randomUUID();
     const store = this.store;
     store.checkpoint();
