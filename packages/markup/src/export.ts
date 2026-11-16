@@ -24,7 +24,8 @@ import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
 import { importViewports } from './bluebeam';
-import { vectorSnapshotBytes } from './vectorSnapshot';
+import { trimmedVectors, vectorSnapshotBytes } from './vectorSnapshot';
+import { repackDocument } from './repack';
 import { isGeoViewport } from './geo';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
@@ -2094,10 +2095,34 @@ function addMarkupLayers(doc: PDFDocument, markups: readonly Markup[], parents: 
 }
 
 /**
+ * Fork (leojru/redcolumn): a flattened document keeps its markups' data under the catalog's
+ * /NBFlattened (apps/web/src/documents/process.ts) so Unflatten can bring them back. Vector
+ * snapshots in it made before trimming carried their whole source page; cut them down.
+ */
+async function trimRecovery(doc: PDFDocument) {
+  const key = PDFName.of('NBFlattened');
+  const held = doc.catalog.lookup(key);
+  if (!(held instanceof PDFHexString)) return;
+  const bytes = held.asBytes();
+  if (bytes.length < 400_000) return;
+  let list: unknown;
+  try {
+    list = JSON.parse(new TextDecoder('utf-16be').decode(bytes.subarray(bytes[0] === 0xfe && bytes[1] === 0xff ? 2 : 0)));
+  } catch {
+    return;
+  }
+  if (!Array.isArray(list)) return;
+  const trimmed = await trimmedVectors(list as { vector?: string }[]);
+  if (trimmed !== list) doc.catalog.set(key, PDFHexString.fromText(JSON.stringify(trimmed)));
+}
+
+/**
  * Returns a copy of `original` with `markups` written as standard PDF annotations, each with an
  * appearance stream so every viewer draws them identically, plus any hyperlinks.
  */
 export async function exportWithAnnotations(original: ArrayBuffer, markups: readonly Markup[], options: ExportOptions = {}): Promise<Uint8Array> {
+  // Fork (leojru/redcolumn): vector snapshots made before they were trimmed carry their whole source page; cut them down as they are saved.
+  markups = await trimmedVectors(markups);
   const scaleFor = options.scaleFor ?? (() => DEFAULT_SCALE);
   const scaleOf = (m: Markup) => scaleOfMarkup(m, scaleFor(m.pageIndex), options.viewports ?? []);
   const opened = options.open ? await options.open(original) : null;
@@ -2397,5 +2422,10 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     writeGroups(doc, made);
   }
   if (options.links) addLinks(doc, pages, options.links);
+  // Fork (leojru/redcolumn): a plain rewrite leaves out what nothing points to and compresses what was stored plain; an incremental update must keep every earlier byte.
+  if (!opened) {
+    await trimRecovery(doc);
+    await repackDocument(doc);
+  }
   return opened ? opened.save() : doc.save();
 }

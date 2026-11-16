@@ -5,7 +5,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, redrawMarkupImages, setVectorPictureDrawer } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { regroup, actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { trimmedVectors, regroup, actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -3014,7 +3014,7 @@ export function App() {
           const links = cur.store.all().filter((m) => m.type === 'hyperlink');
           const markups = cur.store.all().filter((m) => m.type !== 'hyperlink');
           const exported = await annotatedBytes(cur, { links: false, markups });
-          const { bytes, count } = await p.flattenAnnotations(exported, spec.recovery ? JSON.stringify(markups) : null);
+          const { bytes, count } = await p.flattenAnnotations(exported, spec.recovery ? JSON.stringify(await trimmedVectors(markups)) : null);
           await commitDocument(cur, bytes.slice().buffer, () => cur.store.resetMarkups(links), revisionNote);
           return `Flattened ${count} markup${count === 1 ? '' : 's'}${spec.recovery ? '; Document › Unflatten brings them back' : ''}.`;
         }

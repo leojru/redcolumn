@@ -97,8 +97,9 @@ export { markupSnapPoints } from './snapPoints';
 export * from './cad';
 
 // Fork addition (leojru/redcolumn): vector snapshots.
-export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES, snapshotContentSheet, stampAppearanceSheet, vectorSnapshotBytes, vectorSnapshotUrl } from './vectorSnapshot';
+export { makeVectorSnapshot, MAX_VECTOR_SNAPSHOT_BYTES, snapshotContentSheet, stampAppearanceSheet, trimmedVectors, trimVectorSnapshot, trimVectorSnapshotUrl, vectorSnapshotBytes, vectorSnapshotUrl } from './vectorSnapshot';
 // Fork (leojru/redcolumn): Length and Dimension text layout (inline, lines, leaders).
 export { approxTextWidth, dimensionLayout, liftedCenter, readingFrame, type DimensionLayout } from './dimensionInline';
 export { frameAround, frameInner, framePath, TEXT_FRAMES, type TextFrame } from './textFrames';
+export { repackDocument } from './repack';
 export { addOuterGroup, groupChain, regroup, removeOuterGroup } from './groups';

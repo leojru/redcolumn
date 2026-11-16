@@ -1,3 +1,4 @@
+import { repackDocument } from '@nb/markup';
 import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef, PDFStream, type LoadOptions, type PDFObject, type SaveOptions } from 'pdf-lib';
 
 /**
@@ -21,7 +22,16 @@ export async function openForEdit(bytes: ArrayBuffer | Uint8Array, load: LoadOpt
   const original = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   const doc = await PDFDocument.load(original, { updateMetadata: false, ...load });
   const snap = isSigned(doc) ? snapshot(doc, original) : null;
-  return { doc, signed: !!snap, save: (options) => (snap ? saveIncremental(original, doc, snap) : doc.save(options)) };
+  return {
+    doc,
+    signed: !!snap,
+    // Fork (leojru/redcolumn): a plain rewrite leaves out what nothing points to and compresses what was stored plain.
+    save: async (options) => {
+      if (snap) return saveIncremental(original, doc, snap);
+      await repackDocument(doc);
+      return doc.save(options);
+    },
+  };
 }
 
 /**
