@@ -127,6 +127,13 @@ export async function canUnflatten(bytes: ArrayBuffer | Uint8Array): Promise<boo
   return doc.catalog.has(PDFName.of(RECOVERY_KEY));
 }
 
+/** pdf-lib's decodeText overflows the stack on a large string, so decode UTF-16 text from its bytes. */
+function decodeLarge(text: PDFString | PDFHexString): string {
+  const b = text.asBytes();
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2));
+  return text.decodeText();
+}
+
 /**
  * Unflatten: removes the flattened layer and returns the markups' data kept when flattening
  * (null when the file has none).
@@ -141,7 +148,7 @@ export async function unflatten(bytes: ArrayBuffer | Uint8Array): Promise<{ byte
     for (const key of xo.keys()) if (key.decodeText().startsWith('NBF')) xo.delete(key);
   }
   doc.catalog.delete(PDFName.of(RECOVERY_KEY));
-  return { bytes: await save(), recovery: kept ? kept.decodeText() : null };
+  return { bytes: await save(), recovery: kept ? decodeLarge(kept) : null };
 }
 
 // --- Reduce File Size --------------------------------------------------------------------------

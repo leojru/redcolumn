@@ -45,6 +45,14 @@ test('flatten burns markups into the page, keeping them for unflatten', async ()
   assert.equal(await canUnflatten(back.bytes), false);
 });
 
+test('unflatten reads a large recovery copy without overflowing the stack', async () => {
+  const { bytes, m } = await withMarkup();
+  const big = { ...m, text: 'x'.repeat(2_000_000) } as Markup;
+  const flat = await flattenAnnotations(bytes, JSON.stringify([big]));
+  const back = await unflatten(flat.bytes);
+  assert.equal(JSON.parse(back.recovery!)[0].text.length, 2_000_000);
+});
+
 test('reduce file size drops objects nothing uses', async () => {
   const doc = await PDFDocument.create();
   doc.addPage([100, 100]).drawText('hello', { x: 10, y: 50 });
