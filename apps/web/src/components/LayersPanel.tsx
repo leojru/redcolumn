@@ -142,6 +142,8 @@ export interface LayersPanelProps {
   onFaded: (markup: string[]) => void;
   /** The PDF layers and markup layers the current page uses; null while unknown. */
   onPage: { pdf: ReadonlySet<string>; markup: ReadonlySet<string> } | null;
+  /** Fork: selects every markup on the named layer ('' for no layer). */
+  onSelectLayer?: (name: string) => void;
   showLinks: boolean;
   onShowLinks: (show: boolean) => void;
 }
@@ -162,6 +164,7 @@ export function LayersPanel({
   onHidden,
   onFaded,
   onPage,
+  onSelectLayer,
   showLinks,
   onShowLinks,
 }: LayersPanelProps) {
@@ -494,6 +497,22 @@ export function LayersPanel({
     setPrefs({ ...prefs, rowOrder: [...(prefs.rowOrder ?? []).filter((k) => !keys.has(k)), ...rows.map((x) => x.key)] });
   };
   const [dragKey, setDragKey] = useState<string | null>(null);
+  /** Fork: only markup layers can sit under another layer; a layer's name in `parents`. */
+  const nameOf = (r: Row) => (r.key.startsWith("mk:") ? r.key.slice(3) : r.name);
+  const canNest = (r: Row) => r.key.startsWith("mk:") && r.key !== mkKey("");
+  const parentOf = (r: Row) => all.find((x) => x.children.includes(r));
+  /** Fork: makes `r` a child of `to` (null: back to the top level), last among its children. */
+  const nestRow = (r: Row, to: Row | null) => {
+    const parents = { ...(prefs.parents ?? {}) };
+    if (to) parents[nameOf(r)] = nameOf(to);
+    else delete parents[nameOf(r)];
+    const rest = (prefs.rowOrder ?? []).filter((k) => k !== r.key);
+    // Placed after the parent's other children.
+    const sibs = (to ? to.children : tree).filter((x) => x !== r).map((x) => x.key);
+    setPrefs({ ...prefs, parents, rowOrder: [...rest.filter((k) => !sibs.includes(k)), ...sibs, r.key] });
+    if (to) setCollapsed((c) => { const n = new Set(c); n.delete(to.key); return n; });
+  };
+  const isUnder = (r: Row, of: Row): boolean => of.children.some((c) => c === r || isUnder(r, c));
 
   const rowMenu = (r: Row): MenuEntry[] => {
     const rows = siblingsOf(r);
@@ -520,6 +539,10 @@ export function LayersPanel({
               : { label: "Isolate", onClick: () => isolateMarkupLayer(r) },
           ]
         : []),
+      ...(holdsMarkups(r) && onSelectLayer
+        ? [{ label: "Select All Markups on Layer", disabled: !r.count && !r.markup, onClick: () => onSelectLayer(r.markup ?? r.key.slice(3)) }]
+        : []),
+      ...(canNest(r) && parentOf(r) ? [{ label: "Move Out of Parent", onClick: () => nestRow(r, parentOf(parentOf(r)!) ?? null) }] : []),
       SEP,
       { label: "Move Up", disabled: view.sort || at <= 0, onClick: () => moveRow(r, at - 1) },
       { label: "Move Down", disabled: view.sort || at >= rows.length - 1, onClick: () => moveRow(r, at + 1) },
@@ -725,16 +748,31 @@ export function LayersPanel({
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onDragOver={(e) => {
-                    if (dragKey && dragKey !== r.key) e.preventDefault();
+                    if (!dragKey || dragKey === r.key) return;
+                    e.preventDefault();
+                    // A cue for "inside this layer" (the middle of the row) against reordering (its edges).
+                    const box = e.currentTarget.getBoundingClientRect();
+                    const inside = e.clientY > box.top + box.height * 0.3 && e.clientY < box.bottom - box.height * 0.3;
+                    e.currentTarget.style.outline = inside ? "2px solid var(--accent, #4c9ffe)" : "";
+                    e.currentTarget.style.outlineOffset = "-2px";
+                  }}
+                  onDragLeave={(e) => {
+                    e.currentTarget.style.outline = "";
                   }}
                   onDragEnd={() => setDragKey(null)}
                   onDrop={(e) => {
                     e.preventDefault();
+                    e.currentTarget.style.outline = "";
                     const from = all.find((x) => x.key === dragKey);
                     setDragKey(null);
                     // Only among rows of the same parent: the dragged row takes the place of the one dropped on.
                     const rows = from ? siblingsOf(from) : [];
-                    if (from && rows.includes(r)) moveRow(from, rows.indexOf(r));
+                    // The middle of a sibling's row puts the layer inside it; its top or bottom edge reorders.
+                    const box = e.currentTarget.getBoundingClientRect();
+                    const middle = e.clientY > box.top + box.height * 0.3 && e.clientY < box.bottom - box.height * 0.3;
+                    if (from && rows.includes(r) && !(middle && canNest(from) && !isUnder(r, from))) moveRow(from, rows.indexOf(r));
+                    // Dropped on a layer of another level: it becomes that layer's child; on its own parent: it comes out.
+                    else if (from && from !== r && canNest(from) && !isUnder(r, from)) nestRow(from, parentOf(from) === r ? (parentOf(r) ?? null) : r);
                   }}
                   onClick={() => setSelected(r.key)}
                   onContextMenu={(e) => {

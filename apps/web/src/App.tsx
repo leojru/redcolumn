@@ -9208,6 +9208,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => (a.name === '' ? 1 : b.name === '' ? -1 : a.name.localeCompare(b.name)));
             })()}
             hiddenMarkup={new Set(activeOpen ? (hiddenMarkupLayers[activeOpen.file.id] ?? []) : [])}
+            onSelectLayer={(name) => activeTools?.select(markups.filter((m) => (m.layer ?? '') === name && !m.hidden).map((m) => m.id))}
             onHidden={(pdf, markup) => {
               const cur = activeOpen;
               if (!cur) return;

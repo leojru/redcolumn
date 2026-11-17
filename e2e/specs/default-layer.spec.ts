@@ -135,3 +135,30 @@ test('Add Child puts a layer under the selected one, and the file keeps it neste
   await row('Walls').locator('.layer-eye').click();
   await expect.poll(hiddenLayers).toEqual([]);
 });
+
+test('Select All Markups on Layer, and dragging a layer onto another makes it a child', async ({ app }) => {
+  await app.open('plan.pdf');
+  const raw = async () => (await app.raw()) as unknown as Raw[];
+  for (const [i, layer] of ['Walls', 'Doors', 'Doors'].entries()) {
+    await app.tool('rect');
+    await app.drag([200 + i * 120, 300], [290 + i * 120, 380]);
+    await expect.poll(async () => (await raw()).length).toBe(i + 1);
+    const m = (await raw())[i]!;
+    await app.page.evaluate(([id, l]) => (window as unknown as { __nb: { tools: { store: { update(id: string, p: object): void } } } }).__nb.tools.store.update(id, { layer: l }), [m.id, layer] as const);
+  }
+  await app.cmd('window.layers');
+  const row = (name: string) => app.page.locator('.layers-grid tbody tr').filter({ hasText: name }).first();
+  const selected = () => app.page.evaluate(() => (window as unknown as { __nb: { tools: { state: { selected: Set<string> | string[] } } } }).__nb.tools.state.selected.constructor === Set ? [...((window as unknown as { __nb: { tools: { state: { selected: Set<string> } } } }).__nb.tools.state.selected)].length : -1);
+  await row('Doors').click({ button: 'right' });
+  await app.page.getByRole('menuitem', { name: 'Select All Markups on Layer' }).click();
+  await expect.poll(selected).toBe(2);
+
+  // Drag Doors onto Walls: Doors is now Walls' child.
+  await row('Doors').dragTo(row('Walls'));
+  await row('Doors').click({ button: 'right' });
+  await expect(app.page.getByRole('menuitem', { name: 'Move Out of Parent' })).toHaveCount(1);
+  // Move Out of Parent puts it back.
+  await app.page.getByRole('menuitem', { name: 'Move Out of Parent' }).click();
+  await row('Doors').click({ button: 'right' });
+  await expect(app.page.getByRole('menuitem', { name: 'Move Out of Parent' })).toHaveCount(0);
+});
