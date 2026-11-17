@@ -257,6 +257,22 @@ export function LayersPanel({
         parent.children.push(r);
       } else roots.push(r);
     }
+    // Fork (leojru/redcolumn): a PDF layer the user dragged into another layer (or out to the top) leaves its place in the file's tree.
+    const detach = (r: Row, from: Row[]): boolean => {
+      const i = from.indexOf(r);
+      if (i >= 0) return from.splice(i, 1), true;
+      return from.some((x) => detach(r, x.children));
+    };
+    for (const r of new Set(pdfRows.values())) {
+      if (!(r.name in parents)) continue;
+      const target = byName.get(parents[r.name] ?? "");
+      const within = (x: Row): boolean => x === target || x.children.some(within);
+      if (target && within(r)) continue; // never under itself or its own child
+      const parent = [...byName.values()].find((x) => x.children.includes(r));
+      if (parent === target || (!parent && !target && roots.includes(r))) continue;
+      detach(r, roots);
+      (target ? target.children : roots).push(r);
+    }
     // Fork (leojru/redcolumn): rows the user moved keep that order among their siblings; the others follow in their usual order.
     const rowOrder = prefs.rowOrder ?? [];
     if (rowOrder.length) {
@@ -499,13 +515,13 @@ export function LayersPanel({
   const [dragKey, setDragKey] = useState<string | null>(null);
   /** Fork: only markup layers can sit under another layer; a layer's name in `parents`. */
   const nameOf = (r: Row) => (r.key.startsWith("mk:") ? r.key.slice(3) : r.name);
-  const canNest = (r: Row) => r.key.startsWith("mk:") && r.key !== mkKey("");
+  const canNest = (r: Row) => r.key !== mkKey("");
   const parentOf = (r: Row) => all.find((x) => x.children.includes(r));
   /** Fork: makes `r` a child of `to` (null: back to the top level), last among its children. */
   const nestRow = (r: Row, to: Row | null) => {
     const parents = { ...(prefs.parents ?? {}) };
-    if (to) parents[nameOf(r)] = nameOf(to);
-    else delete parents[nameOf(r)];
+    // '' puts a layer at the top level, over where the file's own tree has it.
+    parents[nameOf(r)] = to ? nameOf(to) : "";
     const rest = (prefs.rowOrder ?? []).filter((k) => k !== r.key);
     // Placed after the parent's other children.
     const sibs = (to ? to.children : tree).filter((x) => x !== r).map((x) => x.key);
@@ -539,8 +555,8 @@ export function LayersPanel({
               : { label: "Isolate", onClick: () => isolateMarkupLayer(r) },
           ]
         : []),
-      ...(holdsMarkups(r) && onSelectLayer
-        ? [{ label: "Select All Markups on Layer", disabled: !r.count && !r.markup, onClick: () => onSelectLayer(r.markup ?? r.key.slice(3)) }]
+      ...(onSelectLayer
+        ? [{ label: "Select All Markups on Layer", disabled: !holdsMarkups(r) || !r.count, onClick: () => onSelectLayer(r.markup ?? r.key.slice(3)) }]
         : []),
       ...(canNest(r) && parentOf(r) ? [{ label: "Move Out of Parent", onClick: () => nestRow(r, parentOf(parentOf(r)!) ?? null) }] : []),
       SEP,
