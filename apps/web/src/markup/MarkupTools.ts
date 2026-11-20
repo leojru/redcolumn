@@ -17,6 +17,7 @@ import {
   joinPaths,
   bulgeMidpoint,
   eraseStroke,
+  calloutKneeDragged,
   calloutLanding,
   calloutLeaders,
   calloutPoints,
@@ -1871,6 +1872,8 @@ export class MarkupTools implements ViewerOverlay {
   private handleMoved(m: Markup, index: number, point: Point): Point[] {
     // A Cloud+'s leader tip slides along the cloud's outline: it cannot be pulled off it.
     if (isCalloutTip(index) && index === 0 && this.cloudOf(m)) point = nearestOnCloud(this.cloudOf(m)!, point);
+    // Fork (leojru/redcolumn): as in Bluebeam, a dragged knee lands on the middle of the box side the pointer is beyond.
+    if (m.type === 'callout' && m.points.length >= 4 && !isCalloutTip(index) && index !== 2 && index !== 3) point = calloutKneeDragged(point, boundsOf(m.points.slice(2, 4)));
     const points = this.cloudOf(m) && (index === 2 || index === 3) ? this.tipOnCloud(m, this.handleMovedBox(m, index, point)) : this.handleMovedBox(m, index, point);
     return points;
   }

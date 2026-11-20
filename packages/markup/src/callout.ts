@@ -80,12 +80,42 @@ export function refitCalloutKnees(points: readonly Point[], from: Rect, to: Rect
   });
 }
 
+/** The middle of `side` of `box`, and the direction pointing out of it. */
+function sideMiddle(box: Rect, side: CalloutSide): { at: Point; out: Point } {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  if (side === 'left') return { at: [box.x, cy], out: [-1, 0] };
+  if (side === 'right') return { at: [box.x + box.w, cy], out: [1, 0] };
+  if (side === 'top') return { at: [cx, box.y], out: [0, -1] };
+  return { at: [cx, box.y + box.h], out: [0, 1] };
+}
+
+/**
+ * Fork (leojru/redcolumn): where a callout's knee goes when it is dragged to `cursor`, as Bluebeam does it.
+ * The leader always lands on the middle of the box side the cursor is beyond (the side it overshoots most;
+ * the nearest side when the cursor is over the box), head-on, and the knee follows the cursor only along that
+ * line: it sets how long the landing is, not where on the side it meets.
+ */
+export function calloutKneeDragged(cursor: Point, box: Rect): Point {
+  const out: [CalloutSide, number][] = [
+    ['left', box.x - cursor[0]],
+    ['right', cursor[0] - (box.x + box.w)],
+    ['top', box.y - cursor[1]],
+    ['bottom', cursor[1] - (box.y + box.h)],
+  ];
+  let [side, d] = out[0]!;
+  for (const [s, v] of out) if (v > d) [side, d] = [s, v];
+  const { at, out: n } = sideMiddle(box, side);
+  const len = Math.max(0, d);
+  return [at[0] + n[0] * len, at[1] + n[1] * len];
+}
+
 /**
  * Fork (leojru/redcolumn): a callout's `points` with each leader landing on the side of the box that
  * faces its tip (left or right when the tip is more to the side, top or bottom when it is more above or
- * below), once the tip is far enough past that side to leave room for the landing. The landing keeps
- * its length; it keeps its place along the side when it stays on the same pair of sides, and otherwise
- * lines up with the tip. A tip over the box leaves the leader alone.
+ * below), as in Bluebeam: the moment the box is dragged round to the other side of the tip the leader
+ * re-lands on the middle of that side, whatever room there is, and its landing keeps its length. A leader
+ * already on the facing side stays as it is, and a tip over the box leaves the leader alone.
  */
 export function kneesFacingTips(points: readonly Point[]): Point[] {
   if (points.length < 4) return [...points];
@@ -93,7 +123,6 @@ export function kneesFacingTips(points: readonly Point[]): Point[] {
   const box: Rect = { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
   const right = box.x + box.w;
   const bottom = box.y + box.h;
-  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   return points.map((knee, i): Point => {
     if (i !== 1 && (i < 5 || i % 2 === 0)) return knee;
     const tip = points[i - 1]!;
@@ -103,17 +132,9 @@ export function kneesFacingTips(points: readonly Point[]): Point[] {
     const want: CalloutSide = dx >= dy ? (tip[0] < box.x ? 'left' : 'right') : tip[1] < box.y ? 'top' : 'bottom';
     const { side, attach } = calloutLanding(knee, box);
     if (side === want) return knee;
-    // How far out the landing runs, and whether the tip leaves room for it on the facing side.
     const landing = Math.hypot(knee[0] - attach[0], knee[1] - attach[1]);
-    const gap = want === 'left' ? box.x - tip[0] : want === 'right' ? tip[0] - right : want === 'top' ? box.y - tip[1] : tip[1] - bottom;
-    if (gap < landing) return knee;
-    const sideways = (v: CalloutSide) => v === 'left' || v === 'right';
-    if (sideways(want)) {
-      const y = clamp(sideways(side) ? knee[1] : tip[1], box.y, bottom);
-      return [want === 'left' ? box.x - landing : right + landing, y];
-    }
-    const x = clamp(sideways(side) ? tip[0] : knee[0], box.x, right);
-    return [x, want === 'top' ? box.y - landing : bottom + landing];
+    const { at, out: n } = sideMiddle(box, want);
+    return [at[0] + n[0] * landing, at[1] + n[1] * landing];
   });
 }
 

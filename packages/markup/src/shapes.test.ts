@@ -333,15 +333,15 @@ test('a callout box dragged past its tip: the leader switches to the side facing
   assert.deepEqual(kneesFacingTips([[400, 0], [80, 50], [100, 40], [200, 60]])[1], [220, 50]);
   // And back: on its right with the tip to the left.
   assert.deepEqual(kneesFacingTips([[0, 0], [220, 50], [100, 40], [200, 60]])[1], [80, 50]);
-  // The tip just past the side, no room for the landing: it stays until there is.
-  assert.deepEqual(kneesFacingTips([[210, 50], [80, 50], [100, 40], [200, 60]])[1], [80, 50]);
-  // Tip under the box: the landing drops to the bottom, lined up with the tip, same length.
-  assert.deepEqual(kneesFacingTips([[150, 300], [80, 50], [100, 40], [200, 60]])[1], [150, 80]);
-  // A landing on top moves to the right side when the tip is out to the right; a tip over the box leaves it.
-  assert.deepEqual(kneesFacingTips([[400, 0], [150, 10], [100, 40], [200, 60]])[1], [230, 40]);
+  // The tip just past the side, with no room for the landing: it switches at once, as in Bluebeam.
+  assert.deepEqual(kneesFacingTips([[210, 50], [80, 50], [100, 40], [200, 60]])[1], [220, 50]);
+  // Tip under the box: the landing drops to the middle of the bottom, same length.
+  assert.deepEqual(kneesFacingTips([[120, 300], [80, 50], [100, 40], [200, 60]])[1], [150, 80]);
+  // A landing on top moves to the middle of the right side when the tip is out to the right; a tip over the box leaves it.
+  assert.deepEqual(kneesFacingTips([[400, 0], [150, 10], [100, 40], [200, 60]])[1], [230, 50]);
   assert.deepEqual(kneesFacingTips([[150, 50], [80, 50], [100, 40], [200, 60]])[1], [80, 50]);
   const two = kneesFacingTips([[0, 0], [80, 50], [100, 40], [200, 60], [400, 0], [80, 45]]);
-  assert.deepEqual([two[1], two[5]], [[80, 50], [220, 45]]);
+  assert.deepEqual([two[1], two[5]], [[80, 50], [220, 50]]);
 });
 
 // Fork (leojru/redcolumn).
@@ -493,4 +493,15 @@ test('a Cloud+ leader tip lands on a pointed join between the cloud’s bumps, n
   assert.deepEqual(tip, [30, 40]);
   assert.deepEqual(nearestOnCloud(cloud, [-20, -20]), [0, 0], 'a corner is a join too');
   assert.deepEqual(nearestOnCloud({ ...(cloud as object), type: 'rect' } as never, [34, 90]), [34, 40], 'a plain rectangle takes any point of its edge');
+});
+
+test('a callout knee dragged around its box lands head-on on the middle of the side it is beyond', async () => {
+  const { calloutKneeDragged } = await import('./callout.ts');
+  const box = { x: 100, y: 40, w: 80, h: 20 };
+  assert.deepEqual(calloutKneeDragged([60, 10], box), [60, 50]);
+  assert.deepEqual(calloutKneeDragged([250, 55], box), [250, 50]);
+  assert.deepEqual(calloutKneeDragged([120, 0], box), [140, 0]);
+  assert.deepEqual(calloutKneeDragged([170, 100], box), [140, 100]);
+  // Over the box: the nearest side, with no landing.
+  assert.deepEqual(calloutKneeDragged([105, 50], box), [100, 50]);
 });
