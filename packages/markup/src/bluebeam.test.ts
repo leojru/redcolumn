@@ -7,7 +7,7 @@ import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { markupShape } from './geometry.ts';
 import { readPdfExtras } from './pdfExtras.ts';
 import { MarkupStore } from './store.ts';
-import type { Markup } from './model.ts';
+import { DEFAULT_STYLES, type Markup } from './model.ts';
 
 const text = (s: string) => PDFHexString.fromText(s);
 
@@ -518,4 +518,33 @@ test("a square with no appearance, colour or border (AutoCAD's SHX text notes) s
   const annotation = (index: number): ImportableAnnotation => ({ index, objectNumber: extras.pages[0]!.objectNumbers[index]!, subtype: 'Square', rect: { x: 10, y: 760, w: 90, h: 30 }, color: null, interior: null, opacity: 1, borderWidth: 0, contents: 'NOTE', author: 'AutoCAD SHX Text', intent: '', cloudy: false, da: '', appData: '', flags: 64, vertices: [], ink: [], line: null, link: null });
   const { markups } = importAnnotations(0, [annotation(0), annotation(1), annotation(2)], () => null, extras);
   assert.deepEqual(markups.map((m) => !!m.hidden), [true, false, false]);
+});
+
+// Fork (leojru/redcolumn): Revu names a text box's shape in /Shape and redraws a box without it as a plain rectangle.
+test('a text box with a circle border goes out with /Shape, and Revu\'s /Shape comes in as the border', async () => {
+  const source = await PDFDocument.create();
+  source.addPage([600, 800]);
+  const m: Markup = { id: 'c', type: 'text', pageIndex: 0, points: [[100, 100], [140, 140]], text: '13', style: { ...DEFAULT_STYLES.text, boxShape: 'circle' }, status: 'none', author: 'A', createdAt: 1, modifiedAt: 1 };
+  const out = await PDFDocument.load(await exportWithAnnotations((await source.save()).buffer as ArrayBuffer, [m]));
+  const annot = out.context.lookup(out.getPage(0).node.Annots()!.get(0), PDFDict);
+  assert.equal(annot.lookup(PDFName.of('Shape'))?.toString(), '/Circle');
+  const rd = (annot.lookup(PDFName.of('RD'), PDFArray).asArray() as PDFNumber[]).map((n) => n.asNumber());
+  assert.ok(rd.every((n) => n > 0), 'the text sits inside the circle');
+  // A rectangle has no /Shape.
+  const plain = await PDFDocument.load(await exportWithAnnotations((await source.save()).buffer as ArrayBuffer, [{ ...m, style: { ...m.style, boxShape: 'rect' } }]));
+  assert.equal(plain.context.lookup(plain.getPage(0).node.Annots()!.get(0), PDFDict).has(PDFName.of('Shape')), false);
+
+  // Revu's own: the whole shape is the Rect.
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const ctx = doc.context;
+  const revu = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', NM: text('REVU'), Contents: text('20'), DA: text('0 0 1 rg /Helv 12 Tf'), C: [1, 1, 1], BS: { W: 1, S: 'S' }, Shape: 'Hexagon', Rect: [409, 594, 447, 628], RD: [10, 9, 10, 9] }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([revu]));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 1, author: '', intent: '', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const { markups } = importAnnotations(0, [{ ...base, index: 0, objectNumber: revu.objectNumber, subtype: 'FreeText', contents: '20' }], () => null, extras);
+  assert.equal(markups[0]!.style.boxShape, 'hexagon');
+  const [a, b] = markups[0]!.points;
+  assert.ok(Math.abs((b![0] - a![0]) - 37) < 1.5, 'the box is the whole shape, not just its text area');
 });

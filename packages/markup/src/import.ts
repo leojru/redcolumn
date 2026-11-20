@@ -740,6 +740,12 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       // Fork (leojru/redcolumn): a text box or callout with a cloud for a border.
       if (nameOf(dict(r.BE)?.S) === 'C') Object.assign(style, { cloudBorder: true, arcRadius: cloudArcRadius(num(dict(r.BE)?.I)) });
       if (!textStyle.fontSize) style.fontSize = Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || 12;
+      // Fork (leojru/redcolumn): Revu's text box shape. Its Rect is the whole shape and /RD insets the text from it.
+      const frame = ({ Circle: 'circle', Triangle: 'triangle', Hexagon: 'hexagon' } as const)[nameOf(r.Shape) as 'Circle'];
+      if (frame && intent !== 'FreeTextCallout') {
+        style.boxShape = frame;
+        return [{ type: 'text', points: innerBox([]), filled: !!color, style }];
+      }
       let box = innerBox();
       if (intent === 'FreeTextCallout') {
         const cl = pagePoints(nums(r.CL), toPage);

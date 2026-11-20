@@ -15,6 +15,7 @@ import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, hasCloudBorder, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
+import { frameInner, type TextFrame } from './textFrames';
 import { baselineDrop, centredInShape, dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { breakAroundBox, leaderPart, lengthLabelBox, lengthLeader } from './dimensionInline';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
@@ -101,6 +102,8 @@ function plainText(s: string) {
 }
 
 /** Bluebeam's /CountStyle for each of our count markers. */
+/** The names Revu gives a text box's shape in /Shape (a plain box has none). */
+const REVU_SHAPE_NAMES: Record<Exclude<TextFrame, 'rect'>, string> = { circle: 'Circle', triangle: 'Triangle', hexagon: 'Hexagon' };
 const COUNT_STYLE_NAMES: Record<CountShape, string> = { circle: 'Circle', check: 'Checkmark', square: 'Square', diamond: 'Diamond', triangle: 'Triangle', cross: 'Cross' };
 
 /** A count marker's outline, centred on (cx, cy), `r` from the centre to its edge (page space, y down). */
@@ -1163,6 +1166,15 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
       };
+      // Fork (leojru/redcolumn): as in Revu, a text box with a circle, triangle or hexagon border names it in /Shape, and
+      // /RD insets its text from the shape's box. Without them Revu redraws the box as a plain rectangle as soon as it
+      // touches the markup (exploding its group, say).
+      const frame = m.type === 'text' ? m.style.boxShape : undefined;
+      if (frame && frame !== 'rect') {
+        const inner = frameInner(frame, { x: 0, y: 0, w: ub.w, h: ub.h });
+        specific.Shape = REVU_SHAPE_NAMES[frame];
+        specific.RD = [rd[0]! + inner.x, rd[1]! + inner.y, rd[2]! + ub.w - inner.x - inner.w, rd[3]! + ub.h - inner.y - inner.h];
+      }
       if (m.type === 'flagLabel') {
         // Its box reaches the flag's point; the text sits right of it (RD's left inset).
         const box = contentBox(m);
