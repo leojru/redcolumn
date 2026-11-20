@@ -1875,7 +1875,8 @@ export class MarkupTools implements ViewerOverlay {
     // Fork (leojru/redcolumn): as in Bluebeam, a dragged knee lands on the middle of the box side the pointer is beyond.
     if (m.type === 'callout' && m.points.length >= 4 && !isCalloutTip(index) && index !== 2 && index !== 3) point = calloutKneeDragged(point, boundsOf(m.points.slice(2, 4)));
     const points = this.cloudOf(m) && (index === 2 || index === 3) ? this.tipOnCloud(m, this.handleMovedBox(m, index, point)) : this.handleMovedBox(m, index, point);
-    return points;
+    // Fork (leojru/redcolumn): as in Bluebeam, dragging an arrow tip round the box makes the leader land on the middle of the side facing it.
+    return m.type === 'callout' && isCalloutTip(index) ? kneesFacingTips(points) : points;
   }
 
   private handleMovedBox(m: Markup, index: number, point: Point): Point[] {
