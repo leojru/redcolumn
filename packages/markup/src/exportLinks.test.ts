@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDict, PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
 import { exportWithAnnotations } from './export.ts';
 import type { LinkStatus, StoredLink } from './store.ts';
 
@@ -28,4 +28,16 @@ test('a link keeps what it is: the kind, identifier and label travel in our app 
   assert.match(data, /"kind":"section"/);
   assert.match(data, /"detail":"A"/);
   assert.match(data, /"label":"A\/A-501"/);
+});
+
+test('a link whose target rectangle is not a number goes to the whole page, and the file reads back whole', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  doc.addPage([400, 400]);
+  const bad: StoredLink = { ...link('0:9/S2.1:2:2', 'accepted'), targetRect: { x: NaN, y: NaN, w: NaN, h: NaN } };
+  const bytes = await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [], { links: [bad] });
+  assert.ok(!new TextDecoder('latin1').decode(bytes).includes('NaN'), 'no NaN token in the file');
+  const out = await PDFDocument.load(bytes);
+  const annot = out.getPage(0).node.Annots()?.asArray().map((r) => out.context.lookup(r, PDFDict))[0];
+  assert.equal(annot?.lookup(PDFName.of('Dest'), PDFArray).get(1)?.toString(), '/Fit');
 });

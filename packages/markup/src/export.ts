@@ -1460,6 +1460,7 @@ function destArray(pages: PDFPage[], pageIndex: number, rect: { x: number; y: nu
   const page = pages[pageIndex];
   if (!page) return null;
   const m = pageMatrix(page);
+  if (rect && ![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) return [page.ref, PDFName.of('Fit')];
   if (rect && rect.w > 0 && rect.h > 0) return [page.ref, PDFName.of('FitR'), ...userRect(m, rect).map((n) => PDFNumber.of(n))];
   if (rect) {
     const [x, y] = apply(m, [rect.x, rect.y]);
@@ -1553,11 +1554,16 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
     if (!page || !target || link.status === 'rejected') continue;
     // A match of a taught mark is only a suggestion until a person keeps it.
     if (link.status === 'review' && (link.id.startsWith('mark-') || link.id.startsWith('ai-'))) continue;
-    const dest = link.targetRect ? [target.ref, 'FitR', ...userRect(pageMatrix(target), link.targetRect)] : [target.ref, 'Fit'];
+    // A rectangle with a number that is not finite (NaN) would be written as the token NaN, which a PDF reader cannot read:
+    // pdf-lib loses the whole object stream holding it, fonts included. Such a target goes to the whole page instead.
+    const targetBox = link.targetRect ? userRect(pageMatrix(target), link.targetRect) : null;
+    const dest = targetBox && targetBox.every(Number.isFinite) ? [target.ref, 'FitR', ...targetBox] : [target.ref, 'Fit'];
+    const box = userRect(pageMatrix(page), link.rect);
+    if (!box.every(Number.isFinite)) continue;
     const annot = doc.context.obj({
       Type: 'Annot',
       Subtype: 'Link',
-      Rect: userRect(pageMatrix(page), link.rect),
+      Rect: box,
       Border: [0, 0, 0],
       NM: pdfText(link.id),
       Dest: dest,
