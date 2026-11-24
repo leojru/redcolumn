@@ -9,7 +9,7 @@
 pkgname=redcolumn-leojru
 _pkgname=redcolumn
 _branch=revu-layout
-pkgver=0.1.23.r1022.e2482464
+pkgver=0.1.23.r1024.24ec1a19
 pkgrel=1
 pkgdesc='PDF markup and takeoff for construction drawings (leojru fork, Revu-style layout)'
 arch=('x86_64')
