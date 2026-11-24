@@ -141,6 +141,7 @@ import {
   type Side,
   keepTextColor,
 } from '@nb/markup';
+import { hasSnapVector, placedLines } from '../fork/vectorSnap';
 import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, betterSnap, track, type ManualQuantity, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
@@ -4791,10 +4792,28 @@ export class MarkupTools implements ViewerOverlay {
    * the background on first use and again once its markup has moved.
    */
   private pictureIndexesFor(pageIndex: number, excludeId?: string): SnapIndex[] {
-    // Fork: its vector Snapshots are not snapped to (upstream's separate vector picture format is not used here).
-    void pageIndex;
-    void excludeId;
-    return [];
+    const out: SnapIndex[] = [];
+    for (const m of this.pageMarkups(pageIndex)) {
+      if (m.id === excludeId || !hasSnapVector(m)) continue;
+      const key = JSON.stringify([m.points, m.rotation ?? 0, m.vectorImage]);
+      const cached = this.pictureIndexes.get(m.id);
+      if (cached?.key === key) {
+        if (cached.index !== 'loading') out.push(cached.index);
+        continue;
+      }
+      const entry: { key: string; index: SnapIndex | 'loading' } = { key, index: 'loading' };
+      this.pictureIndexes.set(m.id, entry);
+      placedLines(m)
+        .then((placed) => {
+          if (placed) entry.index = new SnapIndex(placed.segments, undefined, placed.curves);
+          else if (this.pictureIndexes.get(m.id) === entry) this.pictureIndexes.delete(m.id);
+        })
+        .catch((err) => {
+          console.error('Reading a vector Snapshot failed', err);
+          if (this.pictureIndexes.get(m.id) === entry) this.pictureIndexes.delete(m.id);
+        });
+    }
+    return out;
   }
 
   /** Cached snap index for a page, loading it in the background on first use. */
