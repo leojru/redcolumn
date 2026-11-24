@@ -1,9 +1,8 @@
-import { expect, test } from '../support/app.ts';
+import { expect, IMPERIAL, test } from '../support/app.ts';
 
 // Interface language (Preferences › General › Options › Language; packages/i18n). The pseudo-locales
 // stand in for real translations: en-XA accents and lengthens every translated message, ar-XB shows
 // it right to left.
-const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft' };
 
 test.describe('accented pseudo-locale', () => {
   test.use({ settings: { ...IMPERIAL, uiLanguage: 'en-XA' } });

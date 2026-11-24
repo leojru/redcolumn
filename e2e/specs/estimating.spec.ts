@@ -88,7 +88,7 @@ test.describe('estimating', () => {
     await page.keyboard.press('Escape');
     await page.evaluate((id) => window.__nb.tools.select([id]), area!.id);
     await app.panel('Measurements');
-    await page.getByLabel('Assembly', { exact: true }).selectOption({ label: 'Lined wall' });
+    await page.getByRole('complementary').getByLabel('Assembly', { exact: true }).selectOption({ label: 'Lined wall' });
     const inputs = page.getByRole('dialog', { name: 'Assembly inputs' });
     await expect(inputs.getByLabel('Input Layers')).toHaveValue('2');
     await expect(inputs.getByLabel('Input Both Sides')).toHaveValue('1');

@@ -89,9 +89,9 @@ test.describe('classic layout', () => {
     await expect(bar.locator('[data-status-command="view.split"]')).toHaveAttribute('aria-pressed', 'true');
     await bar.locator('[data-status-command="view.unsplit"]').click();
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
-    // The pointer's position on the page.
+    // The classic bar has no X/Y readout (a map PDF's latitude and longitude still show).
     const c = await app.at([200, 200]);
     await app.page.mouse.move(c.x, c.y, { steps: 3 });
-    await expect(bar.locator('.status-coords')).toContainText(/X .+ Y .+/);
+    await expect(bar.locator('.status-coords')).toHaveCount(0);
   });
 });

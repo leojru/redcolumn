@@ -346,6 +346,8 @@ test.describe('edit', () => {
     await select(app, [r1!.id]);
     await app.cmd('edit.multiply');
     const dialog = app.page.locator('.modal').filter({ hasText: 'Multiply' });
+    // Spacing between the copies' edges (the dialog can also measure it centre to centre).
+    await dialog.locator('#mult-measure').selectOption('edge');
     await dialog.locator('#mult-cols').fill('3');
     await dialog.locator('#mult-gapx').fill('5');
     await dialog.locator('#mult-rows').fill('2');

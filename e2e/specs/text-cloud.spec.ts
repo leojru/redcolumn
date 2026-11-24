@@ -10,10 +10,16 @@ async function textBox(app: Parameters<Parameters<typeof test>[2]>[0]['app']) {
   await app.open('plan.pdf');
   await app.tool('text');
   await app.drag([300, 300], [500, 380]);
-  await app.page.locator('textarea.text-editor').fill('Note');
+  await app.page.keyboard.type('Note');
   await app.page.keyboard.press('Control+Enter');
   await app.tool('select');
   await app.clicks([[400, 340]]);
+}
+
+/** Picks a style by name in the top bar's Line style picker (a listbox). */
+async function pickLineStyle(page: import('@playwright/test').Page, name: string) {
+  await page.locator('.classic-props').getByRole('combobox', { name: 'Line style' }).click();
+  await page.getByRole('listbox', { name: 'Line styles' }).getByRole('option', { name: new RegExp(`^${name}$`, 'i') }).click();
 }
 
 /** Picks swatch `n` in the named colour menu of the top bar; returns its colour. */
@@ -41,12 +47,12 @@ test('the line colour and the text colour change apart in the top bar', async ({
 test('Cloud in the line style list makes a text box a cloud, with its settings in the bar', async ({ app }) => {
   await textBox(app);
   const row = app.page.locator('.classic-props');
-  const lineStyle = row.locator('label[title="Line style"] select');
-  await lineStyle.selectOption('cloud');
+  const lineStyle = row.getByRole('combobox', { name: 'Line style' });
+  await pickLineStyle(app.page, 'cloud');
   expect(((await app.raw()) as unknown as Raw[])[0]!.style.cloudBorder).toBe(true);
   await row.getByRole('combobox', { name: 'Cloud arcs' }).selectOption('inside');
   expect(((await app.raw()) as unknown as Raw[])[0]!.style).toMatchObject({ cloudBorder: true, cloudInside: true });
-  await lineStyle.selectOption('solid');
+  await pickLineStyle(app.page, 'solid');
   expect(((await app.raw()) as unknown as Raw[])[0]!.style.cloudBorder).toBeUndefined();
 });
 
@@ -62,13 +68,13 @@ test.describe('snapshots', () => {
     await app.tool('select');
     const pasted = ((await app.raw()) as unknown as Raw[]).find((m) => m.type === 'image')!;
     await app.page.evaluate((id) => (window as unknown as { __nb: { tools: { select: (ids: string[]) => void } } }).__nb.tools.select([id]), pasted.id);
-    const lineStyle = app.page.locator('.classic-props label[title="Line style"] select');
+    const lineStyle = app.page.locator('.classic-props').getByRole('combobox', { name: 'Line style' });
     await expect(lineStyle).toBeVisible();
-    await lineStyle.selectOption('dashed');
+    await pickLineStyle(app.page, 'dashed');
     let s = ((await app.raw()) as unknown as Raw[]).find((m) => m.type === 'image')!.style;
     expect(s.dash).toBe('dashed');
     expect(s.width).toBeGreaterThan(0);
-    await lineStyle.selectOption('cloud');
+    await pickLineStyle(app.page, 'cloud');
     s = ((await app.raw()) as unknown as Raw[]).find((m) => m.type === 'image')!.style;
     expect(s.cloudBorder).toBe(true);
     expect(s.dash).toBeUndefined();

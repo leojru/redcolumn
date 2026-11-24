@@ -29,8 +29,8 @@ test("a Revu snapshot's cloud and fill are settings that can be changed and save
   expect(found.style).toMatchObject({ fill: '#ffff00', cloudBorder: true, width: 3, arcRadius: 7 });
 
   await app.page.evaluate((id) => (window as unknown as { __nb: { tools: { select: (ids: string[]) => void } } }).__nb.tools.select([id]), found.id);
-  const lineStyle = app.page.locator('.classic-props label[title="Line style"] select');
-  await lineStyle.selectOption({ label: 'Solid' });
+  await app.page.locator('.classic-props').getByRole('combobox', { name: 'Line style' }).click();
+  await app.page.getByRole('listbox', { name: 'Line styles' }).getByRole('option', { name: /^Solid$/i }).click();
   await expect.poll(async () => (await snapshot())!.style.cloudBorder ?? false).toBe(false);
 
   const before = (await app.saved()).length;

@@ -2,6 +2,13 @@
 // and width, so changing them back works.
 import { expect, test } from '../support/app.ts';
 
+/** Picks a style by name in the top bar's Line style picker (a listbox). */
+async function pickLineStyle(page: import('@playwright/test').Page, name: string) {
+  await page.locator('.classic-props').getByRole('combobox', { name: 'Line style' }).click();
+  await page.getByRole('listbox', { name: 'Line styles' }).getByRole('option', { name: new RegExp(`^${name}$`, 'i') }).click();
+}
+
+
 test.use({ toolbar: 'classic' });
 
 type Raw = { id: string; style: { dash?: string; width: number } };
@@ -19,14 +26,14 @@ test("the top bar reads a selected table's line style and width, and takes it ba
 
   const table = async () => ((await app.raw()) as unknown as Raw[])[0]!;
   const row = app.page.locator('.classic-props');
-  const lineStyle = row.locator('label[title="Line style"] select');
-  await expect(lineStyle).toHaveValue('solid');
-  await lineStyle.selectOption('dashed');
+  const lineStyle = row.getByRole('combobox', { name: 'Line style' });
+  await expect(lineStyle).toContainText(/solid/i);
+  await pickLineStyle(app.page, 'dashed');
   await expect.poll(async () => (await table()).style.dash).toBe('dashed');
-  await expect(lineStyle).toHaveValue('dashed');
-  await lineStyle.selectOption('solid');
+  await expect(lineStyle).toContainText(/dashed/i);
+  await pickLineStyle(app.page, 'solid');
   await expect.poll(async () => (await table()).style.dash).toBeUndefined();
-  await expect(lineStyle).toHaveValue('solid');
+  await expect(lineStyle).toContainText(/solid/i);
 
   const width = row.locator('label[title="Line width"] input');
   await width.fill('3');

@@ -47,7 +47,7 @@ test.describe('takeoff reports', () => {
     await app.page.keyboard.press('Escape');
     await app.page.evaluate((id) => window.__nb.tools.select([id]), area!.id);
     await app.panel('Measurements');
-    await app.page.getByLabel('Assembly', { exact: true }).selectOption({ label: 'Lined wall' });
+    await app.page.getByRole('complementary').getByLabel('Assembly', { exact: true }).selectOption({ label: 'Lined wall' });
     await expect.poll(async () => (await app.raw())[0]!.assemblyId).toBe('lined');
   });
 
