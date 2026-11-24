@@ -1848,7 +1848,12 @@ export function App() {
       if (pane === 'b' && !follow) mirrorRef.current = false;
       if (packed) recentOpenIds.current = touchRecent(recentOpenIds.current, packed.file.id);
       if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
-      if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
+      // Fork (leojru/redcolumn): another document brought forward in the left pane leaves the right pane on the
+      // document that was split (as in Revu): the mirror ends and that document becomes the right pane's own tab.
+      if (pane === 'a' && mirrorRef.current && packed && cur && packed !== cur) {
+        mirrorRef.current = false;
+        if (openBRef.current) setTabs('b', [openBRef.current]);
+      }
       setFront(pane, packed);
       if (pane === 'a') {
         // Per-document state of the front document.
@@ -4619,7 +4624,7 @@ export function App() {
       const closing = tabs[idx]!;
       // Fork (leojru/redcolumn): split to itself, closing one side closes that view only (as Revu):
       // asked before the other pane's tabs can move across below.
-      const elsewhere = (pane === 'b' ? tabsARef.current : tabsBRef.current).includes(closing);
+      const elsewhere = (pane === 'b' ? tabsARef.current : tabsBRef.current).includes(closing) || (pane === 'a' && mirrorRef.current && openBRef.current === closing);
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
       // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.

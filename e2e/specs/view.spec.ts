@@ -399,21 +399,20 @@ test.describe('view', () => {
     });
   }
 
-  test('a mirrored right pane follows the left pane to another file, and closing keeps the other', async ({ app }) => {
+  test('a mirrored right pane stays on the split file when the left pane goes to another, and closing keeps the other', async ({ app }) => {
     await app.cmd('view.split');
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
     await app.open('plan-rev1.pdf');
-    expect((await app.command('view.switchPanes')).enabled).toBe(false);
-    expect(await app.documents()).toHaveLength(2);
+    // Fork (leojru/redcolumn): as in Revu, the right pane keeps the document that was split; both are open.
+    expect((await app.command('view.switchPanes')).enabled).toBe(true);
+    expect((await app.documents()).map((d) => d.name).sort()).toEqual(['plan-rev1.pdf', 'plan.pdf']);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2);
-    // Closing from the right pane closes the file in front (plan-rev1.pdf); plan.pdf stays, still split.
+    expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(0);
+    // Closing from the right pane closes that view only (plan.pdf is still a tab on the left) and ends the split.
     await app.page.locator('main.stage').nth(1).click({ position: { x: 5, y: 5 } });
     await app.cmd('file.close');
-    await expect.poll(async () => (await app.documents()).map((d) => d.name)).toEqual(['plan.pdf']);
-    await expect(app.page.locator('main.stage canvas')).toHaveCount(2);
-    expect(await app.page.evaluate(() => !!window.__nb.viewerB?.pageSize(0))).toBe(true);
-    await app.cmd('view.unsplit');
     await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+    expect((await app.documents()).map((d) => d.name).sort()).toEqual(['plan-rev1.pdf', 'plan.pdf']);
   });
 
   test('split with two files open puts the other open file in the second pane', async ({ app }) => {
