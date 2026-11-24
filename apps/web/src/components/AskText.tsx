@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 interface Request {
@@ -54,7 +55,7 @@ export function AskTextHost() {
         }}
       >
         <h3>{req.title}</h3>
-        {req.label && <p>{req.label}</p>}
+        {req.label && <p style={{ whiteSpace: 'pre-line' }}>{req.label}</p>}
         <div className={req.choices ? 'choice-list' : 'row'} role={req.choices ? 'radiogroup' : undefined} aria-label={req.choices ? req.title : undefined}>
           {req.choices ? (
             req.choices.map((c, i) => {
@@ -85,7 +86,7 @@ export function AskTextHost() {
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={() => done(null)}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={req.password ? !value : !value.trim()}>
             {req.confirm}

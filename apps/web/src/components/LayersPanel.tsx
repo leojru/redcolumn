@@ -1,9 +1,13 @@
 // Modified in the leojru/redcolumn fork (revu-layout): Set as Default Layer for new markups; Isolate a markup layer; a saved markup layer listed once; Add Child; Move Up / Down and drag to reorder.
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import {
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import type { PdfLayer } from "../documents/layers";
@@ -49,7 +53,29 @@ interface LayerPrefs {
 /** How the list is shown, for every document (Show Layers On Page Only is a preference). */
 interface LayerView {
   sort: boolean;
+  /** Column widths in pixels, as dragged at the header edges; missing ones use the defaults. */
+  widths?: Partial<Record<Column, number>>;
 }
+
+type Column = "name" | "lock" | "print" | "export";
+const COLUMNS: { key: Column; label: string }[] = [
+  { key: "name", get label() { return msg('Layer'); } },
+  { key: "lock", get label() { return msg('Lock'); } },
+  { key: "print", get label() { return msg('Print'); } },
+  { key: "export", get label() { return msg('Export'); } },
+];
+const DEFAULT_WIDTHS: Record<Column, number> = {
+  name: 200,
+  lock: 50,
+  print: 50,
+  export: 50,
+};
+const MIN_WIDTH: Record<Column, number> = {
+  name: 80,
+  lock: 34,
+  print: 34,
+  export: 34,
+};
 
 const DEFAULT_CONFIG = "Default";
 const PREFS_KEY = "redcolumn.layers.";
@@ -179,6 +205,57 @@ export function LayersPanel({
   /** The layer the Dial is on in Fade mode, where every layer stays visible. */
   const [dialed, setDialed] = useState<string | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const table = useRef<HTMLTableElement>(null);
+  const widths = { ...DEFAULT_WIDTHS, ...view.widths };
+  const total = COLUMNS.reduce((sum, c) => sum + widths[c.key], 0);
+
+  /** Dragging a header's right edge resizes that column; it is saved on release. */
+  const startResize = (e: ReactPointerEvent<HTMLElement>, key: Column) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = widths[key];
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    let width = startW;
+    const move = (ev: PointerEvent) => {
+      width = Math.max(MIN_WIDTH[key], Math.round(startW + ev.clientX - startX));
+      // Resized live without re-rendering the list; the table's minimum width grows with it so
+      // the panel scrolls sideways once the columns are wider than it.
+      const col = table.current?.querySelector<HTMLTableColElement>(`col[data-key="${key}"]`);
+      if (col) col.style.width = `${width}px`;
+      if (table.current) table.current.style.minWidth = `${total + width - startW}px`;
+    };
+    const end = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", end);
+      target.removeEventListener("pointercancel", end);
+      if (width !== startW) setView({ ...view, widths: { ...view.widths, [key]: width } });
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", end);
+    target.addEventListener("pointercancel", end);
+  };
+  const resetWidth = (key: Column) => {
+    const { [key]: _, ...rest } = view.widths ?? {};
+    setView({ ...view, widths: rest });
+  };
+  const resizer = (key: Column, label: string) => (
+    <span
+      className="col-resize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={msg('Resize the {label} column', { label })}
+      title={msg('Drag to resize; double-click to reset')}
+      onPointerDown={(e) => startResize(e, key)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        resetWidth(key);
+      }}
+    />
+  );
 
   const flagsOf = (r: Row, flags = prefs.flags): Required<LayerFlags> => ({
     lock: flags[r.key]?.lock ?? r.fileLocked,
@@ -427,10 +504,10 @@ export function LayersPanel({
   };
 
   const addLayer = (where: "before" | "after" | "child") => {
-    void askText("Add Layer", "", {
+    void askText(msg('Add Layer'), "", {
       label:
-        "A markup layer. Move markups to it from their right-click menu › Layer.",
-      confirm: "Add",
+        msg('A markup layer. Move markups to it from their right-click menu › Layer.'),
+      confirm: msg('Add'),
     }).then((name) => {
       name = name?.trim() ?? "";
       if (!name || all.some((r) => r.key === mkKey(name!))) return;
@@ -466,39 +543,39 @@ export function LayersPanel({
 
   const layersMenu = (): MenuEntry[] => [
     {
-      label: "Reset Layers",
+      label: msg('Reset Layers'),
       onClick: () => (
         setPrefs({ ...prefs, flags: {} }),
         setHidden(fileDefaults())
       ),
     },
     {
-      label: "Show Print Layers",
+      label: msg('Show Print Layers'),
       onClick: () => showWhere((r) => !flagsOf(r).print),
     },
     {
-      label: "Show Export Layers",
+      label: msg('Show Export Layers'),
       onClick: () => showWhere((r) => !flagsOf(r).export),
     },
-    { label: "Show All Layers", onClick: () => showWhere(() => false) },
+    { label: msg('Show All Layers'), onClick: () => showWhere(() => false) },
     SEP,
     {
-      label: "Show Layers On Page Only",
+      label: msg('Show Layers On Page Only'),
       checked: pageOnly,
       onClick: () => settings.set({ layersOnPageOnly: !pageOnly }),
     },
     {
-      label: "Sort Layers Alphabetically",
+      label: msg('Sort Layers Alphabetically'),
       checked: view.sort,
       onClick: () => setView({ ...view, sort: !view.sort }),
     },
     SEP,
     {
-      label: "Dial",
+      label: msg('Dial'),
       disabled: !all.length,
       items: [
-        { label: "Next Layer", onClick: () => dial(1) },
-        { label: "Previous Layer", onClick: () => dial(-1) },
+        { label: msg('Next Layer'), onClick: () => dial(1) },
+        { label: msg('Previous Layer'), onClick: () => dial(-1) },
       ],
     },
   ];
@@ -539,12 +616,12 @@ export function LayersPanel({
       !r.count;
     return [
       {
-        label: hiddenKeys.has(r.key) ? "Show Layer" : "Hide Layer",
+        label: hiddenKeys.has(r.key) ? msg('Show Layer') : msg('Hide Layer'),
         disabled: flagsOf(r).lock,
         onClick: () => toggle(r),
       },
       {
-        label: "Show Only This Layer",
+        label: msg('Show Only This Layer'),
         onClick: () => showWhere((x) => x !== r),
       },
       // Fork (leojru/redcolumn): as Revu's Isolate, only this layer's markups show; the drawing stays as it is.
@@ -579,7 +656,7 @@ export function LayersPanel({
         ? [
             SEP,
             {
-              label: "Delete Layer",
+              label: msg('Delete Layer'),
               danger: true,
               onClick: () => {
                 const name = r.key.slice(3);
@@ -602,11 +679,11 @@ export function LayersPanel({
     DEFAULT_CONFIG,
     ...Object.keys(prefs.configs).filter((n) => n !== DEFAULT_CONFIG),
   ];
-  const check = (r: Row, flag: keyof LayerFlags, label: string) => (
+  const check = (r: Row, flag: keyof LayerFlags, label: (name: string) => string) => (
     <td className="layer-flag">
       <input
         type="checkbox"
-        aria-label={`${label} ${r.name}`}
+        aria-label={label(r.name)}
         checked={flagsOf(r)[flag]}
         onChange={(e) => setFlag(r, flag, e.target.checked)}
       />
@@ -621,18 +698,18 @@ export function LayersPanel({
           aria-haspopup="menu"
           onClick={(e) => open(e, layersMenu())}
         >
-          Layers <Caret />
+          {keyed(msgParts('Layers {caret}', { caret: <Caret /> }))}
         </button>
         <button
           className="layers-menu-btn"
           aria-haspopup="menu"
-          title="Add Layer"
+          title={msg('Add Layer')}
           disabled={!docKey}
           onClick={(e) =>
             open(e, [
-              { label: "Add Before…", onClick: () => addLayer("before") },
-              { label: "Add After…", onClick: () => addLayer("after") },
-              { label: "Add Child…", disabled: !selected || selected === mkKey(""), onClick: () => addLayer("child") },
+              { label: msg('Add Before…'), onClick: () => addLayer("before") },
+              { label: msg('Add After…'), onClick: () => addLayer("after") },
+              { label: msg('Add Child…'), disabled: !selected || selected === mkKey(""), onClick: () => addLayer("child") },
             ])
           }
         >
@@ -641,11 +718,11 @@ export function LayersPanel({
         <button
           className="layers-menu-btn"
           aria-haspopup="menu"
-          title="Document"
+          title={msg('Document')}
           onClick={(e) =>
             open(e, [
               {
-                label: "Show Hyperlinks",
+                label: msg('Show Hyperlinks'),
                 checked: showLinks,
                 onClick: () => onShowLinks(!showLinks),
               },
@@ -656,7 +733,7 @@ export function LayersPanel({
         </button>
         <select
           className="layers-config"
-          aria-label="Layer configuration"
+          aria-label={msg('Layer configuration')}
           value={prefs.config}
           disabled={!docKey}
           onChange={(e) => applyConfig(e.target.value)}
@@ -670,12 +747,12 @@ export function LayersPanel({
         <button
           className="layers-menu-btn"
           aria-haspopup="menu"
-          title="Configurations"
+          title={msg('Configurations')}
           disabled={!docKey}
           onClick={(e) =>
             open(e, [
               {
-                label: "Save Configuration",
+                label: msg('Save Configuration'),
                 icon: ICONS.save,
                 onClick: () =>
                   setPrefs({
@@ -690,13 +767,13 @@ export function LayersPanel({
                   }),
               },
               {
-                label: "New Configuration",
+                label: msg('New Configuration'),
                 icon: ICONS.newConfig,
                 onClick: () =>
-                  void askText("New Configuration", "", {
+                  void askText(msg('New Configuration'), "", {
                     label:
-                      "Saves which layers show, and their Lock, Print and Export settings.",
-                    confirm: "Save",
+                      msg('Saves which layers show, and their Lock, Print and Export settings.'),
+                    confirm: msg('Save'),
                   }).then((name) => {
                     name = name?.trim() ?? "";
                     if (name)
@@ -714,7 +791,7 @@ export function LayersPanel({
                   }),
               },
               {
-                label: "Delete Configuration",
+                label: msg('Delete Configuration'),
                 icon: ICONS.deleteConfig,
                 disabled: prefs.config === DEFAULT_CONFIG,
                 onClick: () => {
@@ -729,13 +806,20 @@ export function LayersPanel({
         </button>
       </div>
       <div className="layers-grid">
-        <table>
+        <table ref={table} style={{ minWidth: total }}>
+          <colgroup>
+            {COLUMNS.map((c) => (
+              <col key={c.key} data-key={c.key} style={{ width: widths[c.key] }} />
+            ))}
+            {/* Takes up whatever width the columns leave, so each keeps the width it was given. */}
+            <col className="layer-filler" />
+          </colgroup>
           <thead>
             <tr>
               <th className="layer-name">
                 <button
                   className="layer-twisty"
-                  aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+                  aria-label={allCollapsed ? msg('Expand all') : msg('Collapse all')}
                   disabled={!parents.length}
                   onClick={() =>
                     setCollapsed(allCollapsed ? new Set() : new Set(parents))
@@ -743,11 +827,16 @@ export function LayersPanel({
                 >
                   {allCollapsed ? "+" : "−"}
                 </button>
-                Layer
+                {msg('Layer')}
+                {resizer("name", msg('Layer'))}
               </th>
-              <th>Lock</th>
-              <th>Print</th>
-              <th>Export</th>
+              {COLUMNS.slice(1).map((c) => (
+                <th key={c.key}>
+                  {c.label}
+                  {resizer(c.key, c.label)}
+                </th>
+              ))}
+              <th className="layer-filler" aria-hidden="true" />
             </tr>
           </thead>
           <tbody>
@@ -801,7 +890,7 @@ export function LayersPanel({
                     className="layer-name"
                     title={
                       r.count !== undefined
-                        ? `${r.count} markup${r.count === 1 ? "" : "s"}`
+                        ? msg('{count, plural, one {# markup} other {# markups}}', { count: r.count })
                         : undefined
                     }
                   >
@@ -813,7 +902,7 @@ export function LayersPanel({
                         <button
                           className="layer-twisty"
                           aria-label={
-                            collapsed.has(r.key) ? "Expand" : "Collapse"
+                            collapsed.has(r.key) ? msg('Expand') : msg('Collapse')
                           }
                           onClick={(e) => {
                             e.stopPropagation();
@@ -830,13 +919,13 @@ export function LayersPanel({
                       <button
                         className="layer-eye"
                         aria-pressed={!hidden}
-                        aria-label={`${hidden ? "Show" : "Hide"} ${r.name}`}
+                        aria-label={hidden ? msg('Show {name}', { name: r.name }) : msg('Hide {name}', { name: r.name })}
                         title={
                           locked
-                            ? "Locked: unlock to show or hide"
+                            ? msg('Locked: unlock to show or hide')
                             : hidden
-                              ? "Show"
-                              : "Hide"
+                              ? msg('Show')
+                              : msg('Hide')
                         }
                         disabled={locked}
                         onClick={(e) => {
@@ -847,12 +936,13 @@ export function LayersPanel({
                         {hidden ? ICONS.eyeOff : ICONS.eye}
                       </button>
                       <span className="layer-label">{r.name}</span>
-                      {prefs.defaultLayer === r.name && <span className="layer-default" title="New markups go on this layer">Default</span>}
+                      {prefs.defaultLayer === r.name && <span className="layer-default" title={msg('New markups go on this layer')}>{msg('Default')}</span>}
                     </div>
                   </td>
-                  {check(r, "lock", "Lock")}
-                  {check(r, "print", "Print")}
-                  {check(r, "export", "Export")}
+                  {check(r, "lock", (name) => msg('Lock {name}', { name }))}
+                  {check(r, "print", (name) => msg('Print {name}', { name }))}
+                  {check(r, "export", (name) => msg('Export {name}', { name }))}
+                  <td className="layer-filler" />
                 </tr>
               );
             })}
@@ -861,10 +951,10 @@ export function LayersPanel({
         {!shown.length && (
           <p className="empty">
             {!docKey
-              ? "Open a document to see its layers."
+              ? msg('Open a document to see its layers.')
               : pageOnly && all.length
-                ? "No layers on this page."
-                : "This document has no layers. Add one, or right-click markups › Layer."}
+                ? msg('No layers on this page.')
+                : msg('This document has no layers. Add one, or right-click markups › Layer.')}
           </p>
         )}
       </div>

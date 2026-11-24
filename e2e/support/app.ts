@@ -2,7 +2,7 @@
 // its own profile folder) plus the driver in driver.ts. Specs use it the same way in both projects.
 // Modified in the leojru/redcolumn fork (revu-layout): the toolbar style, built-in shortcuts and panel layout are always seeded explicitly; desktop windows are 1440 x 900 under Hyprland.
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { test as base, expect, _electron as electron, type Page } from '@playwright/test';
@@ -50,11 +50,13 @@ const toBase64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
 export interface Saved {
   name: string;
   bytes: Buffer;
+  /** Desktop only: where the file is, for a test that changes it on disk as another program would. */
+  path?: string;
 }
 
 /** Imperial feet unless a spec asks otherwise (test.use({ settings: ... })). */
 // Fork change: picture snapshots (as upstream) unless a spec turns vector snapshots on.
-const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft', vectorSnapshots: false };
+export const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft', vectorSnapshots: false };
 
 /** Same first-run state everywhere: a fixed author and known settings (apps/web/src/settings/settings.ts). */
 function seed({ settings, toolbar, classicLayout }: { settings: Record<string, unknown>; toolbar: string; classicLayout: boolean }) {
@@ -130,21 +132,25 @@ function collectErrors(page: Page, errors: string[]) {
   page.on('dialog', (d) => void d.accept().catch(() => {}));
 }
 
-export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon' | 'classic'; classicLayout: boolean }>({
+export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon' | 'classic'; classicLayout: boolean; policy: Record<string, unknown> | null }>({
   settings: [IMPERIAL, { option: true }],
   toolbar: ['simplified', { option: true }],
   classicLayout: [false, { option: true }],
+  // Desktop only: a managed policy file (apps/desktop/src/policy.ts) the app reads as well as the machine's.
+  policy: [null, { option: true }],
   // `page` is only used by the web project (the desktop project's is left blank).
-  app: async ({ page, settings, toolbar, classicLayout }, use, testInfo) => {
+  app: async ({ page, settings, toolbar, classicLayout, policy }, use, testInfo) => {
     const errors: string[] = [];
     if (testInfo.project.name === 'desktop') {
       const profile = mkdtempSync(join(tmpdir(), 'rc-e2e-'));
+      const policyFile = policy ? join(profile, 'policy.json') : '';
+      if (policy) writeFileSync(policyFile, JSON.stringify(policy));
       const electronApp = await electron.launch({
         cwd: join(ROOT, 'apps/desktop'),
         args: ['.', `--user-data-dir=${profile}`],
         // APPDATA too: the assistant's endpoint file lives there (apps/desktop/src/assistant/endpoint.ts),
         // outside the profile, and must not touch the real app's or another test's.
-        env: { ...process.env, RECOLUMN_E2E: '1', ELECTRON_DEV: '', APPDATA: profile, XDG_CONFIG_HOME: profile },
+        env: { ...process.env, RECOLUMN_E2E: '1', ELECTRON_DEV: '', APPDATA: profile, XDG_CONFIG_HOME: profile, RECOLUMN_POLICY_FILE: policyFile },
       });
       try {
         // Save dialogs answer themselves: each file goes into `saves`, under the name the app suggested.
@@ -182,7 +188,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
             // The app writes a hidden .tmp file and renames it into place: skip one caught mid-write.
             .flatMap((sub) => readdirSync(join(saves, sub)).filter((name) => !(name.startsWith('.') && name.endsWith('.tmp'))).map((name) => join(saves, sub, name)))
             .filter((f) => statSync(f, { throwIfNoEntry: false })?.size)
-            .map((f) => ({ name: basename(f), bytes: readFileSync(f) }));
+            .map((f) => ({ name: basename(f), bytes: readFileSync(f), path: f }));
         const win = await electronApp.firstWindow();
         // Printing answers itself too: the print channels (apps/desktop/src/main.ts) would send the
         // PDF to the system's printer or open a print dialog. Each job is kept with its page count.

@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 // Added in the leojru/redcolumn fork (revu-layout). As in Revu, a PDF on disk is what holds its markups:
 // identical copies are separate documents, and removing a document forgets what was kept for it.
 import { MarkupStore } from '@nb/markup';
@@ -41,4 +42,4 @@ export async function forgetKeptMarkups(id: string): Promise<void> {
   await store.destroy();
 }
 
-export const REMOVE_FROM_DEVICE = (name: string) => `Remove "${name}" from this device? Markups saved in the file stay in the file. Any others are erased.`;
+export const REMOVE_FROM_DEVICE = (name: string) => msg('Remove "{name}" from this device? Markups saved in the file stay in the file. Any others are erased.', { name });

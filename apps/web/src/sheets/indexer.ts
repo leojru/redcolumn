@@ -5,6 +5,7 @@ import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, detectChainageLinks, idTest
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
 import { findMarksOnPage, inked, marksToLinks, mayHoldMarks, type MarkHit, type TaughtMark } from './marks';
+import { searchIndex } from '../search/index/client';
 
 export interface IndexProgress {
   phase: 'annotations' | 'text' | 'links' | 'marks' | 'stitch';
@@ -50,10 +51,17 @@ async function withBackgroundDoc<T>(bytes: ArrayBuffer, fn: (doc: PdfDocument) =
  * reuses it.
  */
 const textCache = new Map<string, PageText[]>();
+/**
+ * Bumped by `forgetText`, so text still being read from a document's old contents when its pages
+ * change is not cached as its text (the Search panel keeps it in the search index under the new
+ * contents' hash, which would then be wrong for good).
+ */
+const generations = new Map<string, number>();
 
 /** Drops cached text for a document, after its pages changed. */
 export function forgetText(fileHash: string) {
   textCache.delete(fileHash);
+  generations.set(fileHash, (generations.get(fileHash) ?? 0) + 1);
 }
 
 /** Text of every page (cached for the session). `bytes` must return a fresh buffer. */
@@ -64,6 +72,7 @@ export async function loadPageTexts(bytes: () => Promise<ArrayBuffer>, store: Ma
 async function pageTexts(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal): Promise<PageText[]> {
   const cached = textCache.get(store.fileHash);
   if (cached) return cached;
+  const generation = generations.get(store.fileHash) ?? 0;
   return withBackgroundDoc(bytes, async (doc) => {
     const pages: PageText[] = [];
     for (let i = 0; i < doc.pages.length; i++) {
@@ -72,7 +81,7 @@ async function pageTexts(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p:
       pages.push({ width: size.width, height: size.height, words: await doc.text(i) });
       onProgress({ phase: 'text', done: i + 1, total: doc.pages.length });
     }
-    textCache.set(store.fileHash, pages);
+    if ((generations.get(store.fileHash) ?? 0) === generation) textCache.set(store.fileHash, pages);
     return pages;
   });
 }
@@ -92,6 +101,13 @@ const searchCache = new Map<string, SearchableDoc>();
 export async function readForSearch(key: string, bytes: () => Promise<ArrayBuffer>, onProgress: (done: number, total: number) => void = () => {}, signal?: AbortSignal): Promise<SearchableDoc> {
   const cached = searchCache.get(key);
   if (cached) return cached;
+  // Read in an earlier session: from the search index, without opening the PDF.
+  const stored = textCache.has(key) ? null : await searchIndex.load(key);
+  if (stored) {
+    const doc: SearchableDoc = { pages: stored.pages, info: stored.info as unknown as DocumentInfo, notes: stored.notes };
+    searchCache.set(key, doc);
+    return doc;
+  }
   const read = await withBackgroundDoc(await bytes(), async (doc) => {
     const known = textCache.get(key);
     const pages: PageText[] = [];
@@ -106,6 +122,7 @@ export async function readForSearch(key: string, bytes: () => Promise<ArrayBuffe
     return { pages, info: await doc.info(), notes };
   });
   searchCache.set(key, read);
+  void searchIndex.put(key, read.pages, { info: { ...read.info }, notes: read.notes });
   return read;
 }
 
@@ -323,6 +340,10 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     if (raw) extras.geo = raw.pages.flatMap((p, i) => importGeoRegions(i, p));
     if (raw?.columns.length) extras.columns = importColumns(raw.columns);
     if (raw?.assemblies?.length) extras.assemblies = raw.assemblies;
+    if (raw?.estimating) extras.estimating = raw.estimating;
+    if (raw?.portals?.length) extras.portals = raw.portals;
+    if (raw?.aiReview) extras.aiReview = raw.aiReview;
+    extras.pageCount = doc.pages.length;
     // Custom status sets' states (with their colours), then any other states markups were set to.
     const sets = importStatuses(raw?.statusDefs ?? []);
     const known = new Set([...DEFAULT_STATUSES, ...sets].map((s) => s.id));

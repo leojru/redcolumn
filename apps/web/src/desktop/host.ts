@@ -87,6 +87,8 @@ export interface RedcolumnDesktop {
   /** Open and Save As use native dialogs so the main process can remember the path. */
   nativeFiles: boolean;
   printMode: PrintMode;
+  /** The organisation's policy, read by the main process at startup (read it through desktop/policy.ts). Absent in desktop apps from before managed policy. */
+  policy?: unknown;
   tokenForFile(file: File): Promise<string | null>;
   /** `kind` narrows the dialog to pictures or opens it to any file; the default is PDFs and pictures. */
   pickOpen(kind?: 'document' | 'image' | 'any'): Promise<DesktopToken[] | null>;
@@ -96,10 +98,15 @@ export interface RedcolumnDesktop {
   showInFolder(token: string): Promise<boolean>;
   /** Fork (leojru/redcolumn): where a file already opened is, for its tab's hover text. */
   locationOf(token: string): Promise<string | null>;
+  /** False when the file has been moved, renamed or deleted since. Absent in desktop apps from before the check. */
+  tokenExists?(token: string): Promise<boolean>;
   /** Drops a remembered path, for a document removed from this device. */
   forgetToken(token: string): Promise<boolean>;
   takeLaunchFiles(): Promise<DesktopToken[]>;
   onLaunchFiles(cb: (files: DesktopToken[]) => void): () => void;
+  /** Links to a comment the app was started with or handed while running (redcolumn://markup?…). Absent in desktop apps from before such links. */
+  takeMarkupLinks?(): Promise<{ doc: string; markup: string; name: string }[]>;
+  onMarkupLinks?(cb: (links: { doc: string; markup: string; name: string }[]) => void): () => void;
   printPdf(bytes: Uint8Array): Promise<void>;
   /** Pages drawn to images are sent one at a time; the main process builds and prints the document. */
   beginPrint(): Promise<string>;
@@ -131,6 +138,11 @@ export interface RedcolumnDesktop {
     list(): Promise<{ family: string; styles: { id: string; style: string; bold: boolean; italic: boolean }[] }[]>;
     read(id: string): Promise<Uint8Array>;
   };
+  /** Revu's settings folders on this computer, one per version, newest first: library files by opaque id and relative path (apps/desktop/src/revuSettings.ts). */
+  revuSettings?: {
+    scan(): Promise<{ version: string; files: { id: string; path: string; size: number }[] }[]>;
+    read(id: string): Promise<Uint8Array>;
+  };
   /** Smart cards and USB tokens through their PKCS#11 drivers (apps/desktop/src/token.ts). */
   tokens?: DesktopTokens;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;
@@ -149,6 +161,10 @@ export interface RedcolumnDesktop {
   /** Collects (once) the contents of a document moved here from another window. */
   takeTransfer?(id: string): Promise<Uint8Array | null>;
   setUnsavedChanges?(on: boolean): void;
+  /** The system's regional format (BCP 47), for Number Format › Match the system. */
+  systemLocale?: string;
+  /** Gives the main process the interface language's text for its dialogs (desktop/mainStrings.ts). */
+  setInterfaceStrings?(strings: Record<string, string>): void;
   /** Colour of the title-bar buttons' symbols (Windows), so they contrast with the active theme. */
   setTitleBarSymbols?(color: string): void;
   /** Fork addition: the Omarchy desktop theme's palette (colors.toml), null where there is none. */
@@ -194,12 +210,68 @@ export interface DesktopTokens {
   sign(ref: string, hash: 'SHA-256' | 'SHA-384' | 'SHA-512', data: Uint8Array, pin: string | null): Promise<Uint8Array>;
 }
 
+/** Extras for a write into the open workbook (apps/desktop/src/excel.ts). */
+export interface ExcelLiveOptions {
+  /** The fingerprint the read gave: the write answers `changed`, and writes nothing, when the sheet no longer matches it. */
+  stamp?: string;
+  hideKey?: boolean;
+  /** Write every text cell as text, never as the number or date Excel would read it as. */
+  text?: boolean;
+  validations?: { col: number; type: 'list' | 'date' | 'number'; formula?: string }[];
+  /** Extra sheets to make very hidden. */
+  hidden?: string[];
+}
+
+export type ExcelRead = { kind: 'none' } | { kind: 'file'; bytes: Uint8Array } | { kind: 'live'; stamp: string; sheets: { name: string; rows: (string | number | boolean | null)[][] }[] };
+
+/**
+ * A register's rows for the client's own file: where they go on its sheet and what is written with
+ * them (apps/web/src/sheetsync/clientFile.ts works it out, apps/desktop/src/excel.ts has Excel write
+ * it into a copy of the file). Rows and columns count from 1, as Excel does.
+ */
+export interface ExcelFill {
+  sheet: string;
+  headerRow: number;
+  /** The first row under the header, and how many rows are written from it. */
+  firstRow: number;
+  count: number;
+  /** The columns that are written, each with one cell per row. */
+  columns: { col: number; cells: (string | number)[] }[];
+  /** The hidden column of row keys: its heading goes on the header row. */
+  key: { col: number; label: string; cells: string[] };
+  /** The table's first column. */
+  firstCol: number;
+  /** The first row under the header that already holds something (a sign-off block); 0 when there is none. Rows are inserted so that it is moved down, never written over. */
+  below: number;
+  /** Details written above the table. */
+  cells: { row: number; col: number; value: string }[];
+  /** The very hidden sheet an import reads. */
+  hidden: { name: string; table: (string | number)[][] };
+  /** Dropdowns and checks for the rows, set on a column only when the client's file has none there. */
+  validations: { col: number; type: 'list' | 'date' | 'number'; formula?: string }[];
+  /** Columns holding dates. */
+  dates: number[];
+  /** A column whose cells link to their comments: one address per row, '' for none. */
+  links?: { col: number; urls: string[] };
+}
+
 /** Excel workbooks on this computer, by ID; the page never sees their paths. */
 export interface DesktopExcel {
   /** A Save dialog for the workbook; null when cancelled. */
   pick(suggestedName: string): Promise<{ id: string; name: string } | null>;
   /** Replaces the file, or writes the cells into it while it is open in Excel (`live`). */
-  write(id: string, xlsx: Uint8Array, table: (string | number)[][]): Promise<'file' | 'live'>;
+  write(id: string, xlsx: Uint8Array, table: (string | number)[][], extra?: { name: string; table: (string | number)[][] }[], live?: ExcelLiveOptions): Promise<'file' | 'live' | 'changed'>;
+  /**
+   * What the workbook holds now, for a two-way sync: nothing yet, the saved file, or the cells of
+   * the workbook open in Excel. Absent in desktop apps from before two-way sync.
+   */
+  read?(id: string): Promise<ExcelRead>;
+  /** An Open dialog for a client's register file; null when cancelled. Absent in desktop apps from before registers could fill one. */
+  pickSource?(): Promise<{ id: string; name: string; bytes: Uint8Array } | null>;
+  /** The client's file as it is now. */
+  readSource?(id: string): Promise<Uint8Array>;
+  /** Asks where to save, copies the client's file there and has Excel fill the copy in; null when cancelled. */
+  fill?(sourceId: string, suggestedName: string, fill: ExcelFill): Promise<{ id: string; name: string } | null>;
   /** Opens the workbook in Excel. */
   open(id: string): Promise<void>;
   show(id: string): Promise<void>;

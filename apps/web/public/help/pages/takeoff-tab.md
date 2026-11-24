@@ -12,13 +12,32 @@ The **Takeoff** tab, next to **Measure**, puts an estimator's tools in one place
 
 ## Measure
 
-**Length**, **Polylength**, **Area** and **Count** are the tools used most. **Cutout** cuts a hole in the selected area ([Cut a hole out of an area](#cutouts)); it is greyed out until one area or volume is selected. **Next Measure** steps to the next measure tool in toolbar order.
+**Length**, **Polylength**, **Area** and **Count** are the tools used most. **Cutout** cuts a hole in the selected area ([Cut a hole out of an area](#cutouts)); it is greyed out until one area or volume is selected. **Next Measure** steps to the next measure tool in toolbar order. **Arc (3-point)** ([[Shift+B]]) makes the next section of a polylength, area, perimeter or volume an arc; it is greyed out until one of those tools is active.
+
+### Tracing curves
+
+While drawing a polylength or area, press **Arc (3-point)**, click a point on the curve, then click the arc's end: the section follows the circle through the three points, and drawing goes back to straight sections. For a bend by eye, hold [[Ctrl]] instead and drag away from the corner you are placing. See [Polylength](#measure-polylength) and [Area](#measure-area) for both.
+
+## Manual
+
+**Manual Quantity** places a quantity you type, such as a count from a schedule, instead of one you draw ([Manual Quantity](#measure-manual)).
+
+## Slope
+
+Measurements are taken on plan. The **Slope** group turns them into their true, sloped size for roofs, ramps and grading ([Slopes, pitches, hips and valleys](#measure-slope)).
+
+- Pick a kind (**Pitch**, **Degrees**, **Grade %** or **Rise:Run**) and type its value. The slope goes on the selected measurements, and on the next ones the running measure tool draws. **No slope** takes it off.
+- **Hip** and **Valley** start Polylength to trace a hip or valley line, at the pitch entered in the group. The lines get the subject *Hip* or *Valley*, and their length allows for both roof planes that meet there.
 
 ## Estimating
 
 - **Assemblies** sets up the materials and labour a measurement stands for ([Assemblies](#assemblies)).
 - **Quantities** totals those materials across the document.
-- **Takeoff Review** reviews takeoff proposals that an AI client has suggested, before any of them become markups.
+- **Review AI Takeoff** lists everything an AI client drew or proposed (measurements, assemblies and counts), least sure first, to approve, edit or reject before any of it counts. See [Review AI takeoff](#ai-review).
+- **Items** is the catalog of materials, labour, equipment and subcontract costs assemblies price from ([Items](#estimating-items)).
+- **Product Lists** holds price lists items take their cost from, typed in or imported from CSV ([Product Lists](#product-lists)).
+- **Templates ▾** arms a measuring tool set up with a subject, layer, style, slope, depth and assembly; **Manage Templates…** at its foot renames, deletes, imports and exports them ([Takeoff templates](#takeoff-templates)).
+- **Save as Template** saves the selected measurement as a template (also on its right-click menu).
 
 ## Auto Count
 
@@ -26,6 +45,7 @@ The **Takeoff** tab, next to **Measure**, puts an estimator's tools in one place
 
 ## Output
 
+- **Reports** makes quantity, detail and count reports as a PDF, an Excel workbook or CSV files ([Takeoff reports](#takeoff-reports)).
 - **Sync to Excel** keeps the Markups list in an Excel workbook ([Keep the list in a spreadsheet](#sheet-sync)). It works only in the desktop app on Windows; elsewhere it offers the download.
 - **Columns & Statuses** adds the custom columns and statuses the list and the workbook show ([Columns and custom columns](#list-columns)).
 

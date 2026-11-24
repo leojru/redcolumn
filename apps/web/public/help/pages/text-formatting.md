@@ -28,15 +28,28 @@ Select the text markup and open the [Properties panel](#properties) for more:
 
 ## Use a font installed on your computer
 
-The **Font** list (on the toolbar and in the Properties panel) starts with the three standard fonts, then fonts you used recently, then every font installed on your computer. Each name is shown in its own typeface; type in the box at the top to narrow the list.
+The **Font** list (on the toolbar and in the Properties panel) starts with any fonts you have **starred** (click the star icon on a row to pin it to the top), then the standard fonts (Helvetica / Arial, Arial Narrow, Times New Roman and Courier New), then fonts you used recently, then every font installed on your computer. Each name is shown in its own typeface; type in the box at the top to narrow the list.
 
 - **Desktop app** — your installed fonts are listed straight away.
-- **Browser** — click **Show installed fonts…** at the bottom of the list. Chrome and Edge ask your permission once. Other browsers cannot list them, so only the three standard fonts are offered.
+- **Browser** — click **Show installed fonts…** at the bottom of the list. Chrome and Edge ask your permission once. Other browsers cannot list them, so only the standard fonts are offered.
 
 When you save or export, the font is **embedded** in the PDF (only the letters you used), so the text looks the same in every viewer, even on a computer without that font.
 
 - Some fonts' licences forbid embedding (Segoe Script is one). Those, and fonts that cannot be embedded for technical reasons, are written as the nearest standard font (Helvetica, Times or Courier), and a notice tells you which.
 - If you open a document that uses a font this computer does not have, a notice lists it and the text is shown in a similar font. The font name is kept, so it appears correctly again on a computer that has it.
+
+## Style just some words
+
+While you type in a text box, call-out, typewriter or flag label, select some words and style them apart from the rest:
+
+- **[[Ctrl+B]]** bold, **[[Ctrl+I]]** italic, **[[Ctrl+U]]** underline, **[[Ctrl+Shift+X]]** strikethrough. The **B**, **I**, **U** and **S** buttons on the bar above the editor do the same, and show as pressed when the selected words already have the style. Press again to take it off.
+- Click a colour on the bar to colour the selected words. **A** goes back to the markup's own text colour.
+- With nothing selected, or with all of the text selected, the shortcuts and buttons style the whole markup instead, the same as the **B**, **I** and **U** buttons in the Properties panel.
+- **[[Ctrl+Z]]** undoes a style change, and **[[Ctrl+Y]]** (or Ctrl+Shift+Z) puts it back.
+
+Pasted text keeps only its words, not its formatting.
+
+The words are stored as plain text, so other PDF tools read the same text. The styled words are drawn in the PDF itself, so they look the same in every viewer, and are also written as formatting in the markup's rich text, which other tools can read back. If another tool changes the text, the styling of the old words is dropped.
 
 ## Lists
 

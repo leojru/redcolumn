@@ -1,4 +1,5 @@
 // Modified in the leojru/redcolumn fork (revu-layout): follows the Omarchy desktop theme (fork/omarchyTheme.ts).
+import { setStrings, t } from './i18n';
 import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, screen, session, shell, utilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
@@ -12,13 +13,16 @@ import { AssistantService } from './assistant/service';
 import { DesktopAuth } from './auth';
 import { GraphBroker, type GraphRequest } from './graph';
 import { FolderStore } from './folderDrive';
-import { checkTable, loadExcelLinks, writeWorkbook } from './excel';
+import { checkFill, checkLive, checkSheets, checkTable, fillWorkbook, loadExcelLinks, readSource, readWorkbookNow, writeWorkbook } from './excel';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
-import { captureEarlyOpens, LaunchQueue, type LaunchItem } from './launch';
+import { openIntoWindow } from './open-file';
+import { captureOpenFiles, LaunchQueue, type LaunchItem } from './launch';
+import { LINK_SCHEME } from './links';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
+import { RevuSettings, revuSettingsRoot } from './revuSettings';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
@@ -28,8 +32,10 @@ import { isSmokeRun, lockHeldMessage, smokeUserData } from './smoke';
 import { createUpdater } from './updater';
 // Fork addition (leojru/redcolumn): follow the Omarchy desktop theme.
 import { installOmarchyTheme } from './fork/omarchyTheme';
+import { blockedRequests, describePolicy, failedPolicy, loadPolicy, type ManagedPolicy } from './policy';
+import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WindowStateStore, type SavedWindowState } from './window-state';
 
-const earlyOpens = captureEarlyOpens();
+const openFiles = captureOpenFiles();
 const allowlist = new PathAllowlist();
 /** The window files opened from outside the app (Explorer, the command line) go to: the one last in front. */
 const focusedLaunches = () => (mainWindow ? windows.get(mainWindow.webContents)?.launches : undefined) ?? [...windows.values()][0]?.launches;
@@ -57,6 +63,7 @@ const windows = new Map<Electron.WebContents, WindowState>();
 const anyUnsaved = () => [...windows.values()].some((w) => w.unsaved);
 /** A quit is under way, so confirming the close quits rather than only closing the window. */
 let quitting = false;
+let windowStateStore: WindowStateStore | null = null;
 
 const smoke = isSmokeRun();
 // Before the lock: the lock belongs to the user-data folder, and a smoke run must not share the person's.
@@ -76,11 +83,29 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow.focus();
     }
   });
-  void app.whenReady().then(start);
+  // macOS hands a clicked comment link to the running app (or the starting one) as an event.
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    noteArgv([url]);
+  });
+  // Managed policy (policy.ts) is read while Electron starts, and everything below waits for it.
+  // The e2e suite adds a policy file of its own; a further file can only restrict more.
+  const policyLoad = loadPolicy({ extraFile: process.env.RECOLUMN_E2E === '1' ? process.env.RECOLUMN_POLICY_FILE : undefined }).catch(failedPolicy);
+  void app.whenReady().then(() => start(policyLoad));
 }
 
-async function start() {
+async function start(policyLoad: Promise<ManagedPolicy>) {
+  const policy = await policyLoad;
+  console.log(describePolicy(policy));
+  for (const problem of policy.problems) console.warn(`Managed policy: ${problem}`);
+  /** The message a refused call gives; the page hides what policy turns off, so it should never be seen. */
+  const managed = (what: string) => new Error(`${what} is turned off by your organisation.`);
   registerAppProtocol();
+  const blocked = blockedRequests(policy);
+  if (blocked.length) session.defaultSession.webRequest.onBeforeRequest({ urls: blocked }, (_details, callback) => callback({ cancel: true }));
+  // Links to a comment (redcolumn://markup?…, see links.ts) open this app. Only the installed app
+  // registers: a development or test run must not take the links over.
+  if (app.isPackaged && !smoke && process.env.RECOLUMN_E2E !== '1') app.setAsDefaultProtocolClient(LINK_SCHEME);
   installMenu();
   installPermissions(session.defaultSession);
   const allowFile = path.join(app.getPath('userData'), 'path-allowlist.json');
@@ -103,9 +128,11 @@ async function start() {
   const auth = new DesktopAuth(app.getPath('userData'));
 
   ipcMain.on('desktop:info', (event) => {
-    event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE };
+    event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE, policy, systemLocale: app.getSystemLocale() };
   });
   await restoreLastDir(path.join(app.getPath('userData'), 'last-dir.json'));
+  windowStateStore = new WindowStateStore(path.join(app.getPath('userData'), 'window-state.json'));
+  await windowStateStore.load();
   registerPathIpc(allowlist, (contents) => windows.get(contents)?.launches ?? null, () => mainWindow);
   // Every handler below answers the app's own page only: not help windows, not blob previews.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) => {
@@ -130,16 +157,23 @@ async function start() {
   handle('print:cancel', (job) => {
     if (typeof job === 'string') return cancelImagePrint(job);
   });
-  // Updates: checked at every launch, and the page shows the state in its header bar.
-  const updater = createUpdater(anyUnsaved);
-  updater.onChange = (state) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+  // Updates: checked at every launch, and the page shows the state in its header bar. Under a
+  // policy that turns them off nothing is checked or downloaded: the updater is never made.
+  const updater = policy.disableAutoUpdate ? null : createUpdater(anyUnsaved);
+  if (updater)
+    updater.onChange = (state) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+    };
+  const updates = () => {
+    if (!updater) throw managed('Updating');
+    return updater;
   };
-  handle('update:check', () => updater.check());
-  handle('update:get', () => updater.state);
-  handle('update:install', () => updater.install());
+  handle('update:check', () => updates().check());
+  handle('update:get', () => updates().state);
+  handle('update:install', () => updates().install());
   // Signs in, or checks a sign-in covers these scopes. The page learns who signed in, never the token.
   handle('auth:microsoft', async (clientId, tenant, scopes, interactive) => {
+    if (policy.disableMicrosoftSignIn) throw managed('Microsoft sign-in');
     if (typeof clientId !== 'string' || !clientId) throw new Error('Microsoft sign-in is not configured for this app.');
     const list = Array.isArray(scopes) ? scopes.filter((s): s is string => typeof s === 'string') : [];
     const result = await auth.microsoft(clientId, typeof tenant === 'string' && tenant ? tenant : 'common', list, interactive === true);
@@ -148,6 +182,7 @@ async function start() {
   // Every OneDrive call from the page goes through the broker, which holds the token (docs/SECURITY-HARDENING.md, E2).
   const brokers = new Map<string, GraphBroker>();
   handle('graph:request', (clientId, tenant, request) => {
+    if (policy.disableMicrosoftSignIn) throw managed('Microsoft sign-in');
     if (typeof clientId !== 'string' || !clientId || !request || typeof request !== 'object') throw new Error('That request is not allowed.');
     const t = typeof tenant === 'string' && tenant ? tenant : 'common';
     const key = `${clientId} ${t}`;
@@ -166,6 +201,10 @@ async function start() {
   const systemFonts = new SystemFonts(systemFontDirs());
   handle('fonts:list', () => systemFonts.list());
   handle('fonts:read', (id) => systemFonts.read(id));
+  // Revu's settings folders, for the Revu migration wizard: library files only, ids and relative paths (revuSettings.ts).
+  const revuSettings = new RevuSettings(revuSettingsRoot());
+  handle('revu:scan', () => revuSettings.scan());
+  handle('revu:read', (id) => revuSettings.read(id));
   // Smart cards and USB tokens (token.ts), run in the card service (token-host.ts) so a card
   // waiting for its PIN never freezes the windows. Drivers are only ever picked here, in a native dialog.
   const tokens = new TokenClient(() => {
@@ -180,10 +219,10 @@ async function start() {
   handle('token:modules', () => tokens.modules());
   handle('token:add-module', async () => {
     const options: Electron.OpenDialogOptions = {
-      title: 'Choose the card’s PKCS#11 driver',
+      title: t('Choose the card’s PKCS#11 driver'),
       defaultPath: startDir(),
       properties: ['openFile'],
-      filters: [{ name: 'PKCS#11 driver', extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
+      filters: [{ name: t('PKCS#11 driver'), extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
     };
     const win = mainWindow;
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
@@ -197,7 +236,7 @@ async function start() {
   handle('token:certificates', () => tokens.certificates());
   handle('token:sign', (ref, hash, data, pin) => tokens.sign(ref, hash, data, pin));
   handle('auth:microsoft-account', (clientId) => {
-    if (typeof clientId !== 'string' || !clientId) return null;
+    if (policy.disableMicrosoftSignIn || typeof clientId !== 'string' || !clientId) return null;
     return auth.microsoftAccount(clientId);
   });
   // Projects on a folder this computer syncs (docs/SECURITY-HARDENING.md, E3). The page gets IDs, never paths.
@@ -221,10 +260,10 @@ async function start() {
   handle('folder:pick', async (purpose) => {
     const win = mainWindow;
     const titles: Record<string, string> = {
-      open: 'Open a Project folder',
-      create: 'Choose where the Project folder goes',
-      'session-open': 'Open a Live Session folder',
-      'session-create': 'Choose a shared folder for the Live Session',
+      open: t('Open a Project folder'),
+      create: t('Choose where the Project folder goes'),
+      'session-open': t('Open a Live Session folder'),
+      'session-create': t('Choose a shared folder for the Live Session'),
     };
     const options = { title: titles[String(purpose)] ?? titles.create!, defaultPath: startDir(), properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
@@ -250,13 +289,14 @@ async function start() {
   });
 
   // Sync to Excel on this computer: Windows only, since it drives Excel through COM. The page gets IDs, never paths.
-  if (process.platform === 'win32') {
+  // Policy can turn it off: the channels are then never registered, and the preload leaves `excel` out.
+  if (process.platform === 'win32' && !policy.disableExcelSync) {
     const excelFile = path.join(app.getPath('userData'), 'excel-links.json');
     const excel = await loadExcelLinks(excelFile);
     handle('excel:pick', async (suggestedName) => {
       const win = mainWindow;
       const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Markups'}.xlsx`;
-      const options = { title: 'Choose where the Excel workbook goes', defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const options = { title: t('Choose where the Excel workbook goes'), defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
       const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
       if (result.canceled || !result.filePath) return null;
       const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
@@ -264,7 +304,37 @@ async function start() {
       await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
       return { id, name: path.basename(filePath) };
     });
-    handle('excel:write', (id, xlsx, table) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table)));
+    handle('excel:write', (id, xlsx, table, extra, live) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table), 'Markups', undefined, checkSheets(extra), checkLive(live)));
+    // Two-way sync reads the sheet it wrote and the hidden sheet beside it, nothing else in the workbook.
+    handle('excel:read', (id) => readWorkbookNow(excel.path(id), ['Markups', '_redcolumn']));
+    // A comment register in the client's own file: the page picks the client's blank file, reads it to
+    // place the rows, and Excel fills a copy in. The client's file itself is only ever read.
+    handle('excel:pick-source', async () => {
+      const win = mainWindow;
+      const options = { title: t('Choose the client’s register file'), properties: ['openFile' as const], filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
+      const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+      const filePath = result.filePaths[0];
+      if (result.canceled || !filePath || !/\.xlsx$/i.test(filePath)) return null;
+      const data = await readSource(filePath);
+      const id = excel.add(filePath);
+      await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
+      return { id, name: path.basename(filePath), bytes: data };
+    });
+    handle('excel:read-source', (id) => readSource(excel.path(id)));
+    handle('excel:fill', async (sourceId, suggestedName, fill) => {
+      const source = excel.path(sourceId);
+      const request = checkFill(fill);
+      const win = mainWindow;
+      const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Comment register'}.xlsx`;
+      const options = { title: t('Save the filled-in register'), defaultPath: path.join(path.dirname(source), name), filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
+      const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return null;
+      const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
+      await fillWorkbook(source, filePath, request);
+      const id = excel.add(filePath);
+      await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
+      return { id, name: path.basename(filePath) };
+    });
     handle('excel:open', async (id) => {
       const failed = await shell.openPath(excel.path(id));
       if (failed) throw new Error(failed);
@@ -307,10 +377,12 @@ async function start() {
     return { enabled: current.enabled, ...launch() };
   });
   handle('assistant:set', async (on) => {
+    if (on === true && policy.disableAssistant) throw managed('The MCP server');
     const current = await assistant.setEnabled(on === true);
     return { enabled: current.enabled, ...launch() };
   });
-  await assistant.restore();
+  // Under a policy that turns the MCP server off it never listens, whatever the person last chose.
+  if (!policy.disableAssistant) await assistant.restore();
   // will-quit, not before-quit: a quit stopped by the unsaved-changes question must leave the assistant running.
   app.on('will-quit', () => {
     cancelAssistantCalls();
@@ -320,6 +392,11 @@ async function start() {
     quitting = true;
   });
 
+  // The page's translations of the text the main process shows (dialog titles and the like).
+  ipcMain.on('ui:strings', (event, strings) => {
+    if (!windows.get(event.sender) || !fromApp(event)) return;
+    setStrings(strings);
+  });
   // Unsaved changes: the page says whether it has any; closing the window then asks the page first.
   ipcMain.on('window:unsaved', (event, on) => {
     const state = windows.get(event.sender);
@@ -369,11 +446,12 @@ async function start() {
 
   app.on('web-contents-created', (_event, contents) => harden(contents));
   createWindow();
-  for (const filePath of earlyOpens) focusedLaunches()?.note(filePath);
+  // open-file from here on (Finder Open With on a running app): to the front window, or a new one if all were closed.
+  openFiles.start((filePath) => openIntoWindow(focusedLaunches, () => createWindow(), () => quitting, filePath));
   noteArgv(process.argv);
   for (const argv of waitingArgv.splice(0)) focusedLaunches()?.noteArgv(argv);
   // A moment after launch, so the check never competes with the page loading.
-  if (app.isPackaged && !smoke) setTimeout(() => void updater.check(), 5000);
+  if (updater && app.isPackaged && !smoke) setTimeout(() => void updater.check(), 5000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -383,12 +461,23 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   // The e2e suite runs the real app on the person's desktop. In the background it opens off-screen,
   // out of the taskbar and never takes focus, so the machine stays usable while it runs.
   const background = process.env.RECOLUMN_E2E === '1' && process.env.RECOLUMN_E2E_FOREGROUND !== '1';
+  const displays = screen.getAllDisplays().map((d) => d.workArea);
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  const bounds = windowStateStore?.resolve(displays, primaryWorkArea) ?? { width: 1440, height: 900, maximized: false };
+  const shouldMaximize = !background && !child && bounds.maximized === true;
+  const position = background
+    ? { x: -32000, y: -32000, skipTaskbar: true }
+    : child
+      ? { x: child.x, y: child.y }
+      : bounds.x !== undefined && bounds.y !== undefined
+        ? { x: bounds.x, y: bounds.y }
+        : {};
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    ...(background ? { x: -32000, y: -32000, skipTaskbar: true } : child ? { x: child.x, y: child.y } : {}),
-    minWidth: 800,
-    minHeight: 600,
+    width: bounds.width,
+    height: bounds.height,
+    ...position,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     title: 'redcolumn',
     // The taskbar and window icon on Windows and Linux (an installed Windows app also has it in the
     // exe). macOS takes the Dock icon from the app bundle.
@@ -417,8 +506,38 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   windows.set(contents, state);
   queue.attach(win);
   if (child) queue.open(child.open);
+  let shown = false;
+  const captureBounds = (): SavedWindowState | null => {
+    if (win.isDestroyed()) return null;
+    const maximized = win.isMaximized();
+    const rect = maximized || win.isMinimized() || win.isFullScreen() ? win.getNormalBounds() : win.getBounds();
+    return {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.max(MIN_WINDOW_WIDTH, Math.round(rect.width)),
+      height: Math.max(MIN_WINDOW_HEIGHT, Math.round(rect.height)),
+      maximized,
+    };
+  };
+  const noteBounds = () => {
+    if (background || !shown || !windowStateStore || win.isDestroyed() || win.isMinimized()) return;
+    const next = captureBounds();
+    if (next) windowStateStore.update(next);
+  };
+  win.on('resize', noteBounds);
+  win.on('move', noteBounds);
+  win.on('maximize', noteBounds);
+  win.on('unmaximize', noteBounds);
   win.on('focus', () => (mainWindow = win));
-  win.once('ready-to-show', () => (background ? win.showInactive() : win.show()));
+  win.once('ready-to-show', () => {
+    if (background) {
+      win.showInactive();
+      return;
+    }
+    if (shouldMaximize) win.maximize();
+    win.show();
+    shown = true;
+  });
   // With unsaved changes the page asks Save, Don't Save or Cancel for each document, and closes the
   // window itself when done. A page that crashed or hung cannot answer, so it does not hold the window open.
   let hung = false;
@@ -426,6 +545,10 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   win.on('responsive', () => (hung = false));
   win.webContents.on('render-process-gone', () => (state.unsaved = false));
   win.on('close', (event) => {
+    if (!background && shown && windowStateStore) {
+      const next = win.isMinimized() ? undefined : captureBounds() ?? undefined;
+      windowStateStore.flushSync(next);
+    }
     if (state.confirmed || !state.unsaved || hung || win.webContents.isCrashed()) return;
     event.preventDefault();
     win.webContents.send('window:close-request');

@@ -23,8 +23,8 @@
 }
 
 .classic-toolbars .classic-main .tool-group + .tool-group {
-  margin-left: 4px;
-  padding-left: 4px;
+  margin-inline-start: 4px;
+  padding-inline-start: 4px;
 }
 
 .classic-toolbars .btn.tool.measure:not(.active) {
@@ -66,7 +66,7 @@
   max-width: 40vw;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-right: 10px;
+  margin-inline-end: 10px;
 }
 
 .classic-docinfo.muted {
@@ -97,8 +97,8 @@
 
 .statusbar.classic .status-leading {
   gap: 2px;
-  padding-right: 6px;
-  border-right: 1px solid var(--border);
+  padding-inline-end: 6px;
+  border-inline-end: 1px solid var(--border);
 }
 
 .statusbar.classic .status-icon {
@@ -119,7 +119,7 @@
   width: 19em;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: right;
+  text-align: end;
 }
 
 /* Classic status bar in a narrow window (a tiled half screen): the least used groups give way to the
@@ -155,7 +155,7 @@
 }
 
 .statusbar.classic .pagenav-side.right > :first-child {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 /* The toolbar's Start and End lists show the ending's shape only (its name is the tooltip). */
@@ -232,11 +232,11 @@
 }
 
 .classic-props-scroll.left {
-  left: 0;
+  inset-inline-start: 0;
   box-shadow: 6px 0 8px -4px rgb(0 0 0 / 0.35);
 }
 
 .classic-props-scroll.right {
-  right: 0;
+  inset-inline-end: 0;
   box-shadow: -6px 0 8px -4px rgb(0 0 0 / 0.35);
 }

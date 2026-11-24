@@ -1,6 +1,7 @@
 // Added in the leojru/redcolumn fork (revu-layout). The classic toolbar layout: one main row of
 // file commands and tools in groups, and under it a Properties row that follows the context
 // (the open document's name and pages when idle; the style of the tool or selection otherwise).
+import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Command } from '../../commands/appCommands';
 import { shortcutLabel } from '../../commands/shortcuts';
@@ -112,12 +113,12 @@ export function ClassicToolbars(props: ClassicToolbarsProps) {
   return (
     <div className="classic-toolbars">
       <div className="toolbar tools classic-main">
-        <span className="tool-group" role="group" aria-label="File">
+        <span className="tool-group" role="group" aria-label={msg('File')}>
           {FILE_COMMANDS.map((id) => (
             <CommandButton key={id} id={id} commands={commands} />
           ))}
         </span>
-        <span className="tool-group" role="group" aria-label="Edit">
+        <span className="tool-group" role="group" aria-label={msg('Edit')}>
           {EDIT_COMMANDS.map((id) => (
             <CommandButton key={id} id={id} commands={commands} />
           ))}
@@ -136,24 +137,24 @@ export function ClassicToolbars(props: ClassicToolbarsProps) {
       </div>
       <div className="classic-props-wrap">
       {overflow.left && (
-        <button type="button" className="classic-props-scroll left" aria-label="Scroll the properties left" title="More properties" onClick={() => scrollBy(-1)}>
+        <button type="button" className="classic-props-scroll left" aria-label={msg('Scroll the properties left')} title={msg('More properties')} onClick={() => scrollBy(-1)}>
           ‹
         </button>
       )}
       {overflow.right && (
-        <button type="button" className="classic-props-scroll right" aria-label="Scroll the properties right" title="More properties" onClick={() => scrollBy(1)}>
+        <button type="button" className="classic-props-scroll right" aria-label={msg('Scroll the properties right')} title={msg('More properties')} onClick={() => scrollBy(1)}>
           ›
         </button>
       )}
-      <div ref={propsRef} className="toolbar classic-props" role="toolbar" aria-label="Properties" onScroll={measure}>
+      <div ref={propsRef} className="toolbar classic-props" role="toolbar" aria-label={msg('Properties')} onScroll={measure}>
         {idle ? (
           docName ? (
             <span className="classic-docinfo">
-              <b>Name:</b> <span className="classic-docname" title={docName}>{docName}</span>
-              <b>Pages:</b> {pageCount}
+              <b>{msg('Name:')}</b> <span className="classic-docname" title={docName}>{docName}</span>
+              <b>{msg('Pages:')}</b> {pageCount}
             </span>
           ) : (
-            <span className="classic-docinfo muted">No document open</span>
+            <span className="classic-docinfo muted">{msg('No document open')}</span>
           )
         ) : (
           <>

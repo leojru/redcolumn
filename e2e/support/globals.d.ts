@@ -17,6 +17,8 @@ interface NbCommand {
 
 interface Window {
   __nb: {
+    /** The right pane's viewer, while the view is split. */
+    viewerB: { pageSize(pageIndex: number): { width: number; height: number } | null } | null;
     viewer: {
       currentPageIndex: number;
       pageToClient(p: [number, number], pageIndex: number): [number, number];
@@ -25,7 +27,9 @@ interface Window {
       goToPage(i: number): void;
       setPageMode(mode: 'single' | 'continuous'): void;
       zoomFor(pageIndex: number): number;
-      getView(): { pageIndex: number; zoom: number; mode: string };
+      getView(): { pageIndex: number; zoom: number; mode: string; panX: number; panY: number };
+      pageSize(pageIndex: number): { width: number; height: number } | null;
+      zoomBy(factor: number, x?: number, y?: number): void;
       pageView(): { pageIndex: number; zoom: number; rotation: number };
     };
     tools: {
@@ -37,6 +41,10 @@ interface Window {
         all(): NbMarkup[];
         remove(ids: string[]): void;
         hasScale(pageIndex: number): boolean;
+        update(id: string, patch: Record<string, unknown>): void;
+        checkpoint(): void;
+        setScale(pages: number[], scale: unknown): void;
+        portals(): { name: string; pages: number[]; points: [number, number][] }[];
       };
     };
     commands(): ReadonlyMap<string, NbCommand>;

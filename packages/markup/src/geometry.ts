@@ -4,7 +4,7 @@ import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
 import { wrapParagraph } from './textLists';
-import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, hasCloudBorder, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
+import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, hasCloudBorder, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, manualBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
@@ -68,6 +68,10 @@ function isClosed(m: Markup): boolean {
 function baseShape(m: Markup): ShapePart[] {
   const { points, style } = m;
   switch (m.type) {
+    // A manual quantity is its tag (drawn with the measurement label, over this); the dot at its
+    // anchor only shows when the tag is hidden.
+    case 'manual':
+      return points.map(([x, y]) => ({ path: ellipsePath({ x: x - 2, y: y - 2, w: 4, h: 4 }), stroke: true, fill: style.stroke }));
     case 'line':
     case 'arrow':
       return withEnds(m, points.slice(0, 2));
@@ -223,11 +227,13 @@ function baseShape(m: Markup): ShapePart[] {
     case 'arcLength':
       return withEnds(m, arcPoints(points));
     case 'count': {
+      // Custom count symbols are drawn directly in render.ts / export.ts.
+      if (style.countSymbol) return [];
       const r = markerSize(m);
       const shape = style.countShape ?? 'circle';
       return points.map(([x, y]) => {
         if (shape === 'circle') return { path: ellipsePath({ x: x - r, y: y - r, w: r * 2, h: r * 2 }), stroke: true, fill: style.fill };
-        const outline: Point[] = COUNT_SHAPES[shape].map(([u, v]) => [x + u * r, y + v * r]);
+        const outline = countMarkerOutline(shape, x, y, r);
         // A check or cross is a solid glyph: filled with the fill colour, else the line colour.
         const solid = shape === 'check' || shape === 'cross';
         return { path: [...polyline(outline), ['Z']] as PathCmd[], stroke: !solid || style.width > 0, fill: solid ? (style.fill ?? style.stroke) : style.fill };
@@ -324,6 +330,14 @@ const COUNT_SHAPES: Record<Exclude<CountShape, 'circle'>, Point[]> = {
   triangle: [[0, -1], [0.866, 0.5], [-0.866, 0.5]],
   cross: [[-1, -0.7], [-0.7, -1], [0, -0.3], [0.7, -1], [1, -0.7], [0.3, 0], [1, 0.7], [0.7, 1], [0, 0.3], [-0.7, 1], [-1, 0.7], [-0.3, 0]],
 };
+
+/** Polygon outline of a count marker centred on (cx, cy) with radius `r` (page space, y down). */
+export function countMarkerOutline(shape: CountShape, cx: number, cy: number, r: number): Point[] {
+  if (shape === 'circle') {
+    return Array.from({ length: 24 }, (_, i) => [cx + Math.cos((i / 24) * 2 * Math.PI) * r, cy + Math.sin((i / 24) * 2 * Math.PI) * r] as Point);
+  }
+  return COUNT_SHAPES[shape].map(([u, v]) => [cx + u * r, cy + v * r]);
+}
 
 /** Direction from `c` to `p` in degrees counter-clockwise from east, as on paper (page y runs down). */
 function paperAngle(c: Point, p: Point): number {
@@ -815,7 +829,7 @@ export function hitTest(m: Markup, p: Point, tolerance: number): boolean {
     return markupLines(m.points).some((r) => p[0] >= r.x - tolerance && p[0] <= r.x + r.w + tolerance && p[1] >= r.y - tolerance && p[1] <= r.y + r.h + tolerance);
   } else if (TYPE_INFO[m.type].solid || (m.type !== 'dimension' && m.style.fill) || resolveHatch(m.style.hatch, m.style.hatchSpec)) {
     // Text boxes and filled shapes are grabbable anywhere inside.
-    const inner = contentBox(m);
+    const inner = m.type === 'manual' ? manualBox(m) : contentBox(m);
     if (p[0] >= inner.x && p[0] <= inner.x + inner.w && p[1] >= inner.y && p[1] <= inner.y + inner.h) return true;
   }
   const tol = tolerance + m.style.width / 2;

@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 /**
  * Calculation columns: small spreadsheet-style expressions over a markup's other columns.
  *
@@ -6,10 +8,15 @@
  *   IF([Status] = "Accepted", [Cost], 0)
  *   CONCAT([Page], " / ", [Author])
  *
+ * Function names are not case-sensitive (if, If, IF). Yes/No values (checkmark columns, switches)
+ * count as 1 and 0.
+ *
  * Columns are referenced by name in square brackets. Numbers, "strings", + - * / ^ and & (join
  * text), comparisons (= <> < > <= >=), and the functions in FUNCTIONS are supported. Evaluation
  * never runs code: expressions are parsed into a tree and interpreted.
  */
+
+import { AREA_LABELS, METERS_PER_UNIT, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
 
 export type Value = number | string | boolean;
 
@@ -39,12 +46,12 @@ function tokenize(src: string): Token[] {
       i += m[0].length;
     } else if (c === '"') {
       const end = src.indexOf('"', i + 1);
-      if (end < 0) throw new FormulaError('Text is missing its closing "');
+      if (end < 0) throw new FormulaError(msg('Text is missing its closing "'));
       out.push({ t: 'str', v: src.slice(i + 1, end) });
       i = end + 1;
     } else if (c === '[') {
       const end = src.indexOf(']', i + 1);
-      if (end < 0) throw new FormulaError('A column name is missing its closing ]');
+      if (end < 0) throw new FormulaError(msg('A column name is missing its closing ]'));
       out.push({ t: 'ref', v: src.slice(i + 1, end).trim() });
       i = end + 1;
     } else if (/[A-Za-z_]/.test(c)) {
@@ -84,13 +91,13 @@ export function parseFormula(src: string): Node {
 
   const primary = (): Node => {
     const t = tokens[pos++];
-    if (!t) throw new FormulaError('The formula ends too soon');
+    if (!t) throw new FormulaError(msg('The formula ends too soon'));
     if (t.t === 'num') return { k: 'num', v: t.v };
     if (t.t === 'str') return { k: 'str', v: t.v };
     if (t.t === 'ref') return { k: 'ref', name: t.v };
     if (t.t === 'id') {
       if (t.v === 'TRUE' || t.v === 'FALSE') return { k: 'num', v: t.v === 'TRUE' ? 1 : 0 };
-      if (!FUNCTIONS[t.v]) throw new FormulaError(`Unknown function ${t.v}. Column names go in [square brackets].`);
+      if (!FUNCTIONS[t.v]) throw new FormulaError(msg('Unknown function {v}. Column names go in [square brackets].', { v: t.v }));
       expect('(');
       const args: Node[] = [];
       if (!isOp(')')) {
@@ -127,7 +134,7 @@ export function parseFormula(src: string): Node {
     }
   };
 
-  if (!tokens.length) throw new FormulaError('Enter a formula');
+  if (!tokens.length) throw new FormulaError(msg('Enter a formula'));
   const tree = expr(0);
   if (pos < tokens.length) throw new FormulaError(`Unexpected "${(tokens[pos] as { v: unknown }).v}"`);
   return tree;
@@ -159,6 +166,42 @@ const num = (v: Value): number => {
 const str = (v: Value): string => (typeof v === 'number' ? String(Math.round(v * 1e9) / 1e9) : String(v));
 const truthy = (v: Value) => (typeof v === 'string' ? v !== '' && v !== '0' : !!v);
 
+/** Unit names CONVERT knows, to their size in metres (or m², m³) and dimension (1 length, 2 area, 3 volume). */
+const UNIT_SIZES: Map<string, { size: number; dim: 1 | 2 | 3 }> = (() => {
+  const out = new Map<string, { size: number; dim: 1 | 2 | 3 }>();
+  for (const [u, m] of Object.entries(METERS_PER_UNIT)) {
+    out.set(u, { size: m, dim: 1 });
+    out.set(AREA_LABELS[u as LengthUnit].toLowerCase(), { size: m * m, dim: 2 });
+    out.set(VOLUME_LABELS[u as LengthUnit].toLowerCase(), { size: m * m * m, dim: 3 });
+    for (const [suffix, dim] of [['2', 2], ['²', 2], ['^2', 2], ['3', 3], ['³', 3], ['^3', 3]] as const) out.set(u + suffix, { size: m ** dim, dim });
+    out.set(`sq ${u}`, { size: m * m, dim: 2 });
+    out.set(`cu ${u}`, { size: m * m * m, dim: 3 });
+  }
+  for (const [names, size, dim] of [
+    [['lf', 'feet', 'foot'], 0.3048, 1],
+    [['inch', 'inches'], 0.0254, 1],
+    [['metre', 'metres', 'meter', 'meters'], 1, 1],
+    [['sq', 'square'], 0.3048 ** 2 * 100, 2],
+    [['ac', 'acre', 'acres'], 4046.8564224, 2],
+    [['ha', 'hectare', 'hectares'], 10000, 2],
+    [['l', 'litre', 'litres', 'liter', 'liters'], 0.001, 3],
+  ] as const)
+    for (const n of names) out.set(n, { size, dim });
+  return out;
+})();
+
+const DIMENSIONS = ['', 'length', 'area', 'volume'];
+
+/** CONVERT(value, "from", "to"): a length, area or volume in another unit of the same kind. */
+function convert(value: number, from: string, to: string): number {
+  const a = UNIT_SIZES.get(from.trim().toLowerCase());
+  const b = UNIT_SIZES.get(to.trim().toLowerCase());
+  if (!a) throw new FormulaError(msg('CONVERT does not know the unit "{from}"', { from }));
+  if (!b) throw new FormulaError(msg('CONVERT does not know the unit "{to}"', { to }));
+  if (a.dim !== b.dim) throw new FormulaError(msg('CONVERT cannot turn {dIMENSIONS} ("{from}") into {dIMENSIONS2} ("{to}")', { dIMENSIONS: DIMENSIONS[a.dim], from, dIMENSIONS2: DIMENSIONS[b.dim], to }));
+  return Number(((value * a.size) / b.size).toPrecision(15));
+}
+
 const FUNCTIONS: Record<string, (args: Value[]) => Value> = {
   SUM: (a) => a.reduce<number>((s, v) => s + num(v), 0),
   AVG: (a) => (a.length ? a.reduce<number>((s, v) => s + num(v), 0) / a.length : 0),
@@ -181,7 +224,29 @@ const FUNCTIONS: Record<string, (args: Value[]) => Value> = {
   LOWER: (a) => str(a[0] ?? '').toLowerCase(),
   LEN: (a) => str(a[0] ?? '').length,
   ISBLANK: (a) => (str(a[0] ?? '') === '' ? 1 : 0),
+  CONVERT: (a) => {
+    if (a.length !== 3) throw new FormulaError('CONVERT takes a value, the unit it is in and the unit to give, e.g. CONVERT([Length], "ft", "m")');
+    return convert(num(a[0]!), str(a[1]!), str(a[2]!));
+  },
 };
+
+/** The functions as the Formula Builder lists them: how to call each and what it gives. */
+export const FUNCTION_DOCS = lazy((): { name: string; signature: string; hint: string }[] => [
+  { name: 'IF', signature: msg('IF(test, then, else)'), hint: msg('One value or another: IF([Area] > 100, 2, 1)') },
+  { name: 'CONVERT', signature: msg('CONVERT(value, "from", "to")'), hint: msg('A length, area or volume in another unit: CONVERT([Area], "sf", "m2")') },
+  { name: 'ROUND', signature: msg('ROUND(x, places)'), hint: msg('Rounded to a number of decimal places') },
+  { name: 'CEILING', signature: msg('CEILING(x)'), hint: msg('Rounded up to a whole number') },
+  { name: 'FLOOR', signature: msg('FLOOR(x)'), hint: msg('Rounded down to a whole number') },
+  { name: 'MIN', signature: msg('MIN(a, b, ...)'), hint: msg('The smallest') },
+  { name: 'MAX', signature: msg('MAX(a, b, ...)'), hint: msg('The largest') },
+  { name: 'SUM', signature: msg('SUM(a, b, ...)'), hint: msg('The total') },
+  { name: 'AVG', signature: msg('AVG(a, b, ...)'), hint: msg('The average') },
+  { name: 'ABS', signature: msg('ABS(x)'), hint: msg('Without its sign') },
+  { name: 'SQRT', signature: msg('SQRT(x)'), hint: msg('The square root') },
+  { name: 'AND', signature: msg('AND(a, b, ...)'), hint: '1 when every test is true' },
+  { name: 'OR', signature: msg('OR(a, b, ...)'), hint: '1 when any test is true' },
+  { name: 'NOT', signature: msg('NOT(test)'), hint: '1 when the test is false' },
+]);
 
 export const FUNCTION_NAMES = Object.keys(FUNCTIONS);
 
@@ -192,7 +257,7 @@ function evaluate(n: Node, lookup: (name: string) => Value | undefined): Value {
       return n.v;
     case 'ref': {
       const v = lookup(n.name);
-      if (v === undefined) throw new FormulaError(`No column named [${n.name}]`);
+      if (v === undefined) throw new FormulaError(msg('No column named [{name}]', { name: n.name }));
       return v;
     }
     case 'neg':
@@ -240,7 +305,7 @@ export function evalFormula(src: string, lookup: (name: string) => Value | undef
     return { value: v };
   } catch (err) {
     if (err instanceof FormulaError) return { error: err.message };
-    if (err instanceof RangeError) return { error: 'Formula refers to itself' };
+    if (err instanceof RangeError) return { error: msg('Formula refers to itself') };
     throw err;
   }
 }

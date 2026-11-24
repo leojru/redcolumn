@@ -96,6 +96,8 @@ Undo, clipboard, selection, align, arrange, and the Modify tools. (73 commands)
 | `edit.flipHorizontal` | Flip Horizontal |  |
 | `edit.flipVertical` | Flip Vertical |  |
 | `edit.scaleToLength` | Scale to Length… | Dialog |
+| `edit.cropImage` | Crop Image |  |
+| `edit.resetCrop` | Reset Crop |  |
 | `edit.bringToFront` | Bring to Front |  |
 | `edit.bringForward` | Bring Forward |  |
 | `edit.sendBackward` | Send Backward |  |
@@ -164,6 +166,7 @@ Zoom, page layout, split, snapping, rulers and display aids. (44 commands)
 | `view.darkPages` | Dark Mode (Pages) | on/off |
 | `view.dimmer` | Dimmer | on/off |
 | `view.thinLines` | Disable Line Weights | on/off |
+| `view.keepView` | Keep View Between Pages | on/off |
 | `view.magnifier` | Magnifier | on/off |
 | `view.fullScreen` | Full Screen | on/off |
 | `view.replyIndicators` | Always Show Reply Indicators | on/off |
@@ -212,9 +215,9 @@ Page and whole-file work. (38 commands)
 | `document.compare` | Compare Documents… | Dialog |
 | `document.semanticCompare` | AI Compare Documents… | Dialog |
 | `document.overlay` | Overlay Pages… | Dialog |
-| `document.stitching` | Stitching… (Experimental) |  |
+| `document.stitching` | Stitching… |  |
 | `document.geospatial` | Geospatial… | Dialog |
-| `document.stitchToPage` | Stitch to New Page (Experimental) |  |
+| `document.stitchToPage` | Stitch to New Page |  |
 | `document.labelRegions` | Page Labels from Region… | Allow, Dialog |
 | `document.scaleRegions` | Bulk Apply Page Scale… | Allow, Dialog |
 | `document.scaleReview` | Review Sheet Scales… | Dialog |
@@ -275,9 +278,10 @@ Markup tools, measuring tools, flowchart shapes and takeoff commands. (92 comman
 | `tools.autoFields` | Auto-Create Fields… | Allow, Dialog |
 | `tools.columns` | Markup Columns & Statuses… | Dialog |
 | `tools.assemblies` | Assemblies… | Dialog |
+| `tools.library` | Browse Library… | Dialog |
 | `tools.quantities` | Takeoff Quantities… | Dialog |
 | `tools.scripts` | Scripts… | Dialog |
-| `tools.takeoffReview` | Review AI Proposals… | Dialog |
+| `tools.takeoffReview` | Review AI Takeoff… | Dialog |
 | `tools.signatures` | Sign… | Dialog |
 | `tool.connector` | Connector |  |
 | `diagram.addBelow` | Add Step Below |  |
@@ -390,6 +394,7 @@ Help menu. (9 commands)
 | `help.install` | Install App… | Dialog |
 | `help.support` | Technical Support |  |
 | `help.suggest` | Make a Suggestion |  |
+| `help.sponsor` | Sponsor |  |
 | `help.community` | redcolumn Community |  |
 | `help.logs` | Send Log Files |  |
 | `help.whatsNew` | Learn What's New |  |

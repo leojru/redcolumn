@@ -90,6 +90,25 @@ test.describe('measure tools', () => {
     expect((await app.toolState()).selected).toEqual([m!.id]);
   });
 
+  test('a 6/12 pitch set in Properties gives a line its sloped length', async ({ app }) => {
+    await app.tool('length');
+    await app.clicks([
+      [300, 450],
+      [500, 450],
+    ]);
+    const [m] = await app.markups();
+    expect(m!.measurement).toBe(`20'-0"`);
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), m!.id);
+    await app.page.getByRole('button', { name: 'Properties', exact: true }).click();
+    const props = app.page.locator('.props-panel');
+    await props.getByLabel('Slope kind').selectOption('pitch');
+    await props.getByLabel('Slope', { exact: true }).fill('6');
+    await props.getByLabel('Slope', { exact: true }).press('Enter');
+    expect((await app.raw())[0]!.slope).toEqual({ kind: 'pitch', value: 6 });
+    // 20 ft on plan x sqrt(1 + (6/12)²) = 22.3607 ft: 22 ft 4.33 in, 4 5/16" to the nearest 1/16".
+    await expect.poll(async () => (await app.markups())[0]!.measurement).toBe(`22'-4 5/16"`);
+  });
+
   test('Smart Fill measures the room around a click', async ({ app }) => {
     await app.tool('dynamicFill');
     expect((await app.command('tool.dynamicFill')).checked).toBe(true);
@@ -226,10 +245,13 @@ test.describe('assemblies', () => {
     const made = await app.assistant<{ proposed: number }>('propose_takeoff', { source: 'Claude', proposals: [{ id: run!.id, assembly: 'Stud wall', reasoning: 'A partition run.', expected: [{ item: 'Studs', quantity: 11 }] }] });
     expect(made.proposed).toBe(1);
     // The review opens by itself; the drawing is unchanged until a person approves.
-    const review = page.getByRole('complementary', { name: 'Takeoff review' });
+    const review = page.getByRole('complementary', { name: 'Review AI takeoff' });
     await expect(review).toBeVisible();
     const proposal = review.locator('.takeoff-proposal');
     await expect(proposal).toHaveCount(1);
+    // No confidence given: flagged to look at first. Opening it shows the details.
+    await expect(proposal.locator('.ar-conf')).toHaveText('⚑ ?');
+    await proposal.locator('.tp-measure').click();
     await expect(proposal).toContainText('A partition run.');
     // 22 ft at 2 ft spacing: 12 studs, where the AI expected 11 (flagged).
     await expect(proposal.locator('td.num').nth(1)).toHaveText('12.00');
@@ -257,8 +279,9 @@ test.describe('assemblies', () => {
     await app.cmd('edit.undo');
     await expect.poll(async () => (await app.raw())[0]!.assemblyId).toBeUndefined();
     await expect(review.locator('.takeoff-proposal')).toHaveCount(1);
-    // Rejecting keeps it out of the takeoff.
-    await review.locator('.takeoff-proposal').getByRole('button', { name: 'Reject', exact: true }).click();
+    // Rejecting keeps it out of the takeoff (R, with the row open).
+    await review.locator('.takeoff-proposal .tp-measure').click();
+    await review.locator('.takeoff-proposal .tp-measure').press('r');
     await expect(review.locator('.takeoff-proposal')).toHaveCount(0);
     const states = await app.assistant<{ proposals: { state: string }[] }>('list_takeoff_proposals');
     expect(states.proposals.map((p) => p.state)).toEqual(['rejected']);

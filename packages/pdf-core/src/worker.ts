@@ -452,6 +452,78 @@ async function importPages(bytes: ArrayBuffer, pages: number[]): Promise<ArrayBu
   }
 }
 
+/** FPDFPage_Flatten: as the page shows on screen; FLATTEN_FAIL. */
+const FLAT_NORMALDISPLAY = 0;
+const FLATTEN_FAIL = 0;
+
+/**
+ * Part of a page as a one-page PDF of its own, still vector (a Snapshot that snaps like the
+ * drawing). `rect` is in page space. The page is copied, its annotations that are editable
+ * markups here are dropped (they come over as markups), the rest are flattened into it, whatever
+ * lies wholly outside the area is removed, and its boxes are cut to the area. The /Rotate stays,
+ * so the new page shows `rect.w` × `rect.h` the way the area looked.
+ */
+async function clipRegion(docId: number, pageIndex: number, rect: { x: number; y: number; w: number; h: number }): Promise<ArrayBuffer> {
+  const m = await lib();
+  const doc = getDoc(docId);
+  const { malloc, free } = m.pdfium.wasmExports;
+  const out = m.FPDF_CreateNewDocument();
+  const buf = malloc(16);
+  try {
+    if (!withIndices(m, [pageIndex], (ptr) => m.FPDF_ImportPagesByIndex(out, doc.handle, ptr, 1, 0))) throw new Error('Copying the page failed');
+    let page = m.FPDF_LoadPage(out, 0);
+    if (!page) throw new Error('Copying the page failed');
+    try {
+      // Annotations shown as markups here go (descending, as indices shift); the rest become page content.
+      const hidden = [...(doc.hidden.get(pageIndex) ?? [])].sort((a, b) => b - a);
+      for (const i of hidden) m.FPDFPage_RemoveAnnot(page, i);
+      if (m.FPDFPage_GetAnnotCount(page) > 0 && m.FPDFPage_Flatten(page, FLAT_NORMALDISPLAY) !== FLATTEN_FAIL) {
+        // A flattened page is reloaded before its objects are read.
+        m.FPDF_ClosePage(page);
+        page = m.FPDF_LoadPage(out, 0);
+        if (!page) throw new Error('Copying the page failed');
+      }
+      for (let i = m.FPDFPage_GetAnnotCount(page) - 1; i >= 0; i--) m.FPDFPage_RemoveAnnot(page, i);
+      // The area in user space.
+      const toUser = invert(userToPageMatrix(m, page));
+      const corners = [
+        [rect.x, rect.y],
+        [rect.x + rect.w, rect.y],
+        [rect.x, rect.y + rect.h],
+        [rect.x + rect.w, rect.y + rect.h],
+      ].map(([x, y]) => applyMatrix(toUser, x!, y!));
+      const xs = corners.map((c) => c[0]);
+      const ys = corners.map((c) => c[1]);
+      const box = { l: Math.min(...xs), b: Math.min(...ys), r: Math.max(...xs), t: Math.max(...ys) };
+      let removed = false;
+      for (let i = m.FPDFPage_CountObjects(page) - 1; i >= 0; i--) {
+        const obj = m.FPDFPage_GetObject(page, i);
+        if (!m.FPDFPageObj_GetBounds(obj, buf, buf + 4, buf + 8, buf + 12)) continue;
+        const f32 = m.pdfium.HEAPF32;
+        const [l, b, r, t] = [f32[buf >> 2]!, f32[(buf >> 2) + 1]!, f32[(buf >> 2) + 2]!, f32[(buf >> 2) + 3]!];
+        if (r < box.l || l > box.r || t < box.b || b > box.t) {
+          if (m.FPDFPage_RemoveObject(page, obj)) {
+            m.FPDFPageObj_Destroy(obj);
+            removed = true;
+          }
+        }
+      }
+      if (removed && !m.FPDFPage_GenerateContent(page)) throw new Error('Could not rewrite the page');
+      m.FPDFPage_SetMediaBox(page, box.l, box.b, box.r, box.t);
+      m.FPDFPage_SetCropBox(page, box.l, box.b, box.r, box.t);
+      m.FPDFPage_SetTrimBox(page, box.l, box.b, box.r, box.t);
+      m.FPDFPage_SetBleedBox(page, box.l, box.b, box.r, box.t);
+      m.FPDFPage_SetArtBox(page, box.l, box.b, box.r, box.t);
+    } finally {
+      m.FPDF_ClosePage(page);
+    }
+    return saveDocument(m, out, 'rewrite');
+  } finally {
+    free(buf);
+    m.FPDF_CloseDocument(out);
+  }
+}
+
 async function close(docId: number): Promise<void> {
   const m = await lib();
   const doc = docs.get(docId);
@@ -951,6 +1023,18 @@ function annotColor(m: WrappedPdfiumModule, annot: number, type: 0 | 1, ptr: num
   if (m.EPDFAnnot_GetColor(annot, type, ptr, ptr + 4, ptr + 8)) return hex();
   if (!m.FPDFAnnot_GetColor(annot, type, ptr, ptr + 4, ptr + 8, ptr + 12)) return null;
   return hex();
+}
+
+/**
+ * A FreeText annotation's text layout keys: /DS and /RC (where Bluebeam and Acrobat keep alignment,
+ * margin and line height) and /Q. Read here too so text keeps its layout when the raw dictionaries
+ * could not be read (a file too large for them, or one that would not parse).
+ */
+function freeTextLayout(m: WrappedPdfiumModule, annot: number, ptr: number): Pick<PdfAnnotation, 'ds' | 'rc' | 'quadding'> {
+  const ds = annotString(m, annot, 'DS');
+  const rc = annotString(m, annot, 'RC');
+  const q = m.FPDFAnnot_GetNumberValue(annot, 'Q', ptr) ? m.pdfium.HEAPF32[ptr >> 2]! : null;
+  return { ...(ds ? { ds } : {}), ...(rc ? { rc } : {}), ...(q === 0 || q === 1 || q === 2 ? { quadding: q } : {}) };
 }
 
 /** Constant opacity (/CA), 0..1. */
@@ -1708,7 +1792,11 @@ async function readOutline(docId: number): Promise<OutlineItem[]> {
   return walk(0, 0);
 }
 
-function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number): PdfAnnotation[] {
+function isShxTextAnnot(m: WrappedPdfiumModule, annot: number): boolean {
+  return m.FPDFAnnot_GetSubtype(annot) === ANNOT_SQUARE && annotString(m, annot, 'T') === SHX_AUTHOR;
+}
+
+function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number, includeShx = false): PdfAnnotation[] {
   const page = getPage(m, doc, pageIndex);
   const t = userToPageMatrix(m, page);
   const { malloc, free } = m.pdfium.wasmExports;
@@ -1724,6 +1812,8 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
       if (!annot) continue;
       try {
         const subtype = ANNOT_SUBTYPES[m.FPDFAnnot_GetSubtype(annot)] ?? 'Unknown';
+        // AutoCAD's invisible SHX text carriers are left out unless asked for; shxWords() reads them for search regardless.
+        if (!includeShx && isShxTextAnnot(m, annot)) continue;
         const rect = annotRect(m, annot, tmp, t);
         if (!rect) continue;
         const opacity = annotOpacity(m, annot, tmp);
@@ -1772,6 +1862,7 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
           multiply: m.EPDFAnnot_GetBlendMode(annot) === BLEND_MULTIPLY,
           objectNumber: m.EPDFAnnot_GetObjectNumber(annot),
           da: annotString(m, annot, 'DA'),
+          ...(subtype === 'FreeText' ? freeTextLayout(m, annot, tmp) : {}),
           appData: annotString(m, annot, APP_DATA_KEY),
           flags: m.FPDFAnnot_GetFlags(annot),
           vertices: subtype === 'Polygon' || subtype === 'PolyLine' ? readPoints(m, t, (buf, len) => m.FPDFAnnot_GetVertices(annot, buf, len)) : [],
@@ -1804,7 +1895,7 @@ function shxWords(m: WrappedPdfiumModule, page: number, t: Matrix): TextWord[] {
       const annot = m.FPDFPage_GetAnnot(page, i);
       if (!annot) continue;
       try {
-        if (m.FPDFAnnot_GetSubtype(annot) !== ANNOT_SQUARE || annotString(m, annot, 'T') !== SHX_AUTHOR) continue;
+        if (!isShxTextAnnot(m, annot)) continue;
         const text = annotString(m, annot, 'Contents').trim();
         const r = annotRect(m, annot, tmp, t);
         if (!text || !r) continue;
@@ -2093,7 +2184,7 @@ async function handle(req: WorkerRequest) {
       }
       case 'annotations': {
         const m = await lib();
-        reply({ id: req.id, ok: true, type: 'annotations', annotations: readAnnotations(m, getDoc(req.docId), req.pageIndex) });
+        reply({ id: req.id, ok: true, type: 'annotations', annotations: readAnnotations(m, getDoc(req.docId), req.pageIndex, req.includeShx) });
         break;
       }
       case 'hideAnnots': {
@@ -2107,6 +2198,11 @@ async function handle(req: WorkerRequest) {
           if (loaded) applyHidden(m, loaded, set);
         }
         reply({ id: req.id, ok: true, type: 'hideAnnots' });
+        break;
+      }
+      case 'clipRegion': {
+        const bytes = await clipRegion(req.docId, req.pageIndex, req.rect);
+        reply({ id: req.id, ok: true, type: 'clipRegion', bytes }, [bytes]);
         break;
       }
       case 'geometry': {

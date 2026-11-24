@@ -1,12 +1,11 @@
-// Modified in the leojru/redcolumn fork: auto-size fits a text box's border shape around its text, with even room on every side; resizing keeps the text showing (keepTextInBox).
+// Modified in the leojru/redcolumn fork: a text box's border shape is fitted around its text; resizing keeps the text showing (keepTextInBox).
 import { framedTextBox } from './dimensionInline';
-import { boundsOf, contentBox, flagTip, isTextType, type Markup, type MarkupStyle, type Point } from './model';
+import { boundsOf, contentBox, flagTip, isTextType, rotatePoint, rotationCentre, type Markup, type MarkupStyle, type Point } from './model';
+import { layoutParagraphs } from './textLists';
+import { baseTextStyle, layoutRuns, spansOf, type StyledMeasure } from './textSpans';
 import { textLineHeight, textPadding } from './geometry';
 import { TYPE_INFO } from './types';
 import { refitCalloutKnees } from './callout';
-import { fontKeyword } from './fonts';
-import { TEXT_INK_METRICS } from './render';
-import { layoutParagraphs } from './textLists';
 
 // ---- Change Colours -------------------------------------------------------------------------------
 
@@ -53,12 +52,7 @@ export function canAutoSize(m: Pick<Markup, 'type' | 'text'>): boolean {
  * baseline with its padding, room left for the tails of large letters on the last line.
  */
 function textBlockHeight(m: Pick<Markup, 'style'>, lines: readonly string[]): number {
-  const size = m.style.fontSize ?? 12;
-  const pad = textPadding(m.style);
-  const fm = TEXT_INK_METRICS[fontKeyword(m.style.fontFamily)];
-  const tails = /[gjpqyQ,;()[\]{}_|@$]/.test(lines[lines.length - 1] ?? '');
-  const below = tails ? Math.max(pad, fm.descent * size + 1) : pad;
-  return Math.max(0, lines.length - 1) * size * textLineHeight(m.style) + fm.cap * size + pad + below;
+  return Math.ceil(lines.length * (m.style.fontSize ?? 12) * textLineHeight(m.style) + textPadding(m.style) * 2);
 }
 
 /**
@@ -89,46 +83,50 @@ export function keepTextInBox(m: Markup, points: Point[], measure: (s: string) =
 }
 
 /**
- * The points of a text box resized to fit its text exactly: as wide as its longest line (no
- * wrapping), as tall as its lines, with the usual padding. The box keeps its top-left corner (a
- * callout keeps its leader). `measure` gives a string's width at the markup's font size. Null when
- * the markup cannot be auto-sized. With `keepWidth` (Fork, leojru/redcolumn: the Auto-size command,
- * as Revu does it) a text box or callout keeps its width and the text wraps in it, so only the height
- * changes (the width grows only to hold the longest word).
+ * The points of a text box resized to fit its text: the text keeps the line breaks it has at the
+ * box's current width, and the box shrinks to the widest of those lines and their height, with the
+ * usual padding. It never grows wider than it is (unless one unbreakable word already overflows
+ * it), so fitting twice changes nothing. The box keeps its top-left corner on the page, turned
+ * with it when rotated (a callout keeps its leader). `measure` gives a string's width at the
+ * markup's font size. Null when the markup cannot be auto-sized.
  */
-export function autoSizedPoints(m: Markup, measure: (s: string) => number, opts?: { keepWidth?: boolean }): Point[] | null {
+export function autoSizedPoints(m: Markup, measure: (s: string) => number, styled?: StyledMeasure): Point[] | null {
   if (!canAutoSize(m) || TYPE_INFO[m.type].content !== 'text') return null;
-  const lines = (m.text ?? '').split('\n');
-  const textW = Math.max(...lines.map((l) => measure(l.trimEnd())));
-  // Fork (leojru/redcolumn): the same room on every side of the text: to its capitals above and its baseline below.
-  const w = textW + textPadding(m.style) * 2 + 0.5;
-  const h = textBlockHeight(m, lines);
+  const size = m.style.fontSize ?? 12;
+  const pad = textPadding(m.style);
+  const box = contentBox(m);
+  const spans = styled ? spansOf(m) : [];
+  const lines: { text: string; indent: number; width?: number }[] = styled && spans.length ? layoutRuns(m.text ?? '', spans, baseTextStyle(m), box.w - pad * 2, styled) : layoutParagraphs(m.text ?? '', box.w - pad * 2, measure);
+  const textW = Math.max(0, ...lines.map((l) => l.indent + (l.width ?? measure(l.text.trimEnd()))));
+  // Slack scaled to the font: the exported PDF measures text with its own font tables, a hair off the canvas.
+  let w = Math.ceil(textW + pad * 2 + Math.max(1, size * 0.15));
+  if (textW <= box.w - pad * 2) w = Math.min(w, box.w);
+  let h = Math.ceil(lines.length * size * textLineHeight(m.style) + pad * 2);
   // Fork (leojru/redcolumn): inside a border shape, the shape's box grows to hold the text.
   const shape = (m.type === 'text' || m.type === 'callout') && m.style.boxShape && m.style.boxShape !== 'rect' ? m.style.boxShape : null;
-  const box = shape ? boundsOf(m.type === 'callout' ? m.points.slice(2, 4) : m.points) : contentBox(m);
-  let outer = shape ? framedTextBox(shape, textW, lines.length, m.style.fontSize ?? 12) : { w, h };
-  if (opts?.keepWidth && !shape && (m.type === 'text' || m.type === 'callout')) {
-    const pad = textPadding(m.style);
-    const word = Math.max(0, ...(m.text ?? '').split(/\s+/).map((t) => measure(t)));
-    // Fork: a box wider than its text shrinks to it; one too narrow keeps its width and the text wraps.
-    const kept = Math.max(Math.min(box.w, w), word + pad * 2 + 0.5);
-    outer = { w: kept, h: textBlockHeight(m, layoutParagraphs(m.text ?? '', kept - pad * 2, measure).map((l) => l.text)) };
-  }
+  if (shape) ({ w, h } = framedTextBox(shape, textW, lines.length, size));
+  let pts: Point[];
   if (m.type === 'callout') {
     if (m.points.length < 4) return null;
-    const pts = m.points.map((p) => [p[0], p[1]] as Point);
-    const from = boundsOf(m.points.slice(2, 4));
+    pts = m.points.map((p) => [p[0], p[1]] as Point);
     pts[2] = [box.x, box.y];
-    pts[3] = [box.x + outer.w, box.y + outer.h];
+    pts[3] = [box.x + w, box.y + h];
     // Fork (leojru/redcolumn): the leader keeps its place on the box (centred stays centred).
-    return refitCalloutKnees(pts, from, { x: box.x, y: box.y, w: outer.w, h: outer.h });
-  }
-  if (m.type === 'flagLabel') {
+    pts = refitCalloutKnees(pts, boundsOf(m.points.slice(2, 4)), { x: box.x, y: box.y, w, h });
+  } else if (m.type === 'flagLabel') {
     // The pointed end grows with the box's height; solve for the outer width that leaves `w` for text.
     const b = boundsOf(m.points);
     let outer = w + h / 2;
     for (let i = 0; i < 4; i++) outer = w + flagTip({ x: 0, y: 0, w: outer, h });
-    return [[b.x, b.y], [b.x + outer, b.y + h]];
+    pts = [[b.x, b.y], [b.x + outer, b.y + h]];
+  } else {
+    pts = [[box.x, box.y], [box.x + w, box.y + h]];
   }
-  return [[box.x, box.y], [box.x + outer.w, box.y + outer.h]];
+  if (!m.rotation) return pts;
+  // Turned about its centre, a smaller box would swing its corner away: slide it back.
+  const corner = contentBox(m);
+  const before = rotatePoint([corner.x, corner.y], rotationCentre(m), m.rotation);
+  const after = rotatePoint([contentBox({ type: m.type, points: pts }).x, contentBox({ type: m.type, points: pts }).y], rotationCentre({ type: m.type, points: pts }), m.rotation);
+  const [dx, dy] = [before[0] - after[0], before[1] - after[1]];
+  return pts.map((p) => [p[0] + dx, p[1] + dy] as Point);
 }

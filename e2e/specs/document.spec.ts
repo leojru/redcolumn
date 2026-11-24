@@ -393,6 +393,35 @@ test.describe('document pages', () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
+  test('a smaller thumbnail size stacks the thumbnails in more columns', async ({ app }) => {
+    await app.cmd('document.thumbnails');
+    const thumbs = app.page.locator('.thumbs .thumb');
+    await expect.poll(() => thumbs.count()).toBeGreaterThan(1);
+    const columns = async () => new Set(await thumbs.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().left)))).size;
+    await app.page.getByLabel('Thumbnail size').fill('360');
+    await expect.poll(columns).toBe(1);
+    await app.page.getByLabel('Thumbnail size').fill('64');
+    await expect.poll(columns).toBeGreaterThan(1);
+  });
+
+  test('picking a same-size page from the thumbnails keeps the zoom and the part of the sheet in view', async ({ app }) => {
+    await app.cmd('document.thumbnails');
+    const thumbs = app.page.locator('.thumbs .thumb');
+    await expect.poll(() => thumbs.count()).toBeGreaterThan(1);
+    const sizes = await app.page.evaluate(() => [0, 1].map((i) => window.__nb.viewer.pageSize(i)));
+    test.skip(!sizes[0] || !sizes[1] || Math.abs(sizes[0].width - sizes[1].width) > 1 || Math.abs(sizes[0].height - sizes[1].height) > 1, 'needs two pages the same size');
+    await app.page.evaluate(() => window.__nb.viewer.zoomBy(3, 100, 100));
+    // The same spot on each sheet lands in the same place on screen (a continuous view stacks the sheets, so compare on-screen).
+    const spot = (page: number) => app.page.evaluate((page) => ({ zoom: window.__nb.viewer.getView().zoom, at: window.__nb.viewer.pageToClient([100, 100], page) }), page);
+    const before = await spot(0);
+    await thumbs.nth(1).click();
+    await expect.poll(() => app.page.evaluate(() => window.__nb.viewer.currentPageIndex)).toBe(1);
+    const after = await spot(1);
+    expect(after.zoom).toBeCloseTo(before.zoom, 5);
+    expect(after.at[0]).toBeCloseTo(before.at[0], 0);
+    expect(after.at[1]).toBeCloseTo(before.at[1], 0);
+  });
+
   test('right-click between thumbnails offers only what needs no page', async ({ app }) => {
     await app.cmd('document.thumbnails');
     const thumbs = app.page.locator('.thumbs');
@@ -571,6 +600,25 @@ test.describe('page labels and scales from regions', () => {
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l, i) => `${l} - SCALE: ${S.scales[i]}`));
   });
 
+  test('Bookmarks panel: From regions names a bookmark for every page from two boxes, and renames them in place the second time', async ({ app }) => {
+    await app.cmd('window.bookmarks');
+    await app.page.locator('.bookmarks-panel').getByRole('button', { name: 'From regions…' }).click();
+    const panel = app.page.locator('.label-regions');
+    await expect(panel.getByRole('radio', { name: 'Bookmark' })).toBeChecked();
+    await drawBox(app, S.labelBox);
+    await drawBox(app, S.scaleBox);
+    await panel.locator('select').selectOption(' - ');
+    await panel.getByRole('button', { name: 'Apply to 3 pages' }).click();
+    await expect.poll(() => bookmarks(app)).toEqual(S.labels.map((l, i) => ({ title: `${l} - SCALE: ${S.scales[i]}`, pageIndex: i })));
+    // Page labels are left alone.
+    expect(await sheetNumbers(app, 3)).toEqual([null, null, null]);
+    // Again with one box: the same three bookmarks, renamed.
+    await app.page.locator('.bookmarks-panel').getByRole('button', { name: 'From regions…' }).click();
+    await drawBox(app, S.labelBox);
+    await panel.getByRole('button', { name: 'Apply to 3 pages' }).click();
+    await expect.poll(() => bookmarks(app)).toEqual(S.labels.map((title, pageIndex) => ({ title, pageIndex })));
+  });
+
   // Each sheet repeats "SHEET n OF 3" at the top and its room name and scale note at the bottom.
   test('tools.bulkRedact finds the repeated header and removes it from every page', async ({ app }) => {
     expect(await app.search('SHEET')).toEqual([1, 2, 3]);
@@ -604,7 +652,7 @@ test.describe('page labels and scales from regions', () => {
     test.use({ toolbar: 'ribbon' });
 
     test('tools.bulkRedact on the Bulk tab covers the boxes', async ({ app }) => {
-      const ribbon = app.page.locator('.ribbon');
+      const ribbon = app.page.locator('.ribbon, .rb-tabs');
       await ribbon.getByRole('tab', { name: 'Bulk' }).click();
       await ribbon.locator('[data-ribbon-command="tools.bulkRedact"]').click();
       const panel = app.page.locator('.label-regions');

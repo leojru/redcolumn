@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import type { Markup } from './model.ts';
+import { unchangedSinceImport } from './digest.ts';
 
 function annot(partial: Partial<ImportableAnnotation>): ImportableAnnotation {
   return {
@@ -93,22 +94,53 @@ test("this app's exported markups come back exactly", () => {
   assert.deepEqual(pdfAnnot && { index: pdfAnnot.index, id: pdfAnnot.id, status: pdfAnnot.status }, { index: 0, id: 'abc', status: 'accepted' });
 });
 
-test('text another program changed in /Contents wins over our saved copy, and is redrawn on save', () => {
-  // Fork (leojru/redcolumn): a script filled an x.x placeholder; Bluebeam showed the value, we showed x.x.
-  const ours: Markup = { id: 'u1', type: 'text', pageIndex: 0, points: [[1, 2], [30, 12]], style: { stroke: '#123456', fill: null, width: 1, opacity: 1 }, text: 'x.x', status: 'none', author: 'Sam', createdAt: 1, modifiedAt: 2 };
-  const read = (contents: string) => importAnnotations(0, [annot({ subtype: 'FreeText', contents, appData: JSON.stringify(ours) })]).markups[0]!;
-  const filled = read('1.25 k');
-  assert.equal(filled.text, '1.25 k');
-  assert.equal(filled.pdfAnnot?.redraw, true, 'saved again with an appearance that matches');
-  assert.equal(filled.style.stroke, '#123456', 'the rest still comes from our copy');
-  // Unchanged (line ends as other tools write them) or without /Contents: our copy as it was.
-  const same = read('x.x\r');
-  assert.equal(same.text, 'x.x');
-  assert.equal(same.pdfAnnot?.redraw, undefined);
-  assert.equal(read('').text, 'x.x');
-  // A shape's /Contents is its comment and label, not its text: left alone.
-  const box = importAnnotations(0, [annot({ contents: 'something else', appData: JSON.stringify({ ...ours, type: 'rectangle', text: undefined }) })]).markups[0]!;
-  assert.equal(box.text, undefined);
+function ours(type: Markup['type'], extra: Partial<Markup> = {}): Markup {
+  return {
+    id: 'm1',
+    type,
+    pageIndex: 0,
+    points: [[10, 10], [60, 30]],
+    style: { stroke: '#123456', fill: null, width: 1, opacity: 1 },
+    status: 'none',
+    author: 'Sam',
+    createdAt: 1,
+    modifiedAt: 2,
+    ...extra,
+  };
+}
+
+test('text changed in another program wins over our saved copy, and the markup is saved afresh', () => {
+  for (const [subtype, type] of [['FreeText', 'text'], ['FreeText', 'callout'], ['PolyLine', 'connector']] as const) {
+    const saved = ours(type, { text: 'x.x' });
+    const { markups } = importAnnotations(0, [annot({ subtype, contents: '42.5', appData: JSON.stringify(saved) })]);
+    assert.equal(markups[0]!.text, '42.5', type);
+    // Everything else is still ours, and the next save redraws it.
+    assert.equal(markups[0]!.author, 'Sam');
+    assert.equal(unchangedSinceImport(markups[0]!), false, type);
+  }
+});
+
+test('text that still matches our saved copy leaves the markup untouched', () => {
+  const saved = ours('text', { text: 'line one\nline two' });
+  // Another program writes line ends as \r.
+  const { markups } = importAnnotations(0, [annot({ subtype: 'FreeText', contents: 'line one\rline two', appData: JSON.stringify(saved) })]);
+  assert.equal(markups[0]!.text, 'line one\nline two');
+  assert.equal(unchangedSinceImport(markups[0]!), true);
+});
+
+test('a missing /Contents keeps our saved text', () => {
+  const saved = ours('text', { text: 'x.x' });
+  const { markups } = importAnnotations(0, [annot({ subtype: 'FreeText', contents: '', appData: JSON.stringify(saved) })]);
+  assert.equal(markups[0]!.text, 'x.x');
+  assert.equal(unchangedSinceImport(markups[0]!), true);
+});
+
+test("a shape's /Contents is its comment, so it never replaces anything", () => {
+  const saved = ours('rect', { comment: 'ours' });
+  const { markups } = importAnnotations(0, [annot({ subtype: 'Square', contents: 'theirs', appData: JSON.stringify(saved) })]);
+  assert.equal(markups[0]!.comment, 'ours');
+  assert.equal(markups[0]!.text, undefined);
+  assert.equal(unchangedSinceImport(markups[0]!), true);
 });
 
 test('links with page destinations become accepted-quality links', () => {

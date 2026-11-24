@@ -514,6 +514,67 @@ body,
   max-width: 140px;
 }
 
+/* Takeoff › Slope: the kind above its value, two rows. */
+.rb-slope {
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.rb-slope select,
+.rb-slope input {
+  height: 24px;
+}
+
+/* Takeoff › Assembly: the picker over its Variables drop-down and where a change goes. */
+.rb-assembly {
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.rb-assembly select {
+  width: 150px;
+  height: 24px;
+}
+
+.rb-asm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rb-asm-applies {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rb-asm-pop {
+  position: fixed;
+  z-index: 1000;
+  width: 280px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.rb-asm-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.rb-asm-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+.rb-asm-pop .warn {
+  color: var(--warning, #d97706);
+}
+
 /* Never scrolls: the controls spread sideways in blocks of up to two rows, so the fixed-height ribbon shows them all. */
 .rb-props {
   display: flex;
@@ -546,12 +607,13 @@ body,
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  padding: 0 4px 0 0;
+  padding: 0 8px 0 2px;
   border-right: 1px solid var(--tint);
 }
 
 .rb-props .prop-cluster:last-child {
   border-right: none;
+  padding-right: 2px;
 }
 
 .rb-props .prop-cluster-items {
@@ -559,13 +621,13 @@ body,
   flex: 1;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
+  gap: 6px;
 }
 
 .rb-props .prop-line {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   white-space: nowrap;
 }
 
@@ -582,8 +644,18 @@ body,
   width: 52px;
 }
 
+.rb-props .hatch-select {
+  width: 132px;
+  max-width: 132px;
+}
+
+.rb-props .hatch-select .hatch-swatch {
+  width: 24px;
+  height: 14px;
+}
+
 /* The Text block's names are in the tooltips; the icons alone keep it narrow enough to fit. */
-.rb-props .prop-cluster[aria-label='Text'] .field-label {
+.rb-props .prop-cluster[data-cluster='text'] .field-label {
   display: none;
 }
 
@@ -593,9 +665,9 @@ body,
 
 .rb-props .prop-cluster-label {
   display: block;
+  padding: 2px 0 3px;
   color: var(--muted);
-  font-size: 10px;
-  line-height: 12px;
+  font-size: 11px;
   text-align: center;
 }
 
@@ -605,8 +677,44 @@ body,
 
 .rb-props .btn,
 .rb-props select,
+.rb-props .combo,
 .rb-props input:not([type='checkbox']) {
   height: 24px;
+}
+
+.rb-props .combo-input {
+  height: 100%;
+}
+
+.rb-props .field:has(> :disabled),
+.rb-props .field:has(> .combo.disabled),
+.rb-props .field:has(> .hatch-menu > :disabled),
+.rb-props .field:has(> .font-picker > :disabled) {
+  color: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+.rb-props .field:has(:disabled) > .field-icon,
+.rb-props .field:has(:disabled) > .field-label {
+  opacity: 0.4;
+}
+
+/* Collapsible Modify tools section on the Markup Format tab. */
+.rb-format-modify {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.rb-format-modify.open {
+  background: var(--tint-faint);
+}
+
+.rb-modify-toggle-group {
+  border-left: 1px solid var(--border);
+}
+
+.rb-modify-toggle {
+  min-width: 58px;
 }
 
 .rb-collapse {
@@ -654,31 +762,50 @@ body,
   background: none;
 }
 
-.field input:not([type]),
+.field input:not([type]):not(.combo-input),
+.field input[type='text']:not(.combo-input),
+.field input[type='number']:not(.combo-input),
 .markups input {
   height: 24px;
-  border: 1px solid var(--border);
+  padding: 0 6px;
+  border: 1px solid var(--field-border, var(--border));
   border-radius: 3px;
-  background: var(--surface-sunken);
-  color: var(--text);
+  background: var(--field-bg, var(--surface-sunken));
+  color: var(--text-strong, var(--text));
   font: inherit;
+}
+
+.field input:not([type='checkbox']):not(.combo-input):hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.field input:not([type='checkbox']):not(.combo-input):disabled {
+  opacity: 0.35;
+  background: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
+  cursor: default;
 }
 
 /* One look for every dropdown. Places that sit beside fixed-height inputs set --select-h to match. */
 select {
   height: var(--select-h, 24px);
   padding: 0 24px 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border, var(--border));
   border-radius: 3px;
-  background-color: var(--surface-sunken);
+  background-color: var(--field-bg, var(--surface-sunken));
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2395a3bc' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  color: var(--text);
+  color: var(--text-strong, var(--text));
   font: inherit;
   text-overflow: ellipsis;
   appearance: none;
   cursor: pointer;
+}
+
+select:hover:not(:disabled) {
+  border-color: var(--accent);
 }
 
 select:focus-visible {
@@ -687,7 +814,10 @@ select:focus-visible {
 }
 
 select:disabled {
-  opacity: 0.5;
+  opacity: 0.35;
+  background-color: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
   cursor: default;
 }
 
@@ -874,8 +1004,9 @@ select[size] {
   background: #fff;
   font-family: Helvetica, Arial, sans-serif;
   line-height: 1.2;
-  resize: none;
   overflow: hidden;
+  overflow-wrap: break-word;
+  cursor: text;
 }
 
 /* List buttons over the text editor. Their mousedown is cancelled so the editor keeps focus (it commits on blur). */
@@ -906,6 +1037,40 @@ select[size] {
 
 .text-editor-bar button:hover {
   background: var(--border);
+}
+
+.text-editor-bar button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.text-editor-bar .fmt-bold {
+  font-weight: 700;
+}
+
+.text-editor-bar .fmt-italic {
+  font-style: italic;
+}
+
+.text-editor-bar .fmt-underline {
+  text-decoration: underline;
+}
+
+.text-editor-bar .fmt-strikethrough {
+  text-decoration: line-through;
+}
+
+.text-editor-bar .swatch-button {
+  min-width: 18px;
+  padding: 0 2px;
+}
+
+.text-editor-bar .swatch-button span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgb(0 0 0 / 0.35);
 }
 
 .text-editor-bar .sep {
@@ -1577,6 +1742,15 @@ select[size] {
   color: var(--text);
 }
 
+.search-related-head {
+  margin: 8px 10px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .thumb.selected {
   border-color: var(--muted);
   background: var(--tint);
@@ -1587,7 +1761,8 @@ select[size] {
 }
 
 .thumb.drop-before {
-  box-shadow: 0 -3px 0 0 var(--accent);
+  /* Above the page in one column, and beside it in several. */
+  box-shadow: 0 -3px 0 0 var(--accent), -3px 0 0 0 var(--accent);
 }
 
 .pages-panel {
@@ -1601,6 +1776,26 @@ select[size] {
   /* Fills the panel below the last page, which takes the right-click menu and the keys too. */
   flex: 1 0 auto;
   min-width: 0;
+  /* As many columns as the panel is wide enough for: a wider panel or a smaller size shows more. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--thumb-w, 150px) + 12px), 1fr));
+  justify-items: center;
+  align-content: start;
+  align-items: start;
+  gap: 10px 6px;
+  padding: 10px 6px;
+}
+
+.pages-panel .thumb {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pages-panel .thumb > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pages-panel .thumbs:focus {
@@ -1708,20 +1903,288 @@ select[size] {
   user-select: none;
 }
 
-/* Brand ribbon: the redcolumn mark at the head of the menu bar. */
+/* The redcolumn mark at the head of the menu bar: it opens the one menu holding File, Edit, View… */
+.brand-menu {
+  flex: none;
+  align-items: stretch;
+}
+
 .brand-mark {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 7px;
-  padding: 0 14px 0 10px;
+  min-height: 30px;
+  padding: 0 10px 0 10px;
   margin-right: 4px;
+  border: 0;
   border-right: 1px solid var(--tint);
+  background: none;
   color: var(--text);
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.brand-mark:hover,
+.brand-menu.open .brand-mark {
+  background: var(--surface-active);
+}
+
+.brand-mark.brand-static {
+  cursor: default;
+}
+
+.brand-mark.brand-static:hover {
+  background: none;
+}
+
+/* Classic menu bar (Preferences › Interface › Display › Show Menu Bar): File, Edit, View… across the top row. */
+.menubar-menus {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+}
+
+.menubar.classic .menu-title {
+  height: 100%;
+  min-height: 30px;
+}
+
+.update-app-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  margin: 0 8px 0 4px;
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.update-app-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.update-app-btn.busy {
+  background: var(--tint-strong);
+  color: var(--text);
+  font-weight: 500;
+  cursor: default;
+}
+
+.brand-mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.brand-caret {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+/* A newer version of the desktop app is ready: the menu's Update item says what to do. */
+.brand-badge {
+  position: absolute;
+  top: 5px;
+  left: 24px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--ribbon);
+}
+
+.brand-drop {
+  min-width: 300px;
+}
+
+/* The search box sits at the right of the row: small until it is focused, then wide enough to read results. */
+.menubar .menu-search {
+  flex: 0 1 210px;
+  min-width: 0;
+  margin: 0 6px 0 4px;
+  transition: flex-basis 0.15s ease;
+}
+
+.menubar .menu-search:focus-within {
+  flex-basis: 340px;
+}
+
+/* In the ribbon's tab strip the search sits just left of the Customize Ribbon and Toolbar Display buttons. */
+.rb-search-slot {
+  display: flex;
+  flex: 0 1 auto;
+  align-self: center;
+  min-width: 28px;
+  margin-bottom: 3px;
+}
+
+/* Autosave: the disk icon with a switch beside it, so on and off read at a glance. */
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--tint-strong);
+  transition: background 0.15s ease;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.autosave-btn.on .switch-track {
+  background: var(--accent);
+}
+
+.autosave-btn.on .switch-thumb {
+  background: #fff;
+  transform: translateX(12px);
+}
+
+/* Feedback menu and Autosave: small icon buttons at the end of the row. */
+.menubar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.menubar-icon-btn:hover,
+.feedback-menu.open .menubar-icon-btn {
+  background: var(--surface-active);
+  color: var(--text);
+}
+
+.menubar-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.autosave-btn.on {
+  color: var(--text);
+}
+
+.feedback-menu .feedback-drop {
+  right: 0;
+  left: auto;
+  min-width: 200px;
+}
+
+.feedback-menu {
+  margin-right: 2px;
+}
+
+/* Tight rows: Feedback drops its word, and the search shrinks to its magnifier until it is focused. */
+@media (max-width: 1180px) {
+  .feedback-label {
+    display: none;
+  }
+  .menubar .menu-search {
+    flex: 0 0 28px;
+    margin: 0 2px;
+  }
+  .menubar .menu-search:focus-within {
+    flex-basis: 28px;
+  }
+  .menubar .menu-search {
+    height: 24px;
+  }
+  .menubar .menu-search input {
+    width: 28px;
+    padding: 0;
+    cursor: pointer;
+  }
+  .menubar .menu-search input::placeholder {
+    color: transparent;
+  }
+  .menubar .menu-search input:focus {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 60;
+    width: 260px;
+    padding: 0 8px 0 26px;
+    cursor: text;
+  }
+  .menubar .menu-search input:focus::placeholder {
+    color: var(--muted);
+  }
+}
+
+/* The rest of the row: the ribbon's tabs (see Ribbon.tsx), or empty space that drags the desktop window. */
+.menubar-slot {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-end;
+}
+
+.menubar .rb-tabs {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px 0 2px;
+  border-bottom: 0;
+}
+
+/* Tabs shrink, ending in "…", rather than run under the search and buttons after them: longer
+   languages and narrow windows. */
+.menubar .rb-tab {
+  flex: 0 1 auto;
+  min-width: 3.5em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The selected tab covers the menu bar's bottom edge, so it runs into the commands below. */
+.menubar .rb-tab[aria-selected='true'] {
+  z-index: 1;
+}
+
+/* The simplified toolbar in the menu bar's row: it takes the bar's look rather than framing itself. */
+.menubar .toolbar.tools {
+  flex: 1;
+  align-self: center;
+  min-width: 0;
+  padding: 2px 8px 2px 4px;
+  border-bottom: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* With the tabs up in the menu bar, a collapsed ribbon has nothing left to frame. */
+.ribbon.tabs-up.collapsed {
+  border-bottom: 0;
 }
 
 .brand-col {
@@ -1747,7 +2210,9 @@ select[size] {
     app-region: drag;
   }
   .menubar .menu,
-  .menubar button {
+  .menubar button,
+  .menubar input,
+  .menubar select {
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
@@ -1764,68 +2229,10 @@ select[size] {
 }
 .titlebar-overlay .menubar .menu,
 .titlebar-overlay .menubar button,
-.titlebar-overlay .menubar .menu-search {
+.titlebar-overlay .menubar input,
+.titlebar-overlay .menubar select {
   -webkit-app-region: no-drag;
   app-region: no-drag;
-}
-
-/* Search sits in the middle of the space between the menus and the window buttons, so it never
-   covers either; on narrow windows it shrinks rather than sliding under the buttons. */
-.titlebar-overlay .menubar .menu-search {
-  min-width: 96px;
-  margin: 0 auto;
-}
-
-.install-app-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: center;
-  margin: 0 8px 0 auto;
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.install-app-btn:hover {
-  filter: brightness(1.12);
-}
-
-/* Desktop app: a newer version exists, is downloading, or is ready to restart into. */
-.update-app-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: center;
-  margin: 0 8px 0 0;
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.update-app-btn:hover:not(:disabled) {
-  filter: brightness(1.12);
-}
-
-.update-app-btn.busy {
-  background: var(--tint-strong);
-  color: var(--text);
-  font-weight: 500;
-  cursor: default;
 }
 
 .menu {
@@ -2596,6 +3003,13 @@ select[size] {
   min-height: 28px;
 }
 
+/* A short warning under a property row (an area with elevations but no run). */
+.prop-note {
+  margin: 2px 0 4px 92px;
+  color: var(--warning, #d97706);
+  font-size: 12px;
+}
+
 .prop-label {
   color: var(--muted);
 }
@@ -2617,6 +3031,10 @@ select[size] {
   background: var(--bg);
   color: var(--text);
   font: inherit;
+}
+
+.prop-control .combo {
+  height: 24px;
 }
 
 .prop-control input.num {
@@ -2805,7 +3223,18 @@ select[size] {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0 4px;
+  padding: 0 6px;
+  border-color: var(--field-border, var(--border));
+  background: var(--field-bg, var(--surface-sunken));
+  color: var(--text-strong, var(--text));
+}
+
+.color-btn:disabled {
+  opacity: 0.32;
+  background: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
+  cursor: default;
 }
 
 .color-menu.wide .color-btn {
@@ -2838,7 +3267,7 @@ select[size] {
 
 .color-caret {
   font-size: 9px;
-  color: var(--muted);
+  color: var(--field-caret, var(--text-soft));
 }
 
 .color-pop {
@@ -3366,6 +3795,17 @@ select[size] {
   color: var(--accent-hi);
   text-decoration: underline;
   cursor: pointer;
+}
+
+.sheet-sync-issues ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.sheet-sync-issues li {
+  margin-bottom: 6px;
 }
 
 .sheet-sync-note {
@@ -5866,13 +6306,23 @@ select[size] {
   min-width: 120px;
   max-width: 180px;
   padding: 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border, var(--border));
   border-radius: 3px;
-  background: var(--surface-sunken);
-  color: var(--text);
+  background: var(--field-bg, var(--surface-sunken));
+  color: var(--text-strong, var(--text));
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.font-picker-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.font-picker-button:disabled {
+  opacity: 0.35;
+  background: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
+  cursor: default;
 }
 .font-picker-name {
   overflow: hidden;
@@ -5914,13 +6364,48 @@ select[size] {
   letter-spacing: 0.04em;
 }
 .font-picker-option {
-  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 8px;
   border-radius: 3px;
   font-size: 14px;
+  cursor: pointer;
+}
+.font-picker-option-label {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.font-picker-star {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+.font-picker-option:hover .font-picker-star,
+.font-picker-option.active .font-picker-star,
+.font-picker-star:focus-visible,
+.font-picker-star.starred {
+  opacity: 1;
+}
+.font-picker-star:hover {
+  color: #f59e0b;
+}
+.font-picker-star.starred {
+  color: #f59e0b;
 }
 .font-picker-option.active {
   background: color-mix(in srgb, var(--text) 14%, transparent);
@@ -5947,4 +6432,29 @@ select[size] {
   color: var(--text);
   font: inherit;
   cursor: pointer;
+}
+
+.reports-dialog {
+  min-width: 420px;
+  max-width: 560px;
+}
+.reports-group {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 8px 0;
+  padding: 6px 10px;
+}
+.reports-group legend {
+  padding: 0 4px;
+  color: var(--text-muted, inherit);
+}
+.reports-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+.reports-choice .muted {
+  display: block;
+  font-size: 0.85em;
 }

@@ -1,4 +1,5 @@
 // Modified in the leojru/redcolumn fork (revu-layout): markups no longer come back after Remove from Device.
+import { msg } from '@nb/i18n';
 /**
  * On-device PDF library backed by the Origin Private File System. File contents are stored by the
  * SHA-256 of their bytes, so re-opening the same file finds its existing entry and markups. Each
@@ -7,6 +8,7 @@
  */
 
 import { openLocal, sealLocal } from './localCrypto';
+import { searchIndex } from '../search/index/client';
 
 export interface StoredFile {
   /** Stable document id: the hash of the file as first added. */
@@ -21,6 +23,8 @@ export interface StoredFile {
   revisions?: FileRevision[];
   /** A template: File › New PDF from Template starts new documents from a copy of it. */
   template?: boolean;
+  /** Taken off the recent files list (Remove from Recents, Clear Recents) until it is opened again. */
+  recentHidden?: boolean;
 }
 
 /** A kept earlier version of a document's contents. */
@@ -114,7 +118,7 @@ export async function saveFile(name: string, bytes: ArrayBuffer, id?: string): P
   const entry = await updateIndex((entries) => {
     const existing = entries.find((e) => (id ? e.id === id : e.hash === hash));
     const entry: StoredFile = existing
-      ? { ...existing, name, lastOpenedAt: now }
+      ? { ...existing, name, lastOpenedAt: now, recentHidden: undefined }
       : { id: id ?? hash, hash, name, size: bytes.byteLength, addedAt: now, lastOpenedAt: now };
     return { entries: [...entries.filter((e) => e.id !== entry.id), entry], result: entry };
   });
@@ -132,7 +136,7 @@ export async function replaceFileContent(id: string, bytes: ArrayBuffer): Promis
   let oldHash: string | null = null;
   const entry = await updateIndex((entries) => {
     const current = entries.find((e) => e.id === id);
-    if (!current) throw new Error('Document not found in the library');
+    if (!current) throw new Error(msg('Document not found in the library'));
     oldHash = current.hash;
     const next: StoredFile = { ...current, hash, size: bytes.byteLength, lastOpenedAt: Date.now() };
     return { entries: entries.map((e) => (e.id === id ? next : e)), result: next };
@@ -171,6 +175,7 @@ async function dropIfUnused(hash: string) {
   } catch {
     // Already gone.
   }
+  void searchIndex.drop(hash);
 }
 
 /**
@@ -180,6 +185,18 @@ async function dropIfUnused(hash: string) {
 export async function keepRevision(id: string, note: string): Promise<void> {
   await updateIndex((entries) => ({
     entries: entries.map((e) => (e.id === id ? { ...e, revisions: [{ hash: e.hash, size: e.size, savedAt: Date.now(), note }, ...(e.revisions ?? []).filter((r) => r.hash !== e.hash)] } : e)),
+    result: undefined,
+  }));
+}
+
+/**
+ * Keeps other contents as a revision of the document: the document as it is with its markups written
+ * in, say, where `keepRevision` keeps the stored file only.
+ */
+export async function keepRevisionOf(id: string, bytes: ArrayBuffer, note: string): Promise<void> {
+  const hash = await cacheFile(bytes);
+  await updateIndex((entries) => ({
+    entries: entries.map((e) => (e.id === id ? { ...e, revisions: [{ hash, size: bytes.byteLength, savedAt: Date.now(), note }, ...(e.revisions ?? []).filter((r) => r.hash !== hash)] } : e)),
     result: undefined,
   }));
 }
@@ -242,12 +259,21 @@ export async function rewriteLibrary(): Promise<void> {
 
 export async function touchFile(id: string): Promise<void> {
   await updateIndex((entries) => ({
-    entries: entries.map((e) => (e.id === id ? { ...e, lastOpenedAt: Date.now() } : e)),
+    entries: entries.map((e) => (e.id === id ? { ...e, lastOpenedAt: Date.now(), recentHidden: undefined } : e)),
     result: undefined,
   }));
 }
 
-/** Removes the file from the library. */
+/**
+ * Takes documents off the recent files list. They stay on the device (with their markups), in
+ * File Access groups and in a filter of File Access, and come back to the list when opened again.
+ */
+export async function hideFromRecents(ids: Iterable<string>): Promise<void> {
+  const hide = new Set(ids);
+  await updateIndex((entries) => ({ entries: entries.map((e) => (hide.has(e.id) ? { ...e, recentHidden: true } : e)), result: undefined }));
+}
+
+/** Removes the file from the library. Fork: markups not saved in the file go with it (see fork/fileCopies). */
 export async function removeFile(file: StoredFile): Promise<void> {
   const current = (await readIndex()).find((e) => e.id === file.id);
   await updateIndex((entries) => ({ entries: entries.filter((e) => e.id !== file.id), result: undefined }));

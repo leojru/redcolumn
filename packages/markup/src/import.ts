@@ -1,7 +1,9 @@
 // Modified in the leojru/redcolumn fork (revu-layout): cloud borders on FreeText; Revu snapshots' border and fill as settings; text another program changed in /Contents wins over /NBData.
+import { sanitizeAiOrigin } from './aiReview';
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
-import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
+import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
+import { COUNT_STYLE_FROM_PDF } from './countSymbol';
 import {
   APPEARANCE_KEY,
   APPEARANCE_VERSION,
@@ -21,6 +23,7 @@ import {
   nums,
   pagePoints,
   parseDefaultStyle,
+  freeTextStyle,
   parsePdfDate,
   refNum,
   statusIdOf,
@@ -34,6 +37,8 @@ import { readBsiLegend } from './bsiLegend';
 import { readLineStyle } from './lineStyle';
 import { blendModeOfPdf, effectiveBlendMode, type LineDash } from './style';
 import { familyFromPdfName } from './fonts';
+import { spansFromRichText } from './richText';
+import { baseTextStyle, type TextSpan } from './textSpans';
 import type { Viewport } from './viewports';
 
 /** What import needs from an existing PDF annotation (matches pdf-core's PdfAnnotation). */
@@ -56,6 +61,10 @@ export interface ImportableAnnotation {
   /** Object number of the annotation dictionary (0 or absent when direct), to find its raw values. */
   objectNumber?: number;
   da: string;
+  /** FreeText: /DS, /RC and /Q, read with the annotation so its text layout survives without the raw dictionaries. */
+  ds?: string;
+  rc?: string;
+  quadding?: number;
   appData: string;
   flags: number;
   vertices: [number, number][];
@@ -90,21 +99,43 @@ export interface ImportResult {
 const NOT_SHOWN = 1 | 2 | 32;
 const LOCKED = 128;
 
-/** The kind, identifier and label a `/Link` we wrote carries in our app data, if it is ours and well formed. */
 /**
- * Fork (leojru/redcolumn): the text of one of our markups as another program left it, or null when it
- * did not change it. Our copy (/NBData) is what we wrote; a text box, callout, dimension or connector
- * also writes its text to /Contents, which other programs edit (and redraw from). Without /Contents
- * there is nothing to go by.
+ * The font name and size a /DA string sets with its `Tf` operator (`/Helv 12 Tf`), found by
+ * splitting on whitespace so a long hostile string costs linear time. Size is 0 when absent.
  */
-export function textEditedElsewhere(m: Pick<Markup, 'type' | 'text'>, rawContents: string | undefined, contents: string): string | null {
-  if (!(isTextType(m.type) || m.type === 'dimension' || m.type === 'connector')) return null;
-  const now = rawContents ?? (contents || undefined);
-  if (now === undefined) return null;
-  const text = cleanText(now);
-  return text === cleanText(m.text ?? '') ? null : text;
+export function daFont(da: string | null | undefined): { name: string; size: number } {
+  const tokens = (da ?? '').split(/\s+/);
+  const at = tokens.indexOf('Tf');
+  if (at < 1) return { name: '', size: 0 };
+  const sizeToken = tokens[at - 1]!;
+  let start = sizeToken.length;
+  while (start > 0 && /[\d.]/.test(sizeToken[start - 1]!)) start--;
+  const size = Number(sizeToken.slice(start)) || 0;
+  const nameToken = at >= 2 ? tokens[at - 2]! : '';
+  return { name: nameToken.startsWith('/') && !nameToken.includes('/', 1) ? nameToken.slice(1) : '', size };
 }
 
+/**
+ * The text another program left in /Contents of a markup of ours, when it is no longer the text we saved;
+ * null when it is the same, missing, or not the markup's text (a shape's /Contents is a comment, a measurement's its value).
+ */
+function editedText(m: Markup, raw: string | null | undefined, plain: string): string | null {
+  if (!(isTextType(m.type) || m.type === 'dimension' || m.type === 'connector')) return null;
+  const contents = raw ?? (plain || undefined);
+  if (contents === undefined) return null;
+  const now = cleanText(contents);
+  return now === cleanText(m.text ?? '') ? null : now;
+}
+
+/** The styled parts of a text markup's /RC (as `{ spans }`), left out where there are none or the text does not agree with them. */
+function richSpans(r: PdfDictValue | null, a: ImportableAnnotation, text: string, style: MarkupStyle): { spans?: TextSpan[] } {
+  const rc = r ? str(r.RC) : a.rc;
+  if (!rc) return {};
+  const spans = spansFromRichText(rc, text, baseTextStyle({ style }));
+  return spans.length ? { spans } : {};
+}
+
+/** The kind, identifier and label a `/Link` we wrote carries in our app data, if it is ours and well formed. */
 function ourLink(appData: string): { kind: LinkKind; detail: string | null; label: string | null } | null {
   if (!appData) return null;
   try {
@@ -308,6 +339,7 @@ export function importAnnotations(
     return m;
   };
 
+  const redraw = new Set<Markup>();
   for (const a of annotations) {
     if (owner.has(a.index)) {
       // A popup, reply or review state: saved with the markup it belongs to.
@@ -322,14 +354,21 @@ export function importAnnotations(
           // Attachments keep their bytes in the embedded file only.
           const attachment = data.attachment && !data.attachment.data && a.file ? { ...data.attachment, data: toBase64(a.file.data) } : data.attachment;
           const { pdfAnnot: _stale, ...rest } = data;
-          // Fork (leojru/redcolumn): text another program changed (Bluebeam, a script) wins over our copy.
-          const edited = textEditedElsewhere(rest, (r && str(r.Contents)) ?? undefined, a.contents);
-          const m = finish({ ...rest, pageIndex, ...(attachment ? { attachment } : {}), ...(edited !== null ? { text: edited } : {}) }, a, r, null, true);
+          const m = finish({ ...rest, pageIndex, ...(attachment ? { attachment } : {}) }, a, r, null, true);
+          // An AI draft's record is checked like anything else read from a file.
+          if (m.ai !== undefined) {
+            const ai = sanitizeAiOrigin(m.ai);
+            if (ai) m.ai = ai;
+            else delete m.ai;
+          }
+          // Another program may have changed the text since we saved: /Contents is what it reads and writes.
+          const edited = editedText(m, r ? str(r.Contents) : undefined, a.contents);
           if (edited !== null) {
-            // Saved again with an appearance and a copy of its own that say the same.
-            m.pdfAnnot = { ...m.pdfAnnot!, redraw: true };
-            const modified = r ? parsePdfDate(str(r.M)) : null;
-            if (modified && modified > m.modifiedAt) m.modifiedAt = modified;
+            m.text = edited;
+            // Its styled parts were for the old text: take them from the rich text it left, if that agrees.
+            delete m.spans;
+            Object.assign(m, richSpans(r, a, edited, m.style));
+            redraw.add(m);
           }
           markups.push(m);
           imported.push(a.index);
@@ -407,19 +446,21 @@ export function importAnnotations(
         }
         if (f.type === 'typewriter') style.width = 0;
         if (f.type === 'text' || f.type === 'typewriter') {
-          style.fontSize = Number(/([\d.]+)\s+Tf/.exec(a.da)?.[1]) || 12;
+          style.fontSize = daFont(a.da).size || 12;
           // Font resource names in /DA hint at the family (Acrobat: Helv, TiRo, Cour).
-          const daFont = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(a.da)?.[1] ?? '';
-          const font = daFont.toLowerCase();
+          const daName = daFont(a.da).name;
+          const font = daName.toLowerCase();
           if (/^(tiro|times)/.test(font)) style.fontFamily = 'serif';
           else if (/^cour/.test(font)) style.fontFamily = 'mono';
-          else if (daFont && !/^(helv|arial)/.test(font) && !/^(zadb|symb)/.test(font)) {
+          else if (daName && !/^(helv|arial)/.test(font) && !/^(zadb|symb)/.test(font)) {
             // Any other font name is an installed font's, kept as it is (a name written by an
             // earlier export has its spaces taken out; the rich text, read later, has them).
-            const named = familyFromPdfName(daFont.replace(/#([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))));
+            const named = familyFromPdfName(daName.replace(/#([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))));
             if (named !== 'sans') style.fontFamily = named;
           }
           if (/bold|,b/.test(font)) style.bold = true;
+          // Alignment, margin, line height and the rest of the text's layout, as with the raw dictionary.
+          Object.assign(style, freeTextStyle(a.ds, a.rc, a.quadding, style.fontSize));
         }
         if (f.type === 'area') style.fillOpacity = 0.2;
       }
@@ -435,6 +476,7 @@ export function importAnnotations(
         points: f.points,
         style,
         ...(textual ? { text: f.text ?? contents } : comment ? { comment } : {}),
+        ...(textual && isTextType(f.type) ? richSpans(r, a, f.text ?? contents, style) : {}),
         ...(f.extra ?? {}),
         ...(f.type === 'attachment' && a.file ? { attachment: { name: a.file.name, mime: mimeOf(a.file.name), size: a.file.data.length, data: toBase64(a.file.data) } } : {}),
         status: 'none',
@@ -485,7 +527,8 @@ export function importAnnotations(
   }
   // Bluebeam Spaces live on the page, not in /Annots.
   if (page) markups.push(...importSpaces(pageIndex, page, now));
-  for (const m of markups) if (m.pdfAnnot) m.pdfAnnot.digest = markupDigest(m);
+  // A markup whose text was changed elsewhere is saved afresh, so its appearance and our copy agree again.
+  for (const m of markups) if (m.pdfAnnot) m.pdfAnnot.digest = redraw.has(m) ? '' : markupDigest(m);
 
   const vp = page ? importViewports(pageIndex, page) : null;
   if (vp?.scale && page) {
@@ -608,8 +651,6 @@ function bounds(pts: readonly (readonly [number, number])[]): Point[] {
   ];
 }
 
-const COUNT_SHAPES: Record<string, CountShape> = { Checkmark: 'check', Check: 'check', Circle: 'circle', Square: 'square', Diamond: 'diamond', Triangle: 'triangle', Cross: 'cross', X: 'cross' };
-
 /** A dash pattern (in multiples of the line width) as the nearest of our line styles. */
 function dashOf(d: number[], width: number): LineDash | undefined {
   if (!d.length) return undefined;
@@ -650,7 +691,12 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const color = colorHex(r.C);
   const interior = colorHex(r.IC);
   const ds = str(r.DS);
-  const textStyle = ds ? parseDefaultStyle(ds, Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || undefined) : {};
+  const nbMargin = num(r.NBTextMargin);
+  const daSize = daFont(str(r.DA) ?? a.da).size || undefined;
+  const textStyle: Partial<MarkupStyle> =
+    a.subtype === 'FreeText' ? freeTextStyle(ds, str(r.RC), num(r.Q), daSize) : ds ? parseDefaultStyle(ds, daSize) : {};
+  // Our exact padding, trusted only while it agrees with the /DS margin written beside it: another reader that edited /DS leaves it stale.
+  if (typeof nbMargin === 'number' && nbMargin >= 0 && nbMargin <= 51 && textStyle.textMargin !== undefined && Math.abs(textStyle.textMargin - Math.max(1, nbMargin)) < 1e-6) textStyle.textMargin = nbMargin;
   const daColor = daTextColor(str(r.DA) ?? a.da);
   const fillOpacity = num(r.FillOpacity);
   const dash = nameOf(bs?.S) === 'D' ? dashOf(nums(bs?.D).length ? nums(bs?.D) : [3], width) : undefined;
@@ -739,7 +785,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       if (text !== style.stroke) style.textColor = text;
       // Fork (leojru/redcolumn): a text box or callout with a cloud for a border.
       if (nameOf(dict(r.BE)?.S) === 'C') Object.assign(style, { cloudBorder: true, arcRadius: cloudArcRadius(num(dict(r.BE)?.I)) });
-      if (!textStyle.fontSize) style.fontSize = Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || 12;
+      if (!textStyle.fontSize) style.fontSize = daFont(str(r.DA) ?? a.da).size || 12;
       // Fork (leojru/redcolumn): Revu's text box shape. Its Rect is the whole shape and /RD insets the text from it.
       const frame = ({ Circle: 'circle', Triangle: 'triangle', Hexagon: 'hexagon' } as const)[nameOf(r.Shape) as 'Circle'];
       if (frame && intent !== 'FreeTextCallout') {
@@ -788,6 +834,31 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
           [Math.max(full[0]![0], full[1]![0]), Math.max(full[0]![1], full[1]![1])],
         ];
         return [{ type: 'flagLabel', points: flag, filled: true, style }];
+      }
+      // Bluebeam's turned text box: /Rotation is clockwise degrees, /Rect the turned box's bounds, and
+      // the appearance's /BBox the box before turning (about the same centre).
+      const turn = num(r.Rotation);
+      const ab = nums(r.APBBox);
+      if (turn && turn % 360 !== 0 && ab.length === 4 && rect.length === 4) {
+        const ins = rd.length === 4 ? rd : [width / 2, width / 2, width / 2, width / 2];
+        const w = Math.abs(ab[2]! - ab[0]!) - ins[0]! - ins[2]!;
+        const h = Math.abs(ab[3]! - ab[1]!) - ins[1]! - ins[3]!;
+        if (w > 0 && h > 0) {
+          const c = toPage((rect[0]! + rect[2]!) / 2, (rect[1]! + rect[3]!) / 2);
+          // A turned page turns the box with it: user x and y as page-space vectors say by how much.
+          const o = toPage(0, 0);
+          const ux = toPage(1, 0);
+          const uy = toPage(0, 1);
+          const pageTurn = (Math.atan2(ux[1] - o[1], ux[0] - o[0]) * 180) / Math.PI;
+          const half: Point = [(w * Math.abs(ux[0] - o[0]) + h * Math.abs(uy[0] - o[0])) / 2, (w * Math.abs(ux[1] - o[1]) + h * Math.abs(uy[1] - o[1])) / 2];
+          return [{
+            type: 'text',
+            points: [[c[0] - half[0], c[1] - half[1]], [c[0] + half[0], c[1] + half[1]]],
+            filled: !!color,
+            style,
+            extra: { rotation: (((turn + pageTurn) % 360) + 360) % 360 },
+          }];
+        }
       }
       return [{ type: 'text', points: box, filled: !!color, style }];
     }
@@ -867,7 +938,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         const b = bounds(verts);
         const centre: Point = [(b[0]![0] + b[1]![0]) / 2, (b[0]![1] + b[1]![1]) / 2];
         const r0 = Math.max(b[1]![0] - b[0]![0], b[1]![1] - b[0]![1]) / 2;
-        const shape = COUNT_SHAPES[nameOf(r.CountStyle) ?? ''] ?? 'circle';
+        const shape = COUNT_STYLE_FROM_PDF[nameOf(r.CountStyle) ?? ''] ?? 'circle';
         // Bluebeam shows each count item's marker without a label.
         return [{ type: 'count', points: [centre], filled: true, measure: true, style: { ...base, fill: interior ?? color, arcRadius: r0 || undefined, countShape: shape, showLabel: false, ...labelStyle } }];
       }

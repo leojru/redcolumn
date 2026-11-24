@@ -1,8 +1,9 @@
-import { DEFAULT_SCALE, isMeasureKind, measureValue, toDisplayQuantity, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, effectiveKind, isMeasureKind, measureValue, toDisplayQuantity, type MeasureKind, type Scale } from '@nb/measure';
 import { arr, dict, num, PdfName, PdfRefNum, str, type PdfDictValue, type PdfValue } from './bluebeam';
 import { CLOUD_PLUS_CLOUD_TYPE, CLOUD_PLUS_TYPE, CLOUD_TYPE, cloudPlusGroups, legendKeyOf } from './bluebeamTypes';
 import { inLegendKeys, listed, onLegendPage } from './legend';
 import { measureProps, type Markup } from './model';
+import { COUNT_STYLE_BSI } from './countSymbol';
 import { lineEnds, type LineEnding } from './style';
 
 /** JSON-like values, as Bluebeam's legend dictionary is kept in a markup. */
@@ -50,7 +51,7 @@ function keyFor(type: number, subject: string, unit: string, sample: Markup, clo
     if (cloud) out.Subkeys = [keyFor(CLOUD_PLUS_CLOUD_TYPE, subject, unit, cloud)];
   } else if (type === 5) Object.assign(out, { Color: fill, FillColor: fill, OpacityFill: s.fillOpacity ?? s.opacity, LineColor: stroke, TextColor: text, FreeTextType: 3, FontSize: s.fontSize ?? 8 });
   else if (type === 35) Object.assign(out, { Color: stroke, BlendMode: 0, OpacityFill: s.opacity, ...hatch });
-  else if (type === 38) Object.assign(out, { Color: stroke, CountStyle: 4, CountScale: 1 });
+  else if (type === 38) Object.assign(out, { Color: stroke, CountStyle: COUNT_STYLE_BSI[s.countShape ?? 'circle'], CountScale: 1 });
   else Object.assign(out, { Color: stroke });
   return out;
 }
@@ -128,8 +129,8 @@ export function bsiLegendValue(
     row.sample ??= m;
     const kind: string = m.type;
     if (isMeasureKind(kind) && kind !== 'arcLength') {
-      row.measured = kind;
-      if (kind === 'count') row.count += m.points.length;
+      row.measured = effectiveKind(kind, m);
+      if (row.measured === 'count') row.count += kind === 'manual' ? Math.round(measureValue(kind, m.points, 1, measureProps(m))) : m.points.length;
       else row.amount += measureValue(kind, m.points, scaleOf(m).metersPerPoint, measureProps(m), scaleOf(m).yMetersPerPoint);
     } else row.count += 1;
   }

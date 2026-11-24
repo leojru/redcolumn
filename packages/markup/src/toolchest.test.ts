@@ -81,6 +81,9 @@ ${item('AQQEDGQEWPZTPYWL', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS
   assert.deepEqual([text!.name, text!.type, text!.style.noBox], ['Text Box', 'text', true]);
   assert.equal(bubble!.type, 'ellipse');
   assert.deepEqual(bubble!.sequence, { start: 1, increment: 1 });
+  // Revu's Drawing mode places a copy; Properties mode only matters for tools that have one to place.
+  assert.equal(bubble!.mode, 'copy');
+  assert.equal(cloudPlus!.mode, undefined);
   const [circle, number] = bubble!.template!;
   // The circle is inset by its /RD; the number's box is centred in it, where Revu's <X>/<Y> put it.
   assert.deepEqual(circle!.points, [[1, 1], [37, 37]]);
@@ -216,4 +219,18 @@ test('a group box keeps /RD as left, top, right, bottom; a sequence numbers only
   // Top inset 6, bottom 1, in page space (y down) where the box's top is y 0.
   assert.deepEqual(box!.points, [[0, 6], [40, 39]]);
   assert.deepEqual([num!.text, title!.text], ['7', 'A101']);
+});
+
+test("a tool keeps Revu's Label and Comment columns; a text tool's words show as its comment, a measurement reading does not", async () => {
+  const xml = `<BluebeamRevuToolSet Version="1"><Title>T</Title>
+${item('Note', 'Bluebeam.PDF.Annotations.AnnotationSquare', '<</Subtype/Square/Subj(Rectangle)/Label(Tile 1)/Contents(Check this)>>')}
+${item('Words', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</Subtype/FreeText/Subj(Text Box)/Contents(Sample)/DA(0 0 0 rg /Helv 12 Tf)>>')}
+${item('Len', 'Bluebeam.PDF.Annotations.AnnotationLine', '<</Subtype/Line/IT/LineDimension/L[0 0 10 0]/Subj(Dimension)/Label()/Contents(50)>>')}
+</BluebeamRevuToolSet>`;
+  const set = await parseBtx(xml);
+  assert.equal(set.items[0]!.markupLabel, 'Tile 1');
+  assert.equal(set.items[0]!.comment, 'Check this');
+  assert.equal(set.items[1]!.comment, 'Sample');
+  assert.equal(set.items[2]!.comment, undefined);
+  assert.equal(set.items[2]!.markupLabel, undefined);
 });

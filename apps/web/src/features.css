@@ -435,10 +435,24 @@
   text-align: left;
 }
 
-.tool-text {
-  display: flex;
-  flex-direction: column;
+.tool-text,
+.tool-head {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 6px;
   min-width: 0;
+}
+
+.tool-text {
+  flex: 1;
+}
+
+/* Column titles of the detail view; the indent clears the tool's preview. */
+.tool-head {
+  padding: 2px 6px 3px 42px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .tool-label {
@@ -2247,6 +2261,16 @@
   cursor: default;
 }
 
+/* Preferences › the organisation's policy (desktop/policy.ts) turns features off on this computer. */
+.modal p.prefs-managed {
+  margin: 0 20px 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .modal p.prefs-message {
   margin: 0 20px 8px;
   padding: 6px 8px;
@@ -2492,6 +2516,12 @@
 .status-toggle:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.status-hint {
+  margin-left: 6px;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .status-sep {
@@ -2963,8 +2993,82 @@
   width: 100%;
 }
 
-.stamp-field-row input {
+.stamp-field-row input,
+.stamp-field-row textarea {
   flex: 1;
+}
+
+.stamp-field-row > span {
+  min-width: 64px;
+}
+
+/* A picture stamp's texts: one row each, and handles over the preview to drag them into place. */
+.stamps-dialog .form-grid > label:has(+ .stamp-art-texts) {
+  align-self: start;
+  padding-top: 6px;
+}
+
+.stamp-art-texts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stamp-art-text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.stamp-art-text > input:first-child {
+  flex: 1;
+  min-width: 80px;
+}
+
+.stamp-art-text input[type='number'] {
+  width: 52px;
+}
+
+.stamp-art-bold {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: bold;
+}
+
+.stamp-art-positioner {
+  position: relative;
+}
+
+.stamp-field-warning {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.stamp-field-head input[aria-invalid='true'] {
+  border-color: #b91c1c;
+}
+
+.stamp-field-check input {
+  flex: none;
+}
+
+.stamp-art-handle {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed var(--accent);
+  cursor: move;
+  touch-action: none;
+}
+
+.stamp-art-handle:hover,
+.stamp-art-handle:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: none;
 }
 
 .stamp-options {
@@ -3568,6 +3672,18 @@
   padding: 3px;
 }
 
+.ms-vp-sepy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ms-vp-sepy input {
+  width: auto;
+}
+
 .ms-vp-row.on {
   background: rgba(20, 163, 154, 0.28);
 }
@@ -3894,23 +4010,100 @@
 }
 
 .modal.compare-dialog {
-  width: min(580px, calc(100vw - 32px));
+  width: min(640px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-/* Labels stay on one line; the document pickers take the rest of the row. */
-.compare-dialog > .row {
+.modal.compare-dialog h3 {
+  margin: 0;
+}
+
+.modal.compare-dialog .compare-intro {
+  margin: 0;
+}
+
+.modal.compare-dialog .check {
+  margin-top: 0;
+}
+
+.modal.compare-dialog fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.modal.compare-dialog fieldset .row {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.modal.compare-dialog .print-hint {
+  margin: 0;
+  white-space: normal;
+}
+
+.modal.compare-dialog .compare-source-row {
+  gap: 24px;
+  padding: 2px 0;
+}
+
+/* Labels stay on one line; the document pickers shrink/truncate to fit beside Browse. */
+.modal.compare-dialog .compare-doc-row {
+  flex-wrap: nowrap;
   white-space: nowrap;
-}
-
-.compare-dialog > .row select {
-  flex: 1;
+  gap: 10px;
   min-width: 0;
 }
 
-.compare-dialog fieldset .row select {
+.modal.compare-dialog .compare-doc-row select {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 0;
+  max-width: none;
+  height: 30px;
+  text-overflow: ellipsis;
+}
+
+.compare-doc-label {
+  min-width: 92px;
+  flex: none;
+}
+
+.compare-browse-btn {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+}
+
+.modal.compare-dialog .compare-swap-row {
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.compare-swap-btn {
+  font-size: 12px;
+  height: 28px;
+  padding: 0 12px;
+}
+
+.compare-dialog fieldset:not(.compare-docs) .row select {
   max-width: 280px;
+}
+
+.modal.compare-dialog .actions {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 /* Numbers keep their own width instead of stretching across the row (beats .modal input's flex: 1). */
@@ -4116,6 +4309,14 @@
 }
 
 /* Batch dialog */
+/* Wide enough for the Sign & Seal rows, and scrolls inside the window so Run is never off-screen. */
+.batch-dialog {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
 .batch-dialog .batch-files {
   max-height: 200px;
   overflow: auto;
@@ -4380,6 +4581,7 @@
 
 /* Full Screen: only the drawing shows. */
 .app.fullscreen .menubar,
+.app.fullscreen .ribbon,
 .app.fullscreen .toolbar,
 .app.fullscreen .rail,
 .app.fullscreen .panel.side,
@@ -4411,6 +4613,15 @@ input.zoom:hover,
 input.zoom:focus {
   border-color: var(--border);
   background: var(--bg);
+}
+
+/* An AI draft no person has approved yet: dashed on the sheet, marked here */
+tr.ai-draft td:first-child {
+  box-shadow: inset 3px 0 0 rgba(168, 85, 247, 0.8);
+}
+
+tr.ai-draft td {
+  font-style: italic;
 }
 
 tr.hidden-markup td {
@@ -4611,10 +4822,11 @@ tr.hidden-markup td {
 .layers-bar {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  height: 34px;
-  padding: 0 4px;
+  min-height: 34px;
+  padding: 4px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -4644,6 +4856,8 @@ tr.hidden-markup td {
 }
 
 .layers-menu-btn.title {
+  /* Not pushed right by the app-wide .title rule. */
+  margin-left: 0;
   padding: 0 8px;
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   font-size: 14px;
@@ -4677,18 +4891,21 @@ tr.hidden-markup td {
   position: sticky;
   top: 0;
   z-index: 1;
-  width: 50px;
   height: 26px;
   padding: 0 6px;
+  overflow: hidden;
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   font-weight: 600;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.layers-grid th.layer-name {
-  width: auto;
+.layers-grid th.layer-filler,
+.layers-grid td.layer-filler {
+  border-right: 0;
 }
 
 .layers-grid th .layer-twisty {
@@ -4758,7 +4975,7 @@ tr.hidden-markup td {
 
 /* Fork (leojru/redcolumn): the layer new markups go on (Set as Default). */
 .layer-default {
-  margin-left: 6px;
+  margin-inline-start: 6px;
   padding: 0 5px;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -4828,90 +5045,288 @@ tr.hidden-markup td {
 /* Compare: Align Pages and Select Region */
 .compare-pick-dialog {
   width: min(1100px, calc(100vw - 32px));
+  height: min(820px, calc(100vh - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.compare-pick-dialog.compare-pick-full {
+  width: calc(100vw - 24px);
+  height: calc(100vh - 24px);
+  max-width: none;
+  max-height: calc(100vh - 24px);
+}
+.compare-pick-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+}
+.compare-pick-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.compare-pick-heading h3 {
+  margin: 0;
+}
+.compare-pick-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.compare-pick-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+.compare-pick-step.current {
+  border-color: var(--step-color, var(--accent));
+  color: var(--text);
+}
+.compare-pick-step.done {
+  border-color: color-mix(in srgb, var(--step-color, var(--accent)) 45%, var(--border));
+}
+.compare-pick-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--step-color, var(--accent));
+  color: #fff;
+  font-weight: 700;
+  font-size: 10px;
+}
+.compare-pick-pill {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+.compare-pick-pill.active {
+  background: var(--step-color, var(--accent));
+  color: #fff;
+  font-weight: 600;
+}
+.compare-pick-pill.ok {
+  color: var(--text);
+  font-weight: 600;
+}
+.compare-pick-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.compare-pick-guide {
+  flex: 1 1 320px;
+  padding: 6px 10px;
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 3px;
+  background: var(--surface-sunken);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.compare-pick-guide.ready {
+  border-inline-start-color: #1a8a1a;
+}
+.compare-pick-guide.warn {
+  border-inline-start-color: #d97706;
+}
+.compare-pick-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.compare-pick-controls .check {
+  margin: 0;
+}
+.compare-pick-hint {
+  color: var(--muted);
+  font-size: 11px;
 }
 .compare-pick-pages {
   display: flex;
   gap: 12px;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .compare-pick {
-  flex: 1 1 300px;
+  flex: 1 1 0;
   margin: 0;
   min-width: 0;
-}
-.compare-pick figcaption {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 4px;
-}
-.compare-pick-page {
-  position: relative;
-  max-height: 60vh;
-  max-width: 100%;
-  margin: 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border);
-  background: #fff;
-  cursor: crosshair;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.compare-pick.active-target {
+  border-color: var(--pick-accent, var(--accent));
+  box-shadow: 0 0 0 1px var(--pick-accent, var(--accent));
+}
+.compare-pick-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text);
+  flex: none;
+}
+.compare-pick-title {
+  font-weight: 600;
+}
+.compare-pick-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+.compare-pick-snap-state {
+  font-size: 11px;
+  color: var(--muted);
+}
+.compare-pick-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.compare-pick-zbtn {
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 1;
+}
+.compare-pick-zpct {
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--muted);
+}
+.compare-pick-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 200px;
+  overflow: hidden;
   touch-action: none;
   user-select: none;
-}
-.compare-pick-page.loading {
-  display: grid;
-  place-items: center;
-  min-height: 200px;
-  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-sunken) 85%, #000 15%);
   cursor: default;
 }
-.compare-pick-page img {
+.compare-pick-viewport.picking {
+  cursor: crosshair;
+}
+.compare-pick-viewport.pan-ready {
+  cursor: grab;
+}
+.compare-pick-viewport.panning {
+  cursor: grabbing;
+}
+.compare-pick-canvas {
   display: block;
   width: 100%;
   height: 100%;
-  pointer-events: none;
 }
-.compare-pick-mark {
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  margin: -9px 0 0 -9px;
-  border: 2px solid;
-  border-radius: 50%;
-  background: var(--tint-strong);
-  color: #000;
-  font: 600 10px/14px system-ui, sans-serif;
-  text-align: center;
-  pointer-events: none;
+.compare-pick-loading {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 200px;
+  color: var(--muted);
 }
-.compare-pick-region {
-  position: absolute;
-  border: 2px dashed var(--accent);
-  background: rgba(20, 163, 154, 0.12);
-  pointer-events: none;
+.compare-pick-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+.compare-pick-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.compare-pick-opacity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.compare-pick-opacity input[type='range'] {
+  width: 76px;
 }
 
-/* Number fields with a dropdown of common values (toolbar line width, opacity, cloud bubbles). */
+/* Number fields with a dropdown of common values (toolbar line width, opacity, font size, cloud bubbles). */
 .combo {
   position: relative;
   display: inline-flex;
   align-items: center;
   height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel);
+  border: 1px solid var(--field-border, var(--border));
+  border-radius: 3px;
+  background: var(--field-bg, var(--surface-sunken));
+  color: var(--text-strong, var(--text));
+}
+
+.combo:hover:not(.disabled),
+.combo:focus-within:not(.disabled) {
+  border-color: var(--accent);
+}
+
+.combo.disabled {
+  opacity: 0.35;
+  background: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
 }
 
 .combo-input {
   width: 38px;
   height: 100%;
   padding: 0 2px 0 6px;
-  border: 0;
-  background: none;
-  color: inherit;
+  border: 0 !important;
+  background: none !important;
+  color: var(--text-strong, var(--text));
   font: inherit;
   text-align: right;
+  outline: none;
+}
+
+.combo.disabled .combo-input {
+  opacity: 1;
+  color: var(--muted);
+  cursor: default;
 }
 
 .combo-unit {
   padding: 0 2px;
+  color: var(--text-soft, var(--muted));
+}
+
+.combo.disabled .combo-unit {
   color: var(--muted);
 }
 
@@ -4921,9 +5336,19 @@ tr.hidden-markup td {
   border: 0;
   border-left: 1px solid var(--border);
   background: none;
-  color: var(--muted);
+  color: var(--field-caret, var(--text-soft));
   font-size: 9px;
   cursor: pointer;
+}
+
+.combo-caret:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-strong, var(--text));
+}
+
+.combo-caret:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 .combo-list {
@@ -5368,61 +5793,6 @@ tr.hidden-markup td {
   margin: 0 8px 0 auto;
 }
 
-.menu-search ~ .install-app-btn {
-  margin-left: 0;
-}
-
-/* Help, Technical Support and Make a Suggestion, beside the search. The Help menu keeps the same
-   entries, so on narrow windows the buttons give way to it rather than squeezing the bar. */
-.menubar-help {
-  display: flex;
-  flex: none;
-  align-items: center;
-  align-self: center;
-  gap: 4px;
-  margin: 0 8px 0 0;
-}
-
-.menubar-help-btn {
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.menubar-help-btn:hover:not(:disabled) {
-  background: var(--tint);
-}
-
-.autosave-btn {
-  flex: none;
-  align-self: center;
-  margin: 0 8px 0 0;
-}
-
-.autosave-btn.on {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-@media (max-width: 1100px) {
-  .menubar-help {
-    display: none;
-  }
-}
-
-@media (display-mode: window-controls-overlay) {
-  .menubar-help-btn {
-    -webkit-app-region: no-drag;
-    app-region: no-drag;
-  }
-}
-
 .menu-search-icon {
   position: absolute;
   left: 8px;
@@ -5536,12 +5906,6 @@ tr.hidden-markup td {
   font-size: 10.5px;
 }
 
-@media (display-mode: window-controls-overlay) {
-  .menubar .menu-search {
-    -webkit-app-region: no-drag;
-    app-region: no-drag;
-  }
-}
 
 /* Apply Scale to Pages (thumbnails Custom button). */
 .modal.scale-dialog {
@@ -6037,8 +6401,90 @@ tr.hidden-markup td {
   width: 100%;
 }
 
-.asm-items td:first-child input {
+.asm-items td.asm-item-name input {
   width: 130px;
+}
+
+.drag-col {
+  width: 22px;
+  padding: 0;
+}
+
+.drag-handle-cell {
+  width: 22px;
+  padding: 0 2px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 24px;
+  color: var(--muted);
+  cursor: grab;
+  opacity: 0.55;
+  user-select: none;
+  border-radius: 3px;
+}
+
+.drag-handle:hover:not(.disabled) {
+  opacity: 1;
+  color: var(--text);
+  background: var(--hover);
+}
+
+.drag-handle:active:not(.disabled) {
+  cursor: grabbing;
+}
+
+.drag-handle.disabled {
+  cursor: default;
+  opacity: 0.2;
+}
+
+.col-row .drag-handle.list-grip {
+  width: 14px;
+  height: 18px;
+  flex: none;
+}
+
+.columns-list li[draggable='true'] {
+  cursor: grab;
+}
+
+.columns-list li[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.columns-list li.dragging,
+.asm-table tr.dragging {
+  opacity: 0.45;
+}
+
+.columns-list li.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.columns-list li.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.asm-table tr.drop-before > td {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.asm-table tr.drop-after > td {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.asm-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .asm-formula {
@@ -6508,6 +6954,90 @@ tr.hidden-markup td {
   width: 80px;
 }
 
+/* Comment register: export and template editor */
+.modal.register-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.register-editor {
+  padding: 8px 12px;
+}
+
+.register-editor h4 {
+  margin: 14px 0 4px;
+}
+
+.register-basics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px 16px;
+}
+
+.register-editor .qty-table input:not([type='checkbox']),
+.register-editor .qty-table select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.register-editor .qty-table input[type='number'] {
+  width: 70px;
+}
+
+.register-client-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.register-client-label {
+  font-weight: 600;
+}
+
+.register-row-actions {
+  white-space: nowrap;
+}
+
+/* Import from Excel: the preview of what a workbook changes */
+.import-excel-table .comment-text {
+  white-space: pre-wrap;
+  min-width: 200px;
+}
+
+.import-excel-table tr.conflict td {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.import-excel-dialog .import-unknown select {
+  margin-left: 4px;
+}
+
+.import-excel-dialog .import-skipped {
+  margin-top: 8px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+/* Close-out: comments by sheet */
+.close-out-table tbody tr {
+  cursor: pointer;
+}
+
+.close-out-table tbody tr:hover,
+.close-out-table tbody tr:focus-visible {
+  background: rgba(20, 163, 154, 0.12);
+  outline: none;
+}
+
+.close-out-table tr.close-out-sheet td {
+  font-weight: 600;
+}
+
+.close-out-table tr.close-out-comment .comment-text {
+  white-space: pre-wrap;
+  min-width: 240px;
+}
+
 /* Comments table (a Project's or Live Session's comments) */
 .comments-table th .th-sort {
   all: unset;
@@ -6747,7 +7277,7 @@ tr.hidden-markup td {
   margin-top: 4px;
 }
 
-/* Takeoff Review: AI proposals beside the sheet */
+/* Review AI Takeoff: AI drafts and proposals beside the sheet */
 .takeoff-review {
   position: fixed;
   z-index: 55;
@@ -6940,6 +7470,205 @@ tr.hidden-markup td {
   align-items: center;
   gap: 6px;
   font-size: 12px;
+}
+
+/* Review AI Takeoff: the threshold bar, confidence and kind badges, the open row */
+.ar-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 6px 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ar-tab {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-bottom: 2px solid transparent;
+}
+
+.ar-tab.active {
+  border-bottom-color: var(--brand, #14a39a);
+  font-weight: 600;
+}
+
+.ar-tab:focus-visible {
+  outline: 2px solid var(--brand, #14a39a);
+}
+
+.ar-count {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  background: rgba(245, 158, 11, 0.3);
+}
+
+.ar-kind.column,
+.ar-kind.tool {
+  background: rgba(20, 163, 154, 0.3);
+}
+
+.ar-groups input {
+  width: 120px;
+}
+
+.ar-groups .ar-edited {
+  margin-left: 4px;
+}
+
+/* The optional AI review pass: its own colour, so a finding is never taken for the takeoff itself */
+.ar-kind.review {
+  background: rgba(236, 72, 153, 0.3);
+}
+
+.ar-pass {
+  flex-wrap: wrap;
+}
+
+.ar-findings {
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ar-finding {
+  padding: 6px 8px;
+  border-left: 3px solid rgba(236, 72, 153, 0.7);
+  background: rgba(236, 72, 153, 0.06);
+  border-radius: 4px;
+}
+
+.ar-finding.dismissed {
+  opacity: 0.6;
+}
+
+.ar-finding-text {
+  margin: 4px 0;
+}
+
+.ar-sev {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ar-sev.issue {
+  color: #f87171;
+}
+
+.ar-sev.check {
+  color: #f59e0b;
+}
+
+.ar-sev.ok {
+  color: #4ade80;
+}
+
+.ar-missed {
+  border-color: rgba(236, 72, 153, 0.6);
+}
+
+.ar-tool-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ar-tool-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ar-tool-edit textarea {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.ar-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 6px;
+  font-size: 12px;
+}
+
+.ar-bar input {
+  width: 48px;
+}
+
+.takeoff-proposal.current {
+  border-color: var(--brand, #14a39a);
+}
+
+.takeoff-proposal.low {
+  border-left: 3px solid #f59e0b;
+}
+
+.ar-conf {
+  min-width: 34px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--muted);
+}
+
+.ar-conf.low {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.ar-kind {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.ar-kind.draft {
+  background: rgba(168, 85, 247, 0.3);
+}
+
+.ar-kind.count {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.ar-edited {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.ar-detail {
+  margin-top: 6px;
+}
+
+.ar-subject {
+  flex: 1;
+  min-width: 0;
+}
+
+.ar-sources {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.ar-sources li {
+  margin: 2px 0;
+}
+
+.tp-matches {
+  margin: 4px 0;
+  padding-left: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
 }
 
 /* A takeoff quantity set by hand (it does not follow the measurement) */
@@ -7454,6 +8183,115 @@ tr.hidden-markup td {
   margin: 0;
   padding-left: 18px;
 }
+
+/* Estimating: Items, Product Lists, Takeoff Templates, the Formula Builder and assembly inputs. */
+.modal.columns-dialog.estimating-dialog {
+  width: min(1400px, calc(100vw - 32px));
+  gap: 8px;
+  padding: 16px;
+}
+
+.estimating-dialog .columns-body {
+  grid-template-columns: 220px 1fr;
+}
+
+.est-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.est-toolbar .grow,
+.asm-inputs-dialog .spacer {
+  flex: 1;
+}
+
+.est-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.est-table td,
+.est-table th {
+  white-space: nowrap;
+}
+
+.est-table td.empty {
+  padding: 12px 4px;
+  color: var(--muted);
+}
+
+.formula-builder .fb-status {
+  min-height: 20px;
+  font-size: 12px;
+}
+
+.fb-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.fb-ops .btn {
+  min-width: 30px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.fb-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.fb-functions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.fb-functions li {
+  padding: 2px 0;
+}
+
+.asm-inputs {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.asm-inputs th {
+  padding: 2px 8px 2px 0;
+  font-weight: normal;
+  text-align: left;
+}
+
+.asm-inputs td {
+  padding: 2px 0;
+}
+
+.asm-inputs-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 320px;
+  padding: 16px;
+}
+
+.asm-inputs-dialog .actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ms-asm-inputs {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0;
+}
+
 
 /* ---- Drawing standards setup wizard (components/standardsWizard): instructions left, sheet right. */
 .standards-wizard {
@@ -8063,4 +8901,171 @@ tr.hidden-markup td {
 }
 .sw-check-pair {
   flex-wrap: nowrap;
+}
+
+/* Tools › Takeoff › Browse Library */
+.modal.library-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+.library-intro {
+  margin-top: 0;
+}
+.library-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.library-filters input {
+  flex: 1;
+  min-width: 0;
+}
+.library-list {
+  flex: 1;
+  min-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.library-list .empty {
+  padding: 16px;
+  text-align: center;
+}
+.library-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.library-entry:last-child {
+  border-bottom: none;
+}
+.library-entry-text {
+  flex: 1;
+  min-width: 0;
+}
+.library-entry h4 {
+  margin: 0 0 2px;
+}
+.library-entry p {
+  margin: 4px 0;
+}
+.library-meta {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.library-added {
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 4px;
+}
+.library-error {
+  color: var(--danger-text);
+}
+
+/* File › Migrate from Revu (RevuMigrationDialog). */
+.modal.revu-migration {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+.revu-migration code {
+  user-select: all;
+}
+
+.revu-migration .revu-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.revu-migration .revu-groups,
+.revu-migration .revu-results {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.revu-migration .revu-group {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.revu-migration .revu-group:last-child {
+  border-bottom: 0;
+}
+
+.revu-migration .revu-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.revu-migration .revu-group-head label {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.revu-migration .revu-group .count,
+.revu-migration .revu-files .size {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.revu-migration .revu-group .pref-hint {
+  margin: 2px 0 0 22px;
+}
+
+.revu-migration .revu-files {
+  list-style: none;
+  margin: 4px 0 2px 22px;
+  padding: 0;
+}
+
+.revu-migration .revu-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.revu-migration .revu-results {
+  padding: 8px 10px;
+}
+
+.revu-migration .revu-results h4 {
+  margin: 8px 0 2px;
+}
+
+.revu-migration .revu-results p {
+  margin: 0 0 4px;
+}
+
+.revu-migration .revu-results .failed {
+  color: var(--danger-text);
+}
+
+.adjust-image .adjust-row {
+  display: grid;
+  grid-template-columns: 11em 1fr 3em;
+  align-items: center;
+  gap: 8px;
+}
+
+.adjust-image .adjust-row output {
+  text-align: right;
+}
+
+.revu-migration progress {
+  width: 100%;
+  margin-bottom: 12px;
 }

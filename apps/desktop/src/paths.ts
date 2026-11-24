@@ -1,4 +1,5 @@
 // Modified in the leojru/redcolumn fork (revu-layout): paths:location for the tab's hover text.
+import { t } from './i18n';
 import { dialog, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -13,12 +14,12 @@ export interface TokenName {
   name: string;
 }
 
-const FILE_FILTERS = [
-  { name: 'PDF, pictures and drawings', extensions: OPENABLE_EXTENSIONS },
-  { name: 'PDF and pictures', extensions: OPENABLE_EXTENSIONS.filter((e) => !DRAWING_EXTENSIONS.includes(e)) },
-  { name: 'DWG and DXF drawings', extensions: DRAWING_EXTENSIONS },
+const fileFilters = () => [
+  { name: t('PDF, pictures and drawings'), extensions: OPENABLE_EXTENSIONS },
+  { name: t('PDF and pictures'), extensions: OPENABLE_EXTENSIONS.filter((e) => !DRAWING_EXTENSIONS.includes(e)) },
+  { name: t('DWG and DXF drawings'), extensions: DRAWING_EXTENSIONS },
 ];
-const IMAGE_FILTERS = [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }];
+const imageFilters = () => [{ name: t('Pictures'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }];
 
 /** What the page may ask the Open dialog for: PDFs and pictures, just pictures, or any file. */
 export type PickKind = 'document' | 'image' | 'any';
@@ -68,10 +69,10 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
     const window = parent();
     const what: PickKind = kind === 'image' || kind === 'any' ? kind : 'document';
     const options = {
-      title: 'Open',
+      title: t('Open'),
       defaultPath: startDir(),
       properties: (what === 'document' ? ['openFile', 'multiSelections'] : ['openFile']) as ('openFile' | 'multiSelections')[],
-      filters: what === 'any' ? [{ name: 'All files', extensions: ['*'] }] : what === 'image' ? IMAGE_FILTERS : FILE_FILTERS,
+      filters: what === 'any' ? [{ name: t('All files'), extensions: ['*'] }] : what === 'image' ? imageFilters() : fileFilters(),
     };
     const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
     if (result.canceled) return null;
@@ -85,7 +86,7 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
     const ext = path.extname(name).replace(/^\./, '') || 'pdf';
     const window = parent();
     const dir = startDir();
-    const options = { title: 'Save', defaultPath: dir ? path.join(dir, name) : name, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] };
+    const options = { title: t('Save'), defaultPath: dir ? path.join(dir, name) : name, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] };
     const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
     if (result.canceled || !result.filePath) return null;
     rememberDir(result.filePath);
@@ -123,7 +124,8 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
   ipcMain.handle('paths:show', async (event, token: unknown): Promise<boolean> => {
     if (!fromApp(event) || typeof token !== 'string') return false;
     const filePath = allowlist.get(token);
-    if (!filePath) return false;
+    // A file moved or deleted since has no folder to show.
+    if (!filePath || (await fileGone(filePath))) return false;
     shell.showItemInFolder(filePath);
     return true;
   });
@@ -132,6 +134,14 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
   ipcMain.handle('paths:location', (event, token: unknown): string | null => {
     if (!fromApp(event) || typeof token !== 'string') return null;
     return allowlist.get(token) ?? null;
+  });
+
+  // Whether the file is still where it was opened from. Only a file that is surely gone (moved,
+  // renamed or deleted) answers false: an unreachable network drive keeps its offline copy.
+  ipcMain.handle('paths:exists', async (event, token: unknown): Promise<boolean> => {
+    if (!fromApp(event) || typeof token !== 'string') return true;
+    const filePath = allowlist.get(token);
+    return !filePath || !(await fileGone(filePath));
   });
 
   ipcMain.handle('paths:forget', (event, token: unknown): boolean => {
@@ -155,6 +165,20 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
     if (!fromApp(event)) return [];
     return launchesFor(event.sender)?.take() ?? [];
   });
+  ipcMain.handle('launch:take-links', (event) => {
+    if (!fromApp(event)) return [];
+    return launchesFor(event.sender)?.takeLinks() ?? [];
+  });
+}
+
+/** True when nothing is at the path any more (or something other than a file is). */
+export async function fileGone(filePath: string): Promise<boolean> {
+  try {
+    return !(await fs.stat(filePath)).isFile();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ENOTDIR';
+  }
 }
 
 export async function persistAllowlist(allowlist: PathAllowlist, filePath: string) {

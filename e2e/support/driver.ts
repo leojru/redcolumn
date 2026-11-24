@@ -40,6 +40,8 @@ export interface MarkupInfo {
   measurement?: string;
   hidden?: boolean;
   locked?: boolean;
+  /** Custom column values, by column name. */
+  fields?: Record<string, string>;
 }
 
 export interface CommandInfo {
@@ -69,6 +71,22 @@ export function driver(page: Page) {
         })
         .toBe(true);
       await d.fit();
+      // The viewer tells the app its page and page count once a frame, and the command table is built
+      // from what the app was told. Wait until the table has caught up with the viewer, or the first
+      // command a test runs can still be disabled, as it was before the document opened.
+      const pages = (await d.documents()).find((doc) => doc.active)?.pageCount ?? 0;
+      await page
+        .waitForFunction(
+          (pages) => {
+            const v = window.__nb.viewer;
+            const next = window.__nb.commands().get('view.nextPage');
+            const { pageIndex } = v.getView();
+            return !!next && next.enabled === pageIndex < pages - 1 && !!window.__nb.commands().get('view.zoomIn')?.enabled;
+          },
+          pages,
+          { timeout: 5000 },
+        )
+        .catch(() => {});
     },
 
     /** Calls one of the assistant's MCP tools (list_markups, get_page, ...) inside the app. */
@@ -107,6 +125,9 @@ export function driver(page: Page) {
     },
     /** Runs a command by id; fails if it does not exist or is disabled. */
     async cmd(id: string) {
+      // A command enabled by what just happened (a selection, a page turn) is enabled a render later:
+      // give it a moment before calling it disabled.
+      await page.waitForFunction((id) => window.__nb.commands().get(id)?.enabled !== false, id, { timeout: 2000 }).catch(() => {});
       await page.evaluate((id) => {
         const before = window.__nb.commands();
         const c = before.get(id);
@@ -123,17 +144,18 @@ export function driver(page: Page) {
     },
 
     // Menus and dialogs.
+    /** Opens the redcolumn menu, then the menu named `title` in it (File, Edit…), then each submenu in `subs`. */
     async menu(title: string, ...subs: string[]) {
       await page.keyboard.press('Escape');
-      await page.locator('.menubar .menu-title', { hasText: new RegExp(`^${escape(title)}$`) }).click();
-      for (const s of subs) {
+      await page.locator('.menubar .brand-mark').click();
+      for (const s of [title, ...subs]) {
         await page
           .locator('.menu-sub > .menu-item')
           .filter({ has: page.locator('.label', { hasText: new RegExp(`^${escape(s)}$`) }) })
           .last()
           .hover();
       }
-      return page.locator('.menu-drop');
+      return page.locator('.menu-flyout').last();
     },
     item(label: string) {
       return page
@@ -283,7 +305,8 @@ export function driver(page: Page) {
         await input.press('Enter');
         await expect(summary).toHaveText(/^(No matches\.|\d+ match)/, { timeout: 2000 });
         const n = /^(\d+) match/.exec((await summary.textContent()) ?? '')?.[1];
-        const nums = await page.locator('.search-hit .num').allTextContents();
+        // Matches only: the desktop app also lists pages found by meaning under "Related pages".
+        const nums = await page.locator('.search-hit:not(.related) .num').allTextContents();
         expect(nums.length).toBe(Number(n ?? 0));
         pages = nums.map((t) => Number(/Page (\d+)/.exec(t)?.[1]));
       }).toPass({ timeout: 20_000 });

@@ -1,4 +1,4 @@
-import { DEFAULT_STYLES, parseBtx, writeBtx, type Dropped, type ToolChestItem as RevuTool, type ToolSet as RevuToolSet } from '@nb/markup';
+import { DEFAULT_STYLES, isTextType, labelPatch, parseBtx, writeBtx, type Dropped, type ToolChestItem as RevuTool, type ToolSet as RevuToolSet } from '@nb/markup';
 import { updateWorkspace, type ToolSet } from '../workspace/profiles';
 
 /**
@@ -20,10 +20,23 @@ function fromRevu(set: RevuToolSet): { set: ToolSet; skipped: number } {
         style: i.style,
         label: i.name,
         ...(i.subject && i.subject !== i.name ? { subject: i.subject } : {}),
+        ...(i.markupLabel ? { markupLabel: i.markupLabel } : {}),
+        ...(i.comment ? { comment: i.comment } : {}),
         ...(i.tool ? { tool: i.tool } : {}),
         // Grouped tools (a circle and its number) place copies, as tools saved from the page do.
-        ...(i.template ? { markups: i.template.map((m) => (i.subject ? { ...m, subject: i.subject } : m)) } : {}),
+        ...(i.template
+          ? {
+              markups: i.template.map((m) => ({
+                ...m,
+                ...(i.subject ? { subject: i.subject } : {}),
+                // The Label and Comment belong to the tool's own markup, not to the parts drawn with it.
+                ...(m.type === i.type && i.markupLabel ? labelPatch(m, i.markupLabel) : {}),
+                ...(m.type === i.type && i.comment && !isTextType(m.type) ? { comment: i.comment } : {}),
+              })),
+            }
+          : {}),
         ...(i.sequence ? { sequence: i.sequence } : {}),
+        ...(i.mode ? { mode: i.mode } : {}),
         ...(i.source ? { revu: i.source } : {}),
       })),
     },
@@ -47,12 +60,15 @@ export async function revuToolSetFile(set: ToolSet): Promise<{ blob: Blob; dropp
       id: i.id,
       name: i.label,
       subject: i.subject ?? i.label,
+      ...(i.markupLabel ? { markupLabel: i.markupLabel } : {}),
+      ...(i.comment ? { comment: i.comment } : {}),
       type: i.type,
       style: i.style,
       revuType: i.revu?.revuType ?? '',
       ...(i.tool ? { tool: i.tool } : {}),
       ...(i.markups?.length ? { template: i.markups } : {}),
       ...(i.sequence ? { sequence: i.sequence } : {}),
+      ...(i.mode ? { mode: i.mode } : {}),
       ...(i.revu ? { source: i.revu } : {}),
     }),
   );

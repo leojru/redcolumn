@@ -1,5 +1,27 @@
 // Modified in the leojru/redcolumn fork: exports vector snapshots and the Length/Dimension text layout.
 export * from './model';
+export {
+  badgeCountSymbol,
+  canBeCountSymbol,
+  COUNT_SHAPE_OPTIONS,
+  COUNT_STYLE_BSI,
+  COUNT_STYLE_FROM_PDF,
+  COUNT_STYLE_TO_PDF,
+  COUNT_SYMBOL_BUDGET,
+  COUNT_SYMBOL_REF,
+  COUNT_SYMBOL_SIDES,
+  countSymbolImageBox,
+  countSymbolKey,
+  documentCountSymbols,
+  imageCountSymbol,
+  MAX_COUNT_SYMBOL_SIDE,
+  sameCountSymbol,
+  symbolFromMarkups,
+  symbolFromStamp,
+  type BadgeFrame,
+  type BadgeSymbolOptions,
+  type CountSymbol,
+} from './countSymbol';
 export { TYPE_INFO, type MarkupTypeInfo } from './types';
 export * from './style';
 export { lineArt, lineStyleFonts, lineStyleHasText, lineStyleReach, readLineStyle, styledParts, type ArtText, type CustomLine, type LineArt, type TextMeasure } from './lineStyle';
@@ -12,15 +34,42 @@ export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCatego
 export { parseBpx, type BpxColumn, type BpxCustomColumn, type BpxProfile } from './bpx';
 export * from './columns';
 export * from './assemblies';
+export * from './portals';
+export * from './aiReview';
+export * from './aiGrouping';
+export * from './estimating';
 export { AI_LINK, IMPORT_VERSION, MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
-export { flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, textLineHeight, TEXT_PADDING, textPadding, translated, withSegment } from './geometry';
+export { countMarkerOutline, flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, textLineHeight, TEXT_PADDING, textPadding, translated, withSegment } from './geometry';
+export { applySpanStyle, baseTextStyle, hasSpans, layoutRuns, normalizeSpans, rangeHasFlag, runsWithin, shiftSpans, spansOf, styleRuns, toggleSpanFlag, type BaseTextStyle, type SpanFlag, type SpanStyle, type StyledMeasure, type TextRun, type TextSpan } from './textSpans';
 export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type ListItem, type ListKind, type TextEdit } from './textLists';
 export { arcPoints, circleThrough } from './arc';
 export { addBend, anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STUB, editableRoute, elbowRoute, facingSides, FLOW_SHAPES, flowShapeLabel, gluedTo, manualRoute, moveSegment, nearestSide, relinkCopies, removeSegment, routeConnector, routeHandles, routeOf } from './flowchart';
-export { calloutAttach, calloutKneeDragged, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip, kneesFacingTips, nearestOnCloud, nearestOnOutline, refitCalloutKnees } from './callout';
+export {
+  calloutAttach,
+  calloutKneeDragged,
+  calloutKneeForSide,
+  calloutKneeIndices,
+  calloutLanding,
+  calloutLandingLength,
+  calloutLeaders,
+  calloutPoints,
+  calloutRelocateKneeForTip,
+  calloutSideForPoint,
+  calloutStackedKnees,
+  isCalloutKnee,
+  isCalloutTip,
+  kneesFacingTips,
+  nearestOnCloud,
+  nearestOnOutline,
+  refitCalloutKnees,
+  snapCalloutKnee,
+} from './callout';
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
-export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
+export { cropImage, cropOf, imageFrame, mirrorCrop, uncropImage } from './imageCrop';
+export { base64ToBytes, bytesToBase64 } from './vectorPicture';
+export { DEFAULT_STAMPS, DYNAMIC_FIELD_NAMES, fillStampFieldsNow, formStamp, isDynamicFieldName, refillStamp, removeFieldToken, renameFieldToken, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
+export { imageDimensions, imageStamp, imageStampName, MAX_STAMP_IMAGE_BYTES, MAX_STAMP_IMAGE_PIXELS, MAX_STAMP_IMAGE_SIDE, STAMP_IMAGE_BUDGET, STAMP_IMAGE_SIDES, stampImageSize } from './stampImage';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {
   actionTarget,
@@ -31,6 +80,7 @@ export {
   flattenBookmarks,
   indentBookmark,
   insertBookmark,
+  nameBookmarksByPage,
   normalizeUrl,
   outdentBookmark,
   remapBookmarks,
@@ -84,7 +134,7 @@ export {
 } from './table';
 export { lineRects, markupLines, selectRange, selectWords, wordAt, type WordBox } from './textSelect';
 export { align, centerOnPage, distribute, flip, matchSize, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout, shapeBounds, touchesPolygon, touchesRect, type Alignment, type Axis, type MultiplyOptions } from './arrange';
-export { BOX_OPPOSITE, dimensionText, drawMarkup, redrawMarkupImages, setVectorPictureDrawer, type VectorPictureDrawer, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, segmentLabels, onImageLoad, rotateHandle, textBlockShift, textBoxLines, centredInShape } from './render';
+export { BOX_OPPOSITE, dimensionText, drawMarkup, redrawMarkupImages, setVectorPictureDrawer, type VectorPictureDrawer, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, segmentLabels, onImageLoad, notifyImagesChanged, rotateHandle, textBaselineOffset, textBlockShift, textBoxLines, type LineRun, type TextLine, centredInShape } from './render';
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
 export { markupDigest, unchangedSinceImport } from './digest';
 export { autoSizedPoints, canAutoSize, keepTextInBox, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits';

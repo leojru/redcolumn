@@ -1,10 +1,12 @@
 // Modified in the leojru/redcolumn fork (revu-layout): page and viewport scales are read through shownScale (feet as feet and inches); import version raised for Revu snapshots and invisible AutoCAD boxes; startFromFile.
+import { shiftSpans } from './textSpans';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { DEFAULT_SCALE, shownScale, type GeoRegion, type Scale } from '@nb/measure';
 import { SOURCE_RANK, type DetectedLink, type SheetInfo } from '@nb/sheets';
 import { DEFAULT_STATUSES, type ColumnSet, type CustomColumn, type MarkupStatusDef } from './columns';
 import { mergeAssemblies, sanitizeAssemblies, type Assembly } from './assemblies';
+import { EMPTY_ESTIMATING, mergeEstimating, resolveAssemblies, sanitizeItems, sanitizeProductLists, sanitizeTemplates, type Estimating } from './estimating';
 import { mapGeometry, type Markup, type Point } from './model';
 import { regroup } from './groups';
 import { openPatch, type EditRule } from './ownership';
@@ -13,6 +15,8 @@ import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
 import { unchangedSinceImport } from './digest';
+import { aiReviewEntries, aiReviewFromEntries, aiReviewKey, EMPTY_AI_REVIEW, remapAiOrigin, remapAiReview, sanitizeAiReview, type AiReviewChange, type AiReviewData, type AiReviewKind, type ReviewPassSettings } from './aiReview';
+import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortals, type MarkupChange, type Portal } from './portals';
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
 export const IMPORT_VERSION = 4;
@@ -75,10 +79,18 @@ export interface ImportedExtras {
   columns?: CustomColumn[];
   /** Assemblies the file was saved with, added to the document's own (matched by id, then name). */
   assemblies?: Assembly[];
+  /** Catalog items, product lists and takeoff templates the file was saved with, merged likewise. */
+  estimating?: Partial<Estimating>;
   /** Statuses its review states use, added where the document lacks them. */
   statuses?: MarkupStatusDef[];
   /** Bluebeam Spaces brought in (by page, /BSISpaces index). */
   spaces?: Record<number, number[]>;
+  /** The document's page count, which linked pages are checked against. */
+  pageCount?: number;
+  /** Portals the file was saved with (/NBPortals); taken when the document has none. */
+  portals?: Portal[];
+  /** AI proposals waiting for review the file was saved with (/NBAIReview); taken when the document has none. */
+  aiReview?: AiReviewData;
   /** The file's map registrations (geospatial PDFs); replaces those recorded before. */
   geo?: GeoRegion[];
 }
@@ -136,6 +148,11 @@ export function setMarkupPersistence(factory: MarkupPersistenceFactory | null) {
 const DETECTION = Symbol('detection');
 /** Markup IDs handed out to markups that had none, or settled after two people made the same one. */
 const NUMBERING = Symbol('numbering');
+/** The copies a portal keeps in step with a local edit: undone with it, and never synced again in turn. */
+const PORTAL = Symbol('portal');
+/** What an AI client adds through the assistant for a person to review: saved and synced, never undone by the person's Undo. */
+const AI = Symbol('ai');
+const NO_PORTALS: Portal[] = [];
 
 /**
  * Markups for one PDF, held in a Yjs document so offline edits persist locally (IndexedDB) and
@@ -167,6 +184,8 @@ export class MarkupStore {
   readonly outline: Y.Map<unknown>;
   /** Small document-level flags (e.g. whether link detection has run). */
   readonly meta: Y.Map<unknown>;
+  /** AI proposals waiting for review and rejected AI drafts, one entry each (see `aiReview.ts`). */
+  readonly aiReviewMap: Y.Map<unknown>;
   /** The file contents the markups belong to (`current`: a {@link FileState}), so undo can step over file changes. */
   readonly files: Y.Map<FileState>;
   private fileStepping = false;
@@ -185,10 +204,19 @@ export class MarkupStore {
   private placeSnapshot: Place[] = [];
   private viewportSnapshot: Viewport[] = [];
   private geoSnapshot: GeoRegion[] = NO_GEO;
+  private portalRaw: unknown = undefined;
+  private portalSnapshot: Portal[] = NO_PORTALS;
+  private aiReviewSnapshot: AiReviewData = EMPTY_AI_REVIEW;
+  /** The document's page count when known (portals' pages past it are ignored). */
+  private pageCount: number | undefined = undefined;
   private columnRaw: unknown = undefined;
   private columnSnapshot: ColumnSet = DEFAULT_COLUMN_SET;
   private assemblyRaw: unknown = undefined;
   private assemblySnapshot: Assembly[] = NO_ASSEMBLIES;
+  private estimatingRaw: unknown[] = [];
+  private estimatingSnapshot: Estimating = EMPTY_ESTIMATING;
+  private resolvedSnapshot: Assembly[] = NO_ASSEMBLIES;
+  private resolvedFor: unknown = undefined;
   private locked = false;
   private editRule: EditRule | null = null;
   /** Some markup is a connector, so moving markups may need connectors re-routed. */
@@ -206,10 +234,11 @@ export class MarkupStore {
     this.outline = this.doc.getMap('outline');
     this.viewports = this.doc.getMap<Viewport>('viewports');
     this.files = this.doc.getMap<FileState>('files');
-    this.undoManager = new Y.UndoManager([this.map, this.scales, this.sheets, this.links, this.outline, this.viewports, this.files, this.meta], { trackedOrigins: new Set([LOCAL]), captureTimeout: 300 });
+    this.aiReviewMap = this.doc.getMap('aiReview');
+    this.undoManager = new Y.UndoManager([this.map, this.scales, this.sheets, this.links, this.outline, this.viewports, this.files, this.meta, this.aiReviewMap], { trackedOrigins: new Set<unknown>([LOCAL, PORTAL]), captureTimeout: 300 });
     // Each undo step is labelled with what it did, for the Undo History list.
     const label = (event: { stackItem: { meta: Map<unknown, unknown> }; changedParentTypes: Map<Y.AbstractType<Y.YEvent<never>>, Y.YEvent<never>[]> }) => {
-      const text = event.changedParentTypes.has(this.files as never) ? (this.files.get('current')?.label || 'Change document') : describeChange(event.changedParentTypes, this.map, this.scales, this.viewports, this.outline, this.meta);
+      const text = event.changedParentTypes.has(this.files as never) ? (this.files.get('current')?.label || 'Change document') : describeChange(event.changedParentTypes, this.map, this.scales, this.viewports, this.outline, this.meta, this.aiReviewMap);
       const had = event.stackItem.meta.get('label') as string | undefined;
       // Changes merged into one step (typing, dragging) keep the first description unless it said less.
       if (!had || had === 'Edit') event.stackItem.meta.set('label', text);
@@ -227,14 +256,17 @@ export class MarkupStore {
     this.persistence = persist ? persistenceFactory(`nb-markups-${fileHash}`, this.doc) : null;
     this.doc.on('afterTransaction', (tr: Y.Transaction) => {
       // Edits made here, and undoing or redoing them (not loading, detection or other people's edits).
-      if (tr.changed.size && (tr.origin === LOCAL || tr.origin === this.undoManager)) this.edits++;
+      if (tr.changed.size && (tr.origin === LOCAL || tr.origin === PORTAL || tr.origin === AI || tr.origin === this.undoManager)) this.edits++;
+      // Portals: what this edit means for the other copies, worked out against the markups before it.
+      const portalChanges = tr.origin === LOCAL && !this.fileStepping && this.portalSnapshot.length ? this.changedMarkups(tr) : null;
       if (tr.changed.size) this.refresh(tr.changed);
+      if (portalChanges?.length) this.syncPortals(portalChanges);
       const seq = (this.meta.get('seq') as number | undefined) ?? 0;
       if (seq > this.seqHigh) this.seqHigh = seq;
       // Markups that arrive without an ID (stored before IDs, or from an older version in a Live
       // Session), or with one someone else handed out at the same time, are numbered once the
       // change has landed.
-      if (tr.changed.has(this.map as Y.AbstractType<any>) && tr.origin !== NUMBERING && tr.origin !== LOCAL) this.scheduleNumbering();
+      if (tr.changed.has(this.map as Y.AbstractType<any>) && tr.origin !== NUMBERING && tr.origin !== LOCAL && tr.origin !== PORTAL) this.scheduleNumbering();
     });
   }
 
@@ -307,11 +339,19 @@ export class MarkupStore {
     if (has(this.sheets)) this.sheetSnapshot = Object.fromEntries([...this.sheets.entries()].map(([k, v]) => [Number(k), v]));
     if (has(this.links)) this.linkSnapshot = [...this.links.values()];
     if (has(this.viewports)) this.viewportSnapshot = [...this.viewports.values()].map((v) => ({ ...v, scale: shownScale(v.scale) }));
+    // Checked as it is read: Live Session peers write this map too.
+    if (has(this.aiReviewMap)) this.aiReviewSnapshot = this.aiReviewMap.size ? aiReviewFromEntries(this.aiReviewMap.entries(), this.pageCount) : EMPTY_AI_REVIEW;
     if (has(this.meta)) {
       this.stitchSnapshot = (this.meta.get('stitch') as StoredStitchGroup[] | undefined) ?? NO_STITCH;
       const manual = this.meta.get('manualStitch') as StoredManualStitch | undefined;
       this.manualStitchSnapshot = manual ?? NO_MANUAL_STITCH;
       this.geoSnapshot = (this.meta.get('geo') as GeoRegion[] | undefined) ?? NO_GEO;
+      const portals = this.meta.get('portals');
+      if (portals !== this.portalRaw) {
+        this.portalRaw = portals;
+        // Checked here as well as on import: Live Session peers write this map too.
+        this.portalSnapshot = portals ? sanitizePortals(portals, this.pageCount) : NO_PORTALS;
+      }
       const raw = this.meta.get('columns');
       if (raw !== this.columnRaw) {
         this.columnRaw = raw;
@@ -323,6 +363,16 @@ export class MarkupStore {
         this.assemblyRaw = assemblies;
         // Checked here as well as on import: Live Session peers write this map too.
         this.assemblySnapshot = assemblies ? sanitizeAssemblies(assemblies) : NO_ASSEMBLIES;
+      }
+      const est = [this.meta.get('items'), this.meta.get('productLists'), this.meta.get('templates')];
+      const estChanged = est.some((v, i) => v !== this.estimatingRaw[i]);
+      if (estChanged) {
+        this.estimatingRaw = est;
+        this.estimatingSnapshot = est.every((v) => v === undefined) ? EMPTY_ESTIMATING : { items: sanitizeItems(est[0]), productLists: sanitizeProductLists(est[1]), templates: sanitizeTemplates(est[2]) };
+      }
+      if (estChanged || assemblies !== this.resolvedFor) {
+        this.resolvedFor = assemblies;
+        this.resolvedSnapshot = resolveAssemblies(this.assemblySnapshot, this.estimatingSnapshot.items, this.estimatingSnapshot.productLists);
       }
     }
     if (has(this.outline)) {
@@ -792,6 +842,13 @@ export class MarkupStore {
         if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) this.meta.set('columns', { columns, statuses });
       }
       if (extras.assemblies?.length) this.meta.set('assemblies', mergeAssemblies(this.assemblies(), extras.assemblies));
+      if (extras.estimating) this.writeEstimating(mergeEstimating(this.estimating(), extras.estimating));
+      if (extras.pageCount !== undefined) this.pageCount = extras.pageCount;
+      if (extras.portals?.length && !this.meta.has('portals')) this.meta.set('portals', sanitizePortals(extras.portals, this.pageCount));
+      if (extras.aiReview && !this.aiReviewMap.size) this.applyAiReview({ ...sanitizeAiReview(extras.aiReview, this.pageCount) });
+      if (extras.aiReview?.reviewPass?.enabled && !this.meta.has('reviewPass')) this.meta.set('reviewPass', { enabled: true });
+      // Copies whose portal the file does not have (or no longer links their page) are ordinary markups.
+      this.stripOrphanLinks(sanitizePortals(this.meta.get('portals'), this.pageCount));
       this.meta.set('importedAnnotations', imported);
       if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
       if (extras.geo) {
@@ -826,7 +883,8 @@ export class MarkupStore {
         const n = to(m.pageIndex);
         if (n === null) this.map.delete(id);
         else {
-          const next: Markup = { ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) };
+          const moved: Markup = { ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) };
+          const next: Markup = m.ai ? remapAiOrigin(moved, m.pageIndex, to, turn, turnRect) : moved;
           // Hyperlinks to a page follow it; one whose target page was deleted loses its action.
           if (m.link?.kind === 'page') {
             const t = to(m.link.pageIndex);
@@ -864,6 +922,23 @@ export class MarkupStore {
       this.meta.set('importedSpaces', spaces);
       this.meta.delete('stitch');
       if (this.meta.has('manualStitch')) this.meta.set('manualStitch', mapManualStitch(this.manualStitchSnapshot, to, turn));
+      if (this.aiReviewMap.size) {
+        // Read without the page filter (the page count may not have caught up with an insert), and
+        // write back only the entries that changed, so a peer's decision on another one is kept.
+        const was = aiReviewFromEntries(this.aiReviewMap.entries());
+        const next = remapAiReview(was, to, turn, turnRect, (m, n) => ({ ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) }));
+        const keep = aiReviewEntries(next);
+        const old = aiReviewEntries(was);
+        for (const key of old.keys()) if (!keep.has(key)) this.aiReviewMap.delete(key);
+        for (const [key, v] of keep) if (JSON.stringify(v) !== JSON.stringify(old.get(key))) this.aiReviewMap.set(key, structuredClone(v));
+      }
+      if (this.meta.has('portals')) {
+        const portals = remapPortals(this.portalSnapshot, to);
+        if (portals.length) this.meta.set('portals', portals);
+        else this.meta.delete('portals');
+        // A portal left with one page is gone: its copies are ordinary markups now.
+        this.stripOrphanLinks(portals);
+      }
       for (const [id, v] of [...this.viewports.entries()]) {
         const n = to(v.pageIndex);
         if (n === null) this.viewports.delete(id);
@@ -926,6 +1001,8 @@ export class MarkupStore {
         delete copy.pdfAnnot;
         delete copy.statusHistory;
         delete copy.locked;
+        // A pasted page is not one of a portal's pages: its copies are ordinary markups.
+        delete copy.portalLink;
         if (copy.legend?.nameId) {
           const { nameId: _, ...legend } = copy.legend;
           copy.legend = legend;
@@ -979,7 +1056,8 @@ export class MarkupStore {
         if (t && t.scale !== 1) {
           const k = t.scale;
           next.style = { ...m.style, width: m.style.width * k };
-          for (const key of ['fontSize', 'arcRadius', 'leader'] as const) if (m.style[key] !== undefined) next.style[key] = m.style[key]! * k;
+          if (m.style.fontSize !== undefined) next.style.fontSize = Math.max(1, Math.round(m.style.fontSize * k));
+          for (const key of ['arcRadius', 'leader'] as const) if (m.style[key] !== undefined) next.style[key] = m.style[key]! * k;
         }
         this.map.set(id, next);
       }
@@ -1110,6 +1188,156 @@ export class MarkupStore {
     this.doc.transact(() => this.meta.set('columns', { columns: set.columns, statuses: set.statuses }), LOCAL);
   }
 
+  /** The document's portals (Experimental; stable until they change). */
+  portals(): Portal[] {
+    return this.portalSnapshot;
+  }
+
+  /** AI proposals waiting for review, and the AI drafts a person rejected (see `aiReview.ts`). */
+  aiReview(): AiReviewData {
+    return this.aiReviewSnapshot;
+  }
+
+  /** The review list as a saved file keeps it: with the review pass turned on, when it is. */
+  aiReviewForSave(): AiReviewData {
+    return this.reviewPass().enabled ? { ...this.aiReviewSnapshot, reviewPass: { enabled: true } } : this.aiReviewSnapshot;
+  }
+
+  /**
+   * The optional AI review pass for this document: whether it runs after each AI takeoff
+   * (`enabled`, off by default) and a person's request to run one now (`requested`).
+   */
+  reviewPass(): ReviewPassSettings {
+    const raw = this.meta.get('reviewPass') as Partial<ReviewPassSettings> | undefined;
+    const r = raw?.requested;
+    return { enabled: raw?.enabled === true, ...(r && typeof r.by === 'string' && typeof r.at === 'number' ? { requested: { by: r.by, at: r.at, ...(typeof r.taken === 'number' ? { taken: r.taken } : {}) } } : {}) };
+  }
+
+  setReviewPass(next: ReviewPassSettings, byAi = false) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => this.meta.set('reviewPass', structuredClone(next)), byAi ? AI : LOCAL);
+  }
+
+  /**
+   * Adds, replaces or removes entries of the document's AI review list. `byAi`: an AI client added to it, which is saved and
+   * synced but is not a step the person's Undo takes back; a person's decisions are undoable, and
+   * inside `batch` join its step (approving a count with the markups it places).
+   */
+  changeAiReview(change: AiReviewChange, byAi = false) {
+    if (this.locked) return;
+    this.doc.transact(() => this.applyAiReview(change), byAi ? AI : LOCAL);
+  }
+
+  private applyAiReview(change: AiReviewChange) {
+    for (const p of change.takeoff ?? []) this.aiReviewMap.set(aiReviewKey('takeoff', p.id), structuredClone(p));
+    for (const p of change.counts ?? []) this.aiReviewMap.set(aiReviewKey('counts', p.id), structuredClone(p));
+    for (const r of change.rejected ?? []) this.aiReviewMap.set(aiReviewKey('rejected', r.markup.id), structuredClone(r));
+    for (const g of change.columns ?? []) this.aiReviewMap.set(aiReviewKey('columns', g.id), structuredClone(g));
+    for (const f of change.findings ?? []) this.aiReviewMap.set(aiReviewKey('findings', f.id), structuredClone(f));
+    for (const [kind, ids] of Object.entries(change.remove ?? {}) as [AiReviewKind, string[]][]) for (const id of ids) this.aiReviewMap.delete(aiReviewKey(kind, id));
+  }
+
+  /**
+   * The document's page count, so portals' linked pages past its end are ignored (a file or a peer
+   * may say otherwise). Re-reads the portals when it changes.
+   */
+  setPageCount(count: number) {
+    if (this.pageCount === count) return;
+    this.pageCount = count;
+    this.portalRaw = undefined;
+    this.refresh(new Map<Y.AbstractType<any>, unknown>([[this.meta, null], [this.aiReviewMap, null]]));
+  }
+
+  /**
+   * Adds a portal, or replaces the one with its id, as one undo step. Says what linking or
+   * unlinking pages did: copies made, local markups adopted, copies unlinked.
+   */
+  setPortal(portal: Portal): { copied: number; adopted: number; unlinked: number } {
+    const none = { copied: 0, adopted: 0, unlinked: 0 };
+    if (this.locked) return none;
+    this.undoManager.stopCapturing();
+    const was = this.portalSnapshot.find((p) => p.id === portal.id);
+    const list = this.portalSnapshot.filter((p) => p.id !== portal.id);
+    // A page newly linked gets a copy of each mirrored item; one no longer linked keeps its
+    // copies as ordinary markups. All in the portal's undo step, and not synced again.
+    const relinked = relinkPlan(was, portal, this.map.values(), () => crypto.randomUUID(), Date.now(), (m) => this.mayEdit(m));
+    this.doc.transact(() => {
+      this.meta.set('portals', structuredClone([...list, portal]));
+      let seq = this.lastSeq();
+      for (const m of relinked.set) this.map.set(m.id, this.map.has(m.id) ? m : { ...m, seq: ++seq });
+      if (seq > ((this.meta.get('seq') as number | undefined) ?? 0)) this.meta.set('seq', seq);
+    }, PORTAL);
+    this.undoManager.stopCapturing();
+    return { copied: relinked.copied, adopted: relinked.adopted, unlinked: relinked.unlinked };
+  }
+
+  /** Inside a transaction: markups linked to a portal that is gone (or no longer links their page) lose the link. */
+  private stripOrphanLinks(portals: readonly Portal[]) {
+    for (const m of orphanedLinks(this.map.values(), portals)) if (this.mayEdit(m)) this.map.set(m.id, m);
+  }
+
+  /** Removes a portal; its copies stay, as ordinary markups on their pages (one undo step). */
+  removePortal(id: string) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => {
+      const rest = this.portalSnapshot.filter((p) => p.id !== id);
+      if (rest.length) this.meta.set('portals', structuredClone(rest));
+      else this.meta.delete('portals');
+      for (const m of [...this.map.values()]) if (m.portalLink?.portalId === id && this.mayEdit(m)) this.map.set(m.id, withoutLink(m));
+    }, PORTAL);
+    this.undoManager.stopCapturing();
+  }
+
+  /** Break Link: the markups become ordinary ones on their pages; their copies elsewhere stay linked to each other. */
+  breakPortalLinks(ids: Iterable<string>) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => {
+      for (const id of ids) {
+        const m = this.map.get(id);
+        if (m?.portalLink && this.mayEdit(m)) this.map.set(id, { ...withoutLink(m), modifiedAt: Date.now() });
+      }
+    }, PORTAL);
+    this.undoManager.stopCapturing();
+  }
+
+  /** The markups a local transaction added, changed or deleted, before and after. */
+  private changedMarkups(tr: Y.Transaction): MarkupChange[] | null {
+    const keys = tr.changed.get(this.map as Y.AbstractType<any>);
+    if (!keys?.size) return null;
+    const before = new Map<string, Markup>();
+    for (const m of this.snapshot) if (keys.has(m.id)) before.set(m.id, m);
+    const out: MarkupChange[] = [];
+    for (const key of keys) {
+      if (key === null) continue;
+      const was = before.get(key);
+      const now = this.map.get(key);
+      if (was || now) out.push({ ...(was ? { was } : {}), ...(now ? { now } : {}) });
+    }
+    return out;
+  }
+
+  /**
+   * Keeps every copy of a mirrored markup in step with a local edit (see `planPortalSync`). Runs in
+   * a transaction of its own right after the edit's, which the undo manager merges into the edit's
+   * step; its origin is not LOCAL, so it never sets off another round.
+   */
+  private syncPortals(changes: readonly MarkupChange[]) {
+    const plan = planPortalSync({ changes, markups: this.map.values(), portals: this.portalSnapshot, newId: () => crypto.randomUUID(), mayEdit: (m) => this.mayEdit(m) });
+    if (!plan.set.length && !plan.remove.length) return;
+    this.doc.transact(() => {
+      let seq = this.lastSeq();
+      for (const m of plan.set) {
+        const existing = this.map.get(m.id);
+        this.map.set(m.id, existing ? m : { ...m, seq: ++seq });
+      }
+      if (seq > ((this.meta.get('seq') as number | undefined) ?? 0)) this.meta.set('seq', seq);
+      for (const id of plan.remove) this.map.delete(id);
+    }, PORTAL);
+  }
+
   /** The document's assemblies (stable until they change). */
   assemblies(): Assembly[] {
     return this.assemblySnapshot;
@@ -1119,6 +1347,30 @@ export class MarkupStore {
     if (this.locked) return;
     this.undoManager.stopCapturing();
     this.doc.transact(() => this.meta.set('assemblies', structuredClone(list)), LOCAL);
+  }
+
+  /** The assemblies with their items' catalog links filled in, for working out quantities (stable until either changes). */
+  resolvedAssemblies(): Assembly[] {
+    return this.resolvedSnapshot;
+  }
+
+  /** The document's catalog items, product lists and takeoff templates (stable until they change). */
+  estimating(): Estimating {
+    return this.estimatingSnapshot;
+  }
+
+  /** Replaces some or all of the catalog items, product lists and templates, as one undo step. */
+  setEstimating(patch: Partial<Estimating>) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => this.writeEstimating(patch), LOCAL);
+  }
+
+  private writeEstimating(patch: Partial<Estimating>) {
+    for (const key of ['items', 'productLists', 'templates'] as const) {
+      const v = patch[key];
+      if (v) this.meta.set(key, structuredClone(v));
+    }
   }
 
   /** Sets one custom column's value on several markups as one undo step (empty clears it). */
@@ -1203,6 +1455,13 @@ export class MarkupStore {
     }
     // Another assembly: quantities set by hand and an AI approval were for the old one.
     if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyOverrides' in patch)) patch = { ...patch, assemblyOverrides: undefined, takeoffApproval: undefined };
+    // Another assembly's inputs are not this one's.
+    if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyInputs' in patch)) patch = { ...patch, assemblyInputs: undefined };
+    // New text without its own styled parts keeps the old ones on the characters that stayed.
+    if ('text' in patch && !('spans' in patch) && current.spans?.length) {
+      const spans = shiftSpans(current.spans, current.text ?? '', patch.text ?? '');
+      patch = { ...patch, spans: spans.length ? spans : undefined };
+    }
     const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
     this.doc.transact(() => {
@@ -1317,6 +1576,7 @@ function describeChange(
   viewports: Y.Map<Viewport>,
   outline: Y.Map<unknown>,
   meta: Y.Map<unknown>,
+  aiReview: Y.Map<unknown>,
 ): string {
   const ev = changed.get(markups as never)?.[0] as Y.YMapEvent<Markup> | undefined;
   if (ev) {
@@ -1347,9 +1607,10 @@ function describeChange(
   if (changed.has(scales as never)) return 'Set scale';
   if (changed.has(viewports as never)) return 'Change viewports';
   if (changed.has(outline as never)) return 'Edit bookmarks';
+  if (changed.has(aiReview as never)) return 'Review AI takeoff';
   if (changed.has(meta as never)) {
     const keys = (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged;
-    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : 'Edit columns';
+    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('items') ? 'Edit items' : keys?.has('productLists') ? 'Edit product lists' : keys?.has('templates') ? 'Edit takeoff templates' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : keys?.has('portals') ? 'Edit portals' : keys?.has('reviewPass') ? 'AI review pass' : 'Edit columns';
   }
   return 'Edit';
 }
@@ -1386,6 +1647,11 @@ function mapManualStitch(s: StoredManualStitch, to: (page: number) => number | n
   return { lines, regions };
 }
 
+function withoutLink(m: Markup): Markup {
+  const { portalLink: _link, ...rest } = m;
+  return rest as Markup;
+}
+
 function nameOf(m: Markup): string {
   return m.subject || TYPE_INFO[m.type]?.label || 'markup';
 }
@@ -1407,5 +1673,6 @@ function editKind(was: Markup, now: Markup): string {
   if ((was.rotation ?? 0) !== (now.rotation ?? 0)) return 'Rotate';
   if (!!was.locked !== !!now.locked) return now.locked ? 'Lock' : 'Unlock';
   if ((was.assemblyId ?? '') !== (now.assemblyId ?? '')) return 'Set assembly of';
+  if ((was.raisedRev ?? '') !== (now.raisedRev ?? '')) return 'Record revision of';
   return 'Edit';
 }

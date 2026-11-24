@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TYPE_INFO, type MarkupType } from '@nb/markup';
-import { commonCapabilities, FOLLOW_START, followFormat, isMixed, styleMixed, type FormatFollow } from './selectionFormat.ts';
+import { commonCapabilities, FOLLOW_START, followFormat, isCloudPlusSelection, isMixed, styleMixed, type FormatFollow } from './selectionFormat.ts';
 
 test('a mixed selection shares only the fields every type has', () => {
   // An area and a count both fill and label with a font; only the area hatches and dashes.
@@ -40,6 +40,15 @@ test('values are mixed only when they differ', () => {
   assert.equal(styleMixed([s(), s('dashed')], 'dash', (d) => d ?? 'solid'), true);
   assert.equal(styleMixed([s(), s()], 'dash'), false);
   assert.equal(styleMixed([s(undefined), s('dashed')], 'width'), false);
+});
+
+test('Cloud+ selection matches clouds paired with callouts only', () => {
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }]), true);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }, { type: 'cloud' }, { type: 'callout' }]), true);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'cloud' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'callout' }, { type: 'callout' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }, { type: 'rect' }]), false);
 });
 
 const select = (s: FormatFollow, key: string, extra: { contextual?: boolean; busy?: boolean } = {}) => followFormat(s, { type: 'selection', key, contextual: true, busy: false, ...extra });
@@ -91,4 +100,25 @@ test('nothing switches mid-gesture, and the switch follows when it ends', () => 
   s = select(select(FOLLOW_START, 'a'), '', { busy: true });
   assert.equal(s.onFormat, false);
   assert.equal(followFormat(select(FOLLOW_START, 'a'), { type: 'gone' }).onFormat, false);
+});
+
+test('a tool brings the Format tab forward, and putting it down goes back', () => {
+  let s = followFormat(FOLLOW_START, { type: 'tool', active: true, contextual: true });
+  assert.deepEqual([s.onFormat, s.auto], [true, true]);
+  s = followFormat(s, { type: 'tool', active: false, contextual: true });
+  assert.deepEqual([s.onFormat, s.auto], [false, false]);
+  // A tool with nothing to format leaves the tab alone.
+  assert.deepEqual(followFormat(FOLLOW_START, { type: 'tool', active: true, contextual: false }), FOLLOW_START);
+});
+
+test('a Format tab the user picked is not taken back when the tool is put down', () => {
+  let s = followFormat(FOLLOW_START, { type: 'pick', format: true });
+  s = followFormat(s, { type: 'tool', active: true, contextual: true });
+  s = followFormat(s, { type: 'tool', active: false, contextual: true });
+  assert.equal(s.onFormat, true);
+  // Picking another tab while the tool is active keeps that tab.
+  s = followFormat(FOLLOW_START, { type: 'tool', active: true, contextual: true });
+  s = followFormat(s, { type: 'pick', format: false });
+  s = followFormat(s, { type: 'tool', active: false, contextual: true });
+  assert.equal(s.onFormat, false);
 });

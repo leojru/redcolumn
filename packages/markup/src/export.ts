@@ -4,7 +4,8 @@ import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, P
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type GeoRegion, type Scale } from '@nb/measure';
-import { flatten, markupShape, type PathCmd } from './geometry';
+import { countMarkerOutline, flatten, markupShape, type PathCmd } from './geometry';
+import { COUNT_STYLE_FROM_PDF, COUNT_STYLE_TO_PDF, COUNT_SYMBOL_REF, countSymbolImageBox, countSymbolKey, type CountSymbol } from './countSymbol';
 import { connectorLabel } from './flowchart';
 import { lineStyleFonts, lineStyleReach, styledParts, type ArtText, type LineArt } from './lineStyle';
 import { arcPoints, circleThrough } from './arc';
@@ -16,7 +17,8 @@ import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, hasCloudBorder, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { frameInner, type TextFrame } from './textFrames';
-import { baselineDrop, centredInShape, dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
+import { baseTextStyle, spansOf, styleRuns } from './textSpans';
+import { centredInShape, dimensionText, labelBox, measurementLabel, segmentLabels, textBaselineOffset, textBoxLines } from './render';
 import { breakAroundBox, leaderPart, lengthLabelBox, lengthLeader } from './dimensionInline';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, strokeEnds, styleCapabilities, textColor, type LineEnding } from './style';
@@ -30,10 +32,14 @@ import { repackDocument } from './repack';
 import { isGeoViewport } from './geo';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
+import type { Portal } from './portals';
+import { isAiDraft, isEmptyAiReview, type AiReviewData } from './aiReview';
+import type { Estimating } from './estimating';
 import { markupDigest, unchangedSinceImport } from './digest';
 import { bsiLegendValue } from './bsiLegend';
 import { defaultSubject } from './bluebeamTypes';
 import { toPdfDict } from './pdfValue';
+import { imageFrame } from './imageCrop';
 
 /**
  * Key under which each exported annotation carries its markup's full data, so re-opening the file
@@ -44,6 +50,12 @@ const APP_DATA_KEY = 'NBData';
 import { APPEARANCE_KEY, APPEARANCE_VERSION } from './bluebeam';
 /** The catalog key the document's assemblies are kept under (read back by `readPdfExtras`). */
 export const ASSEMBLIES_KEY = 'NBAssemblies';
+/** The catalog key the document's catalog items, product lists and takeoff templates are kept under, as JSON. */
+export const ESTIMATING_KEY = 'NBEstimating';
+/** The catalog key the document's portals are kept under (read back by `readPdfExtras`). */
+export const PORTALS_KEY = 'NBPortals';
+/** The catalog key the document's AI proposals waiting for review are kept under (read back by `readPdfExtras`). */
+export const AI_REVIEW_KEY = 'NBAIReview';
 
 /** Affine [a b c d e f] mapping page space (top-left, y down, rotated) to PDF user space. */
 export type Matrix = [number, number, number, number, number, number];
@@ -101,34 +113,8 @@ function plainText(s: string) {
   return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s);
 }
 
-/** Bluebeam's /CountStyle for each of our count markers. */
 /** The names Revu gives a text box's shape in /Shape (a plain box has none). */
 const REVU_SHAPE_NAMES: Record<Exclude<TextFrame, 'rect'>, string> = { circle: 'Circle', triangle: 'Triangle', hexagon: 'Hexagon' };
-const COUNT_STYLE_NAMES: Record<CountShape, string> = { circle: 'Circle', check: 'Checkmark', square: 'Square', diamond: 'Diamond', triangle: 'Triangle', cross: 'Cross' };
-
-/** A count marker's outline, centred on (cx, cy), `r` from the centre to its edge (page space, y down). */
-function countMarker(shape: CountShape, cx: number, cy: number, r: number): Point[] {
-  const at = (pts: readonly (readonly [number, number])[]): Point[] => pts.map(([x, y]) => [cx + x * r, cy + y * r]);
-  switch (shape) {
-    case 'check':
-      // Bluebeam's own checkmark, scaled to the marker.
-      return at([[-1, 0.02], [-0.773, -0.205], [-0.271, 0.297], [0.773, -0.749], [1, -0.522], [-0.271, 0.749]]);
-    case 'square':
-      return at([[-1, -1], [1, -1], [1, 1], [-1, 1]]);
-    case 'diamond':
-      return at([[0, -1], [1, 0], [0, 1], [-1, 0]]);
-    case 'triangle':
-      return at([[0, -1], [0.9, 0.75], [-0.9, 0.75]]);
-    case 'cross': {
-      // A plus with arms under a third of the width, turned 45 degrees.
-      const w = 0.3;
-      const plus: [number, number][] = [[-w, -1], [w, -1], [w, -w], [1, -w], [1, w], [w, w], [w, 1], [-w, 1], [-w, w], [-1, w], [-1, -w], [-w, -w]];
-      return at(plus.map(([x, y]) => [(x - y) / Math.SQRT2, (x + y) / Math.SQRT2] as [number, number]));
-    }
-    default:
-      return at(Array.from({ length: 24 }, (_, i) => [Math.cos((i / 24) * 2 * Math.PI), Math.sin((i / 24) * 2 * Math.PI)] as [number, number]));
-  }
-}
 
 /** Bluebeam's name for a hatch: its label in the Standard set, or an imported hatch's own name. */
 function hatchName(id: string, resolved: string): string {
@@ -157,8 +143,43 @@ function richParagraph(line: string): string {
   return line ? `<p>${escapeXml(line.replace(/^ +/, (spaces) => ' '.repeat(spaces.length)))}</p>` : '<p />';
 }
 
+/**
+ * The text's paragraphs as rich text. Where parts of it are styled, each run that differs from
+ * the markup's own style is a `<span style>`, as other PDF tools write mixed formatting.
+ */
+function richParagraphs(m: Markup): string[] {
+  const text = m.text ?? '';
+  const spans = spansOf(m);
+  if (!spans.length) return text.split('\n').map(richParagraph);
+  const base = baseTextStyle(m);
+  const runs = styleRuns(text, spans, base);
+  let offset = 0;
+  return text.split('\n').map((line) => {
+    const start = offset;
+    offset += line.length + 1;
+    if (!line) return '<p />';
+    const parts = runs
+      .filter((r) => r.end > start && r.start < start + line.length)
+      .map((r) => {
+        const a = Math.max(r.start, start);
+        const b = Math.min(r.end, start + line.length);
+        let t = escapeXml(text.slice(a, b));
+        // A nested list's indent becomes no-break spaces, which XHTML would otherwise collapse.
+        if (a === start) t = t.replace(/^ +/, (spaces) => ' '.repeat(spaces.length));
+        const css = [
+          ...(r.bold !== !!base.bold ? [`font-weight:${r.bold ? 'bold' : 'normal'}`] : []),
+          ...(r.italic !== !!base.italic ? [`font-style:${r.italic ? 'italic' : 'normal'}`] : []),
+          ...(r.underline !== !!base.underline || r.strikethrough !== !!base.strikethrough ? [`text-decoration:${[r.underline && 'underline', r.strikethrough && 'line-through'].filter(Boolean).join(' ') || 'none'}`] : []),
+          ...(r.color.toLowerCase() !== base.color.toLowerCase() ? [`color:${r.color.toUpperCase()}`] : []),
+        ];
+        return css.length ? `<span style="${css.join('; ')}">${t}</span>` : t;
+      });
+    return `<p>${parts.join('')}</p>`;
+  });
+}
+
 /** A text markup's default style (/DS) and rich text (/RC), which Bluebeam and Acrobat lay text out from. */
-function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
+function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString; NBTextMargin?: number } {
   const s = m.style;
   const family = isNamedFont(s.fontFamily) ? s.fontFamily : { sans: 'Helvetica', serif: 'Times New Roman', mono: 'Courier' }[fontKeyword(s.fontFamily)];
   const ds = [
@@ -172,9 +193,12 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
     ...(s.italic ? ['font-style:italic'] : []),
     ...(s.underline || s.strikethrough ? [`text-decoration:${[s.underline && 'underline', s.strikethrough && 'line-through'].filter(Boolean).join(' ')}`] : []),
   ].join('; ');
-  const paragraphs = (m.text ?? '').split('\n').map(richParagraph);
+  // Revu reads a paragraph's alignment from its own style (it writes `<p style="text-align:center">`), not the body's.
+  const align = s.textAlign && s.textAlign !== 'left' ? s.textAlign : null;
+  const paragraphs = richParagraphs(m).map((p) => (align ? p.replace(/^<p( \/)?>/, (_t, empty: string | undefined) => `<p style="text-align:${align}"${empty ?? ''}>`) : p));
   const rc = `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="${escapeXml(ds)}">${paragraphs.join('')}</body>`;
-  return { DS: pdfText(ds), RC: pdfText(rc) };
+  // The exact padding rides in a private key: the /DS margin cannot say less than 0, and other readers add a point to it.
+  return { DS: pdfText(ds), RC: pdfText(rc), ...(s.textMargin !== undefined ? { NBTextMargin: s.textMargin } : {}) };
 }
 
 function pdfDate(ms: number) {
@@ -254,12 +278,12 @@ const artStandardFont = (t: Pick<ArtText, 'font' | 'bold' | 'italic'>): Standard
 
 /** A custom line style's laid out strokes, fills and text as content stream operators, in the line color. */
 function artOps(art: LineArt, ctx: Ctx, color: [number, number, number], fontRefs: Record<string, PDFRef>): string[] {
-  const ops: string[] = ['/GS0 gs [] 0 d'];
+  const ops: string[] = ['/GSD gs [] 0 d'];
   const [r, g, b] = color;
   if (art.fill.length) ops.push(`${fmt(r)} ${fmt(g)} ${fmt(b)} rg`, pathOps(art.fill), 'f');
   if (art.stroke.length) ops.push(pathOps(art.stroke), 'S');
   if (art.texts.length) {
-    ops.push('/GS1 gs', `${fmt(r)} ${fmt(g)} ${fmt(b)} rg`);
+    ops.push('/GSD gs', `${fmt(r)} ${fmt(g)} ${fmt(b)} rg`);
     for (const t of art.texts) {
       const name = artStandardFont(t);
       const font = ctx.fonts.get(name);
@@ -287,9 +311,15 @@ function safeText(font: PDFFont, s: string): string {
 /** Characters outside Latin-1 that the standard fonts' WinAnsi encoding still has. */
 const WIN_ANSI_EXTRA = new Set([0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178]);
 
-/** The words a markup draws as text: its text, stamp lines and table cells. */
+/** The words a markup draws as text: its text, stamp lines, table cells, and custom count symbol text. */
 function drawnStrings(m: Markup): string[] {
-  return [m.text, ...(m.stamp?.lines ?? []), ...(m.stamp?.art?.texts.map((t) => t.text) ?? []), ...(m.table?.cells.flat() ?? [])].filter((t): t is string => !!t);
+  return [
+    m.text,
+    ...(m.stamp?.lines ?? []),
+    ...(m.stamp?.art?.texts.map((t) => t.text) ?? []),
+    ...(m.table?.cells.flat() ?? []),
+    ...(m.type === 'count' && m.style.countSymbol?.markups ? m.style.countSymbol.markups.flatMap(drawnStrings) : []),
+  ].filter((t): t is string => !!t);
 }
 
 /** Whether the standard fonts cannot show every character of the text markups draw. */
@@ -319,6 +349,8 @@ interface Ctx {
   images: Map<string, PDFImage>;
   /** Fork addition: embedded vector snapshots (Markup.vector) by data URL. */
   vectors?: Map<string, PDFEmbeddedPage>;
+  /** Reusable Form XObjects for vector custom count symbols, keyed by `countSymbolKey`. */
+  countSymbols: Map<string, PDFRef>;
   scale: Scale;
   /** Every markup being exported and each page's scale, for legends. */
   all: readonly Markup[];
@@ -408,9 +440,61 @@ function underlineOps(x: number, y: number, w: number, size: number): string {
   return `${fmt(Math.max(size * 0.06, 0.25))} w 0 J [] 0 d ${fmt(x)} ${fmt(y)} m ${fmt(x + w)} ${fmt(y)} l S`;
 }
 
+/** Builds (and caches per document) a Form XObject for a vector custom count symbol around (0, 0). */
+function countSymbolForm(ctx: Ctx, sym: CountSymbol): PDFRef | null {
+  if (!sym.markups?.length) return null;
+  const key = countSymbolKey(sym);
+  const cached = ctx.countSymbols.get(key);
+  if (cached) return cached;
+  const box: [number, number, number, number] = [-20, -20, 20, 20];
+  const subCtx: Ctx = { ...ctx, matrix: [1, 0, 0, 1, 0, 0] };
+  const xobj: LiteralObject = {};
+  const ops: string[] = [];
+  sym.markups.forEach((sub, i) => {
+    const name = `S${i}`;
+    xobj[name] = appearance(subCtx, { ...sub, style: { ...sub.style, showLabel: false } }, box);
+    ops.push(`/${name} Do`);
+  });
+  const ref = ctx.doc.context.register(
+    ctx.doc.context.flateStream(ops.join('\n'), {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: box,
+      Resources: { XObject: xobj },
+    }),
+  );
+  ctx.countSymbols.set(key, ref);
+  return ref;
+}
+
+/** Appends drawing ops for a count markup's custom symbol (picture or vector markups) at each point. */
+function appendCountSymbolOps(ctx: Ctx, m: Markup, ops: string[], xobjects: LiteralObject, name: string) {
+  const sym = m.type === 'count' ? m.style.countSymbol : undefined;
+  if (!sym) return;
+  const r = markerSize(m);
+  if (sym.image) {
+    const img = ctx.images.get(sym.image);
+    if (!img) return;
+    const { w, h } = countSymbolImageBox(sym.aspect ?? img.width / Math.max(1, img.height), r);
+    xobjects[name] = img.ref;
+    for (const [x, y] of m.points) {
+      ops.push('q /GS1 gs', `${fmt(w)} 0 0 ${fmt(-h)} ${fmt(x - w / 2)} ${fmt(y + h / 2)} cm`, `/${name} Do`, 'Q');
+    }
+  } else if (sym.markups?.length) {
+    const form = countSymbolForm(ctx, sym);
+    if (!form) return;
+    const k = r / COUNT_SYMBOL_REF;
+    xobjects[name] = form;
+    for (const [x, y] of m.points) {
+      ops.push('q /GS1 gs', `${fmt(k)} 0 0 ${fmt(k)} ${fmt(x)} ${fmt(y)} cm`, `/${name} Do`, 'Q');
+    }
+  }
+}
+
 function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number]): PDFRef {
   const { doc, matrix } = ctx;
   const { style } = m;
+  const strokeAlpha = style.opacity * (style.strokeOpacity ?? 1);
   const fillAlpha = style.opacity * (style.fillOpacity ?? 1);
   const [sr, sg, sb] = rgb(style.stroke);
   const [tr, tg, tb] = rgb(textColor(style));
@@ -485,6 +569,8 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     ops.push(part.fill && part.stroke ? `B${star}` : part.fill ? `f${star}` : part.stroke ? 'S' : 'n');
   }
   ops.push('[] 0 d');
+  const countXObjects: LiteralObject = {};
+  appendCountSymbolOps(ctx, m, ops, countXObjects, 'CS0');
 
   const blendName = pdfBlendName(m);
   // With the fill alone blending (fillOnly), the lines and text do not: the fill and hatch carry /BM.
@@ -493,12 +579,12 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   const fillBm = blendName && fillOnly ? { BM: blendName } : {};
   const resources: LiteralObject = {
     ExtGState: {
-      GS0: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...bm },
-      GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
+      GS0: { Type: 'ExtGState', CA: strokeAlpha, ca: fillAlpha, ...bm },
+      GSD: { Type: 'ExtGState', CA: strokeAlpha, ca: strokeAlpha, ...bmExplicit },
       GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
       GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha, ...fillBm },
-      GSF: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...fillBm },
+      GSF: { Type: 'ExtGState', CA: strokeAlpha, ca: fillAlpha, ...fillBm },
     },
   };
   if (hatchPattern) {
@@ -519,7 +605,19 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       ops.push('q', `${[cos, sin, -sin, cos, x, y].map(fmt).join(' ')} cm`);
       x = y = 0;
     }
-    if (background && !lengthGap) {
+    if (label.boxed) {
+      // A typed quantity's tag: filled, with a dashed border.
+      const [br, bg, bb] = rgb(style.fill ?? '#ffffff');
+      const [sr, sg, sb] = rgb(style.stroke);
+      const bw = Math.max(0.5, style.width);
+      ops.push(
+        `/GS1 gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`,
+        `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`,
+        `${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG ${fmt(bw)} w ${dashOp(dash.length ? dash : [bw * 3, bw * 2])}`,
+        `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re S`,
+        '[] 0 d',
+      );
+    } else if (background && !lengthGap) {
       const [br, bg, bb] = rgb(background);
       ops.push(`/GSL gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`, `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`);
     }
@@ -589,19 +687,57 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.XObject = { Fm0: vector.ref };
   }
   if (image) {
-    const b = boundsOf(m.points);
-    // Image space is a unit square with y up; page space is y down.
-    ops.push('q /GS1 gs', `${fmt(b.w)} 0 0 ${fmt(-b.h)} ${fmt(b.x)} ${fmt(b.y + b.h)} cm`, '/Im0 Do', 'Q');
+    const { clip, full } = imageFrame(m);
+    // Image space is a unit square with y up; page space is y down. A cropped picture is drawn
+    // whole and clipped to its box, so other PDF readers show the same part this app does.
+    const clipOps = full === clip ? [] : [`${fmt(clip.x)} ${fmt(clip.y)} ${fmt(clip.w)} ${fmt(clip.h)} re W n`];
+    ops.push('q /GS1 gs', ...clipOps, `${fmt(full.w)} 0 0 ${fmt(-full.h)} ${fmt(full.x)} ${fmt(full.y + full.h)} cm`, '/Im0 Do', 'Q');
     resources.XObject = { Im0: image.ref };
   }
 
-  if (isTextType(m.type) && m.text) {
+  if (isTextType(m.type) && m.text && spansOf(m).length) {
+    // Styled parts: each run in the font of its weight and slant, its own colour and decoration.
+    const size = style.fontSize ?? 12;
+    const b = contentBox(m);
+    const names = new Map<FontKey, string>();
+    const refs: Record<string, PDFRef> = {};
+    const fontOf = (bold: boolean, italic: boolean) => {
+      const key = standardFont({ ...style, bold, italic }, false);
+      const font = ctx.fonts.get(key)!;
+      if (!names.has(key)) {
+        names.set(key, `F${names.size}`);
+        refs[names.get(key)!] = font.ref;
+      }
+      return { font, name: names.get(key)! };
+    };
+    const clean = (font: PDFFont, t: string) => safeText(font, t.replace(/\t/g, '    '));
+    const own = fontOf(!!style.bold, !!style.italic).font;
+    const lines = textBoxLines(m, (t) => own.widthOfTextAtSize(clean(own, t), size), (t, bold, italic) => {
+      const { font } = fontOf(bold, italic);
+      return font.widthOfTextAtSize(clean(font, t), size);
+    });
+    const ascent = textBaselineOffset({ ...style, fontSize: size });
+    ops.push('/GS1 gs', `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`);
+    const decorations: string[] = [];
+    for (const line of lines) {
+      for (const run of line.runs ?? []) {
+        if (!run.text) continue;
+        const { font, name } = fontOf(run.bold, run.italic);
+        const [r, g, bl] = rgb(run.color);
+        ops.push(`${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`, 'BT', `/${name} ${fmt(size)} Tf`, `1 0 0 -1 ${fmt(run.x)} ${fmt(line.y + ascent)} Tm`, `${fmt(line.gap)} Tw`, `${font.encodeText(clean(font, run.text)).toString()} Tj`, 'ET');
+        if (/^\s*$/.test(run.text)) continue;
+        if (run.underline) decorations.push(`${fmt(r)} ${fmt(g)} ${fmt(bl)} RG`, underlineOps(run.x, line.y + size * 0.98, run.width, size));
+        if (run.strikethrough) decorations.push(`${fmt(r)} ${fmt(g)} ${fmt(bl)} RG`, underlineOps(run.x, line.y + size * 0.55, run.width, size));
+      }
+    }
+    ops.push('0 Tw', ...decorations);
+    resources.Font = refs;
+  } else if (isTextType(m.type) && m.text) {
     const font = ctx.fonts.get(standardFont(style, false))!;
     const b = contentBox(m);
     const size = style.fontSize ?? 12;
     const lines = textBoxLines({ ...m, text: safeParagraphs(font, m.text) }, (s) => font.widthOfTextAtSize(s, size));
-    // Fork (leojru/redcolumn): the baseline where the screen draws it (a cap height put text a fifth of its size too high).
-    const ascent = baselineDrop(style, size);
+    const ascent = textBaselineOffset({ ...style, fontSize: size });
     ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`, 'BT', `/F0 ${fmt(size)} Tf`);
     for (const line of lines) {
       // Page space is y-down; flip the text matrix so glyphs stay upright.
@@ -694,7 +830,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
         fontRefs[fontNames.get(fontName)!] = font.ref;
       }
       const size = cell.style.fontSize ?? 12;
-      const ascent = baselineDrop(cell.style, size);
+      const ascent = textBaselineOffset({ ...cell.style, fontSize: size });
       const [cr, cg, cb] = rgb(textColor(cell.style));
       const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeParagraphs(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
       ops.push('q', '/GS1 gs', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/${fontNames.get(fontName)} ${fmt(size)} Tf`);
@@ -729,19 +865,23 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       const [dr, dg, db] = rgb(style.stroke);
       ops.push('q', `${fmt(dr)} ${fmt(dg)} ${fmt(db)} RG 0.5 w`, `${fmt(L.box.x)} ${fmt(r.y)} m ${fmt(L.box.x + L.box.w)} ${fmt(r.y)} l S`, 'Q');
       const symbol = legendSymbol(row.sample, r.symbol);
-      const [cr, cg, cb] = rgb(symbol.style.stroke);
-      ops.push('q', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`, `${fmt(symbol.style.width)} w`, '1 J 1 j', dashOp(symbol.style.dashArray ?? dashPattern(symbol.style.dash, symbol.style.width)));
-      for (const part of markupShape(symbol)) {
-        if (part.hatch && part.clip) continue;
-        ops.push(pathOps(part.path));
-        if (part.fill) {
-          const [fr, fg, fb] = rgb(part.fill);
-          ops.push(`${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`);
+      if (symbol.type === 'count' && symbol.style.countSymbol) {
+        appendCountSymbolOps(ctx, symbol, ops, countXObjects, `LC${i}`);
+      } else {
+        const [cr, cg, cb] = rgb(symbol.style.stroke);
+        ops.push('q', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`, `${fmt(symbol.style.width)} w`, '1 J 1 j', dashOp(symbol.style.dashArray ?? dashPattern(symbol.style.dash, symbol.style.width)));
+        for (const part of markupShape(symbol)) {
+          if (part.hatch && part.clip) continue;
+          ops.push(pathOps(part.path));
+          if (part.fill) {
+            const [fr, fg, fb] = rgb(part.fill);
+            ops.push(`${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`);
+          }
+          const star = part.evenOdd ? '*' : '';
+          ops.push(part.fill && part.stroke ? `B${star}` : part.fill ? `f${star}` : part.stroke ? 'S' : 'n');
         }
-        const star = part.evenOdd ? '*' : '';
-        ops.push(part.fill && part.stroke ? `B${star}` : part.fill ? `f${star}` : part.stroke ? 'S' : 'n');
+        ops.push('Q');
       }
-      ops.push('Q');
     }
     ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, 'BT', `/F0 ${fmt(size)} Tf`);
     text('Legend', L.title.x, baseline(L.box.y, bandH), 'left');
@@ -756,6 +896,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   }
   ops.push('Q');
   if (Object.keys(artFonts).length) resources.Font = { ...(resources.Font as LiteralObject | undefined), ...artFonts };
+  if (Object.keys(countXObjects).length) resources.XObject = { ...(resources.XObject as LiteralObject | undefined), ...countXObjects };
 
   const stream = doc.context.flateStream(ops.join('\n'), {
     Type: 'XObject',
@@ -915,7 +1056,8 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   const base: LiteralObject = {
     Type: 'Annot',
     Rect: rect,
-    F: (m.hidden ? 2 : 4) | (m.locked ? 128 : 0), // Print (Hidden when hidden), and Locked when locked
+    // Print (Hidden when hidden, or an AI draft no person has approved yet), and Locked when locked
+    F: (m.hidden || isAiDraft(m) ? 2 : 4) | (m.locked ? 128 : 0),
     C: color,
     CA: m.style.opacity,
     ...(pdfBlendName(m) ? { BM: pdfBlendName(m) } : {}),
@@ -1138,12 +1280,25 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       const shape = m.style.countShape ?? 'circle';
       specific = {
         Subtype: 'Polygon',
-        Vertices: flat(countMarker(shape, cx, cy, markerSize(m)).map((p) => apply(matrix, p))),
+        Vertices: flat(countMarkerOutline(m.style.countSymbol ? 'circle' : shape, cx, cy, markerSize(m)).map((p) => apply(matrix, p))),
         IT: 'PolygonCount',
-        CountStyle: COUNT_STYLE_NAMES[shape],
+        CountStyle: m.style.countSymbol ? 'Custom' : COUNT_STYLE_TO_PDF[shape],
         MeasurementTypes: 128,
         BBMeasure: measureDict(ctx.scale),
       };
+      break;
+    }
+    case 'manual': {
+      // Other viewers see the tag as a text box; ours comes back as the quantity from NBData.
+      const [r, g, bl] = rgb(textColor(m.style));
+      specific = {
+        Subtype: 'FreeText',
+        RD: rd,
+        DA: PDFString.of(`/${daFontName(m.style.fontFamily)} ${m.style.fontSize ?? 10} Tf ${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`),
+        Q: 1,
+        C: fill ?? [],
+      };
+      delete base.IC;
       break;
     }
     case 'signature':
@@ -1165,6 +1320,8 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         ...(hasCloudBorder(m) ? { BE: cloudEffect(m) } : {}),
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
+        // Bluebeam's own key for a turned text box: clockwise degrees (its /Rect is the turned box's bounds).
+        ...(m.type === 'text' && m.rotation && ((m.rotation % 360) + 360) % 360 !== 0 ? { Rotation: Math.round((((m.rotation % 360) + 360) % 360) * 100) / 100 } : {}),
       };
       // Fork (leojru/redcolumn): as in Revu, a text box with a circle, triangle or hexagon border names it in /Shape, and
       // /RD insets its text from the shape's box. Without them Revu redraws the box as a plain rectangle as soon as it
@@ -1418,7 +1575,7 @@ const countContents = (m: Markup, total: number) => (markupLabel(m) ? `${markupL
 /** Keys an edited markup's annotation keeps from the original even when its kind of annotation changes. */
 const KEEP_ALWAYS = new Set(['P', 'Subj', 'T', 'NM', 'CreationDate', 'BSIColumnData', 'OC', 'IRT', 'RT', 'GroupNesting', 'Popup', 'StructParent', 'ITEx']);
 /** Keys of the original an edited markup's annotation drops: they describe the old look or shape. */
-const STALE = new Set(['AP', 'AS', 'RC', 'BE', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
+const STALE = new Set(['AP', 'AS', 'RC', 'BE', 'Rotation', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
 /** Keys where the original's value wins over ours: identity, and the other tool's own kind of markup. */
 const PREFER_ORIGINAL = new Set(['NM', 'CreationDate', 'IT']);
 /** Annotation flags we set (Invisible, Hidden, Print, NoView, Locked); others the original had stay. */
@@ -1443,6 +1600,10 @@ function nativeForm(orig: PDFDict, m: Markup, matrix: Matrix): LiteralObject | n
   const subtype = nameValue(orig, 'Subtype');
   const intent = nameValue(orig, 'IT');
   if (m.type === 'count' && subtype === 'Polygon' && intent === 'PolygonCount' && m.points.length === 1) {
+    // Only reuse the imported polygon vertices when shape, custom symbol and marker size are unchanged.
+    if (m.style.countSymbol) return null;
+    const origShape = COUNT_STYLE_FROM_PDF[nameValue(orig, 'CountStyle') ?? ''] ?? 'circle';
+    if ((m.style.countShape ?? 'circle') !== origShape) return null;
     const v = numbers(orig, 'Vertices');
     if (v.length < 2) return null;
     let x0 = Infinity;
@@ -1455,6 +1616,9 @@ function nativeForm(orig: PDFDict, m: Markup, matrix: Matrix): LiteralObject | n
       y0 = Math.min(y0, v[i + 1]!);
       y1 = Math.max(y1, v[i + 1]!);
     }
+    const origR = Math.max(x1 - x0, y1 - y0) / 2;
+    const wantR = Math.hypot(matrix[0] * markerSize(m), matrix[1] * markerSize(m));
+    if (Math.abs(origR - wantR) > 0.5) return null;
     const [cx, cy] = apply(matrix, m.points[0]!);
     const dx = cx - (x0 + x1) / 2;
     const dy = cy - (y0 + y1) / 2;
@@ -1838,6 +2002,39 @@ function writeAssemblies(doc: PDFDocument, assemblies: readonly Assembly[]) {
   if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
 }
 
+/** The document's portals as JSON in the catalog (other tools ignore the key); none removes it. */
+function writePortals(doc: PDFDocument, portals: readonly Portal[]) {
+  const key = PDFName.of(PORTALS_KEY);
+  if (!portals.length) {
+    doc.catalog.delete(key);
+    return;
+  }
+  const json = JSON.stringify(portals);
+  if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
+}
+
+/** AI proposals waiting for review as JSON in the catalog (other tools ignore the key); none removes it. */
+function writeAiReview(doc: PDFDocument, review: AiReviewData) {
+  const key = PDFName.of(AI_REVIEW_KEY);
+  if (isEmptyAiReview(review)) {
+    doc.catalog.delete(key);
+    return;
+  }
+  const json = JSON.stringify(review);
+  if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
+}
+
+/** The document's items, product lists and templates as JSON in the catalog; none of any removes it. */
+function writeEstimating(doc: PDFDocument, est: Estimating) {
+  const key = PDFName.of(ESTIMATING_KEY);
+  if (!est.items.length && !est.productLists.length && !est.templates.length) {
+    doc.catalog.delete(key);
+    return;
+  }
+  const json = JSON.stringify({ items: est.items, productLists: est.productLists, templates: est.templates });
+  if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
+}
+
 /** A new Space in its page's /BSISpaces, the entry Bluebeam's Spaces panel lists. */
 function addSpace(doc: PDFDocument, page: PDFPage, matrix: Matrix, m: Markup) {
   const entry = doc.context.obj({
@@ -1997,6 +2194,12 @@ export interface ExportOptions {
   statuses?: readonly MarkupStatusDef[];
   /** The document's assemblies, kept in the catalog's /NBAssemblies; unset leaves the file's own as they are. */
   assemblies?: readonly Assembly[];
+  /** The document's catalog items, product lists and takeoff templates, kept in /NBEstimating; unset leaves the file's own. */
+  estimating?: Estimating;
+  /** The document's portals (Experimental), kept in /NBPortals; unset leaves the file's own. Their copies are ordinary annotations on each page. */
+  portals?: readonly Portal[];
+  /** AI proposals waiting for review, kept in /NBAIReview; unset leaves the file's own. */
+  aiReview?: AiReviewData;
   /**
    * Embeds a font file in place of a standard 14 font (which is only named, and which PDF/A does
    * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
@@ -2175,12 +2378,15 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   const unicode = options.fallbackFont && needsUnicodeFont(written) ? [...new Set(written.flatMap(drawnStrings).join(''))].join('') : null;
   const embedder = unicode !== null ? (d: PDFDocument, n: StandardFonts) => options.fallbackFont!(d, n, unicode) : options.embedFont;
   const embedStandard = (name: StandardFonts) => (embedder ? embedder(doc, name) : doc.embedFont(name));
-  for (const m of written) {
+  const allDrawn = written.flatMap((m) => (m.type === 'count' && m.style.countSymbol?.markups?.length ? [m, ...m.style.countSymbol.markups] : [m]));
+  for (const m of allDrawn) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = [
       ...(m.type === 'stamp'
         ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica, ...(m.stamp?.art ? [StandardFonts.HelveticaBoldOblique, StandardFonts.HelveticaOblique] : [])]
         : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : []),
+      // Styled parts of a text markup letter in the weights and slants they use.
+      ...(isTextType(m.type) ? styleRuns(m.text ?? '', spansOf(m), baseTextStyle(m)).map((r) => standardFont({ ...m.style, bold: r.bold, italic: r.italic }, false)) : []),
       // A table's cells can each have a font of their own.
       ...(m.type === 'table' ? tableCells(m).map((c) => standardFont(c.style, false)) : []),
       ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),
@@ -2220,8 +2426,8 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     } else for (const [key, font] of loaded) fonts.set(key, font);
   }
   const images = new Map<string, PDFImage>();
-  for (const m of written) {
-    const src = isImageType(m.type) || m.type === 'attachment' ? m.image : m.type === 'stamp' ? m.stamp?.art?.image : undefined;
+  for (const m of allDrawn) {
+    const src = isImageType(m.type) || m.type === 'attachment' ? m.image : m.type === 'stamp' ? m.stamp?.art?.image : m.type === 'count' ? m.style.countSymbol?.image : undefined;
     if (!src || images.has(src)) continue;
     const img = await embedDataUrl(doc, src);
     if (img) images.set(src, img);
@@ -2245,6 +2451,9 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   if (options.pageLabels?.some((l) => l)) writePageLabels(doc, options.pageLabels);
   const columns = writeColumns(doc, options.columns ?? [], markups.some((m) => m.fields && Object.keys(m.fields).length));
   if (options.assemblies) writeAssemblies(doc, options.assemblies);
+  if (options.estimating) writeEstimating(doc, options.estimating);
+  if (options.portals) writePortals(doc, options.portals);
+  if (options.aiReview) writeAiReview(doc, options.aiReview);
   if (options.pageScales || options.viewports?.length || (options.geo && Object.keys(options.geo).length)) {
     pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i), options.geo?.[i] ?? null));
   }
@@ -2255,12 +2464,13 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     if (!byPage.has(m.pageIndex)) byPage.set(m.pageIndex, []);
     byPage.get(m.pageIndex)!.push(m);
   }
+  const countSymbols = new Map<string, PDFRef>();
   const pageIndexes = new Set([...byPage.keys(), ...Object.keys(options.imported ?? {}).map(Number), ...Object.keys(options.importedSpaces ?? {}).map(Number)]);
   for (const pageIndex of [...pageIndexes].sort((a, b) => a - b)) {
     const page = pages[pageIndex];
     if (!page) continue;
     const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
-    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, vectors, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames, unembedded };
+    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, vectors, countSymbols, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames, unembedded };
     const build = (m: Markup, orig?: PDFDict) => {
       const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.

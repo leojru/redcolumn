@@ -4,6 +4,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { installDesktopBridge } from './desktop/bridge';
 import { desktop } from './desktop/host';
 import { installLogCapture } from './help/logs';
+import { logManagedPolicy } from './desktop/policy';
 import { installLocalEncryption } from './storage/localCrypto';
 import { rewriteLibrary } from './storage/fileStore';
 import { startIdleSignOut } from './studio/drive/idle';
@@ -14,6 +15,8 @@ import { installTheme } from './theme/theme';
 import { installDialogDrag } from './dialogDrag';
 import { installDialogFocus } from './dialogFocus';
 import { installNoMiddleClickPaste } from './middleClickPaste';
+import { startI18n } from './i18n/start';
+import { settings } from './settings/settings';
 import { App } from './App';
 import './theme/themes.css';
 import './styles.css';
@@ -28,6 +31,7 @@ if (window.top !== window.self) {
 
 installTheme();
 installLogCapture();
+logManagedPolicy();
 installDesktopBridge();
 installDialogDrag();
 installDialogFocus();
@@ -61,10 +65,14 @@ if (!host)
   });
 
 // Before anything opens a document: local data is sealed on this device when "Encrypt local data" is on.
-void installLocalEncryption(rewriteLibrary).finally(() =>
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  ),
-);
+// The interface language and number format are chosen before the first render. Modules are already loaded by then,
+// so interface text is built when rendered, never at a module's top level (packages/i18n/src/runtime.ts).
+void installLocalEncryption(rewriteLibrary)
+  .finally(() => startI18n(settings.get().uiLanguage, settings.get().numberFormat))
+  .finally(() => {
+    createRoot(document.getElementById('root')!).render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+  });

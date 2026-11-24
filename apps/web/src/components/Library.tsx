@@ -1,4 +1,5 @@
 // Modified in the leojru/redcolumn fork (revu-layout): Remove from Device says markups go with the file.
+import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { drawingSets } from '../storage/sets';
 import { fileGroups, useFileGroups, type FileGroup } from '../storage/fileGroups';
@@ -6,9 +7,15 @@ import type { StoredFile } from '../storage/fileStore';
 import { REMOVE_FROM_DEVICE } from '../fork/fileCopies';
 import { InlineName } from './InlineName';
 import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMenu';
+import { usePersistedState } from '../workspace/layoutPrefs';
 
 interface Props {
+  /** Every document on the device: groups and a filter look through all of them. */
   files: StoredFile[];
+  /** The recent files list (Preferences › Recent Files); all of `files` when not given. */
+  recents?: StoredFile[];
+  /** Clear Recents: empties the list (the files stay on the device). */
+  onClearRecents?: () => void;
   activeHash: string | null;
   onOpen: (file: StoredFile) => void;
   onRemove: (file: StoredFile) => void;
@@ -31,7 +38,7 @@ function formatSize(bytes: number) {
  * File Access: documents stored on this device (available offline), as Recents plus the user's
  * own groups for quick access. Drag a file onto a group, or right-click it.
  */
-export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu, reveal }: Props) {
+export function Library({ files, recents: recentList = files, onClearRecents, activeHash, onOpen, onRemove, fileMenu: appMenu, reveal }: Props) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!reveal) return;
@@ -46,7 +53,7 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [naming, setNaming] = useState<{ id: string | 'new'; fileId?: string } | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
-  const [recentsOpen, setRecentsOpen] = useState(true);
+  const [recentsOpen, setRecentsOpen] = usePersistedState('nb.library.recentsOpen', true, (v): v is boolean => typeof v === 'boolean');
   const [query, setQuery] = useState('');
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -66,18 +73,18 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
     const addTo: MenuEntry[] = [
       ...groups.map((g) => ({ label: g.name, checked: g.fileIds.includes(f.id), disabled: g.fileIds.includes(f.id), onClick: () => fileGroups.add(g.id, f.id) })),
       ...(groups.length ? [{ sep: true } as const] : []),
-      { label: 'New Group…', onClick: () => setNaming({ id: 'new', fileId: f.id }) },
+      { label: msg('New Group…'), onClick: () => setNaming({ id: 'new', fileId: f.id }) },
     ];
     const groupEntries: MenuEntry[] = [
-      { label: 'Add to Group', items: addTo },
-      ...(group ? [{ label: `Remove from "${group.name}"`, onClick: () => fileGroups.removeFile(group.id, f.id) }] : []),
+      { label: msg('Add to Group'), items: addTo },
+      ...(group ? [{ label: msg('Remove from "{name}"', { name: group.name }), onClick: () => fileGroups.removeFile(group.id, f.id) }] : []),
     ];
     setMenu({
       x: e.clientX,
       y: e.clientY,
       items: appMenu
         ? appMenu(f, groupEntries)
-        : [{ label: 'Open', onClick: () => onOpen(f) }, { sep: true }, ...groupEntries, { sep: true }, { label: 'Remove from Device…', danger: true, onClick: () => confirmRemove(f) }],
+        : [{ label: msg('Open'), onClick: () => onOpen(f) }, { sep: true }, ...groupEntries, { sep: true }, { label: msg('Remove from Device…'), danger: true, onClick: () => confirmRemove(f) }],
     });
   };
 
@@ -89,17 +96,17 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: `Open All (${members.length})`, disabled: !members.length, onClick: () => members.forEach(onOpen) },
+        { label: msg('Open All ({count})', { count: members.length }), disabled: !members.length, onClick: () => members.forEach(onOpen) },
         { sep: true },
-        { label: 'Rename', onClick: () => setNaming({ id: g.id }) },
-        { label: 'Move Up', disabled: i === 0, onClick: () => fileGroups.move(g.id, -1) },
-        { label: 'Move Down', disabled: i === groups.length - 1, onClick: () => fileGroups.move(g.id, 1) },
+        { label: msg('Rename'), onClick: () => setNaming({ id: g.id }) },
+        { label: msg('Move Up'), disabled: i === 0, onClick: () => fileGroups.move(g.id, -1) },
+        { label: msg('Move Down'), disabled: i === groups.length - 1, onClick: () => fileGroups.move(g.id, 1) },
         { sep: true },
         {
-          label: 'Delete Group',
+          label: msg('Delete Group'),
           danger: true,
           onClick: () => {
-            if (confirm(`Delete the group "${g.name}"? The documents stay on this device.`)) fileGroups.remove(g.id);
+            if (confirm(msg('Delete the group "{name}"? The documents stay on this device.', { name: g.name }))) fileGroups.remove(g.id);
           },
         },
       ],
@@ -138,7 +145,7 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
     >
       <button className="file" onClick={() => onOpen(f)} title={f.name}>
         <span className="file-icon" aria-hidden="true">
-          PDF
+          {msg('PDF')}
         </span>
         <span className="file-text">
           <span className="name">{f.name}</span>
@@ -147,7 +154,7 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
           </span>
         </span>
       </button>
-      <button className="icon" title="More…" onClick={(e) => fileMenu(e, f, group)}>
+      <button className="icon" title={msg('More…')} onClick={(e) => fileMenu(e, f, group)}>
         ⋯
       </button>
     </li>
@@ -161,14 +168,21 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
     else fileGroups.rename(n.id, name);
   };
 
-  const recents = files.filter(matches);
+  const recentsMenu = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, items: [{ label: msg('Clear Recents'), disabled: !recentList.length, onClick: () => onClearRecents?.() }] });
+  };
+
+  // A filter finds any document on the device, not just the recent ones.
+  const recents = q ? files.filter(matches) : recentList;
 
   return (
     <div className="library" ref={root}>
       <div className="library-tools">
-        <input className="library-search" type="search" placeholder="Filter files" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Filter files" />
-        <button className="btn small" title="Create a group for quick access to a set of files" onClick={() => setNaming({ id: 'new' })}>
-          + Group
+        <input className="library-search" type="search" placeholder={msg('Filter files')} value={query} onChange={(e) => setQuery(e.target.value)} aria-label={msg('Filter files')} />
+        <button className="btn small" title={msg('Create a group for quick access to a set of files')} onClick={() => setNaming({ id: 'new' })}>
+          {msg('+ Group')}
         </button>
       </div>
 
@@ -179,7 +193,7 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
           <section key={g.id} className={`file-group${dropOn === g.id ? ' drop' : ''}`} {...dropProps(g.id, (id) => fileGroups.add(g.id, id))}>
             {naming?.id === g.id ? (
               <div className="group-head">
-                <InlineName initial={g.name} placeholder="Group name" onDone={finishNaming} />
+                <InlineName initial={g.name} placeholder={msg('Group name')} onDone={finishNaming} />
               </div>
             ) : (
               <div className="group-head" onContextMenu={(e) => groupMenu(e, g, i)}>
@@ -191,7 +205,7 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
                   <span className="group-name">{g.name}</span>
                   <span className="count">{members.length}</span>
                 </button>
-                <button className="icon" title="Group options" onClick={(e) => groupMenu(e, g, i)}>
+                <button className="icon" title={msg('Group options')} onClick={(e) => groupMenu(e, g, i)}>
                   ⋯
                 </button>
               </div>
@@ -199,7 +213,7 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
             {!g.collapsed && (
               <ul>
                 {shown.map((f) => row(f, g))}
-                {!members.length && <li className="group-empty">Drag files here, or right-click a file → Add to Group.</li>}
+                {!members.length && <li className="group-empty">{msg('Drag files here, or right-click a file → Add to Group.')}</li>}
               </ul>
             )}
           </section>
@@ -209,32 +223,38 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
       {naming?.id === 'new' && (
         <section className="file-group">
           <div className="group-head">
-            <InlineName initial="" placeholder="Group name" onDone={finishNaming} />
+            <InlineName initial="" placeholder={msg('Group name')} onDone={finishNaming} />
           </div>
         </section>
       )}
 
       {!groups.length && naming?.id !== 'new' && files.length > 0 && (
         <div className={`group-drop-new${dropOn === 'new' ? ' drop' : ''}`} {...dropProps('new', (id) => setNaming({ id: 'new', fileId: id }))}>
-          Drop a file here to start a group
+          {msg('Drop a file here to start a group')}
         </div>
       )}
 
       <section className="file-group recents">
-        <div className="group-head">
+        <div className="group-head" onContextMenu={onClearRecents ? recentsMenu : undefined}>
           <button className="group-toggle" aria-expanded={recentsOpen} onClick={() => setRecentsOpen((o) => !o)}>
             <span className="caret">{recentsOpen ? '▾' : '▸'}</span>
             <span className="group-icon" aria-hidden="true">
               ⏱
             </span>
-            <span className="group-name">Recents</span>
-            <span className="count">{files.length}</span>
+            <span className="group-name">{msg('Recents')}</span>
+            <span className="count">{recents.length}</span>
           </button>
+          {onClearRecents && (
+            <button className="icon" title={msg('Recents options')} aria-label={msg('Recents options')} onClick={recentsMenu}>
+              ⋯
+            </button>
+          )}
         </div>
         {recentsOpen && (
           <ul>
             {recents.map((f) => row(f))}
-            {files.length === 0 && <li className="group-empty">Opened PDFs are kept here for offline use.</li>}
+            {files.length === 0 && <li className="group-empty">{msg('Opened PDFs are kept here for offline use.')}</li>}
+            {files.length > 0 && !recents.length && <li className="group-empty">{q ? msg('No files match.') : msg('No recent files. Type in Filter files to find any file on this device.')}</li>}
           </ul>
         )}
       </section>

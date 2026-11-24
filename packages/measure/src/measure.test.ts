@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { calibratedScale, formatArea, formatFeetInches, formatLength, feetDisplay, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts, shownScale, yScaleLabel } from './scale.ts';
-import { angleAt, arcPoints, arcSegment, arcSplit, bulgeThrough, smoothBulgesAt, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
-import { SnapIndex } from './snap.ts';
+import { angleAt, arcPoints, arcSegment, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
+import { betterSnap, SnapIndex } from './snap.ts';
 
 const preset = (label: string) => SCALE_PRESETS.find((p) => p.label === label)!.scale;
 
@@ -125,7 +125,54 @@ test('parseLength accepts decimals and feet-inches', () => {
   assert.equal(parseLength(`10'`, 'in'), 120);
   assert.equal(parseLength('abc', 'ft'), null);
   assert.equal(parseLength('0', 'ft'), null);
-  assert.equal(parseLength(`5'`, 'm'), null);
+  assert.equal(parseLength('-5', 'ft'), null);
+});
+
+test('parseLength reads any unit and converts to the scale unit', () => {
+  const near = (a: number | null, b: number) => assert.ok(a !== null && Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
+  // Imperial typed under a metric scale.
+  near(parseLength(`1"`, 'mm'), 25.4);
+  near(parseLength('1 in', 'mm'), 25.4);
+  near(parseLength('1 inch', 'cm'), 2.54);
+  near(parseLength(`5'`, 'm'), 1.524);
+  near(parseLength(`3'-6"`, 'mm'), 1066.8);
+  near(parseLength(`302'9"`, 'm'), (302 + 9 / 12) * 0.3048);
+  near(parseLength('2 feet', 'm'), 0.6096);
+  near(parseLength(`1 1/2"`, 'mm'), 38.1);
+  near(parseLength('3/4in', 'mm'), 19.05);
+  // Metric typed under an imperial scale.
+  near(parseLength('25.4mm', 'in'), 1);
+  near(parseLength('1 m', 'ft'), 1 / 0.3048);
+  near(parseLength('30 cm', 'in'), 300 / 25.4);
+  // Within a system, exact.
+  assert.equal(parseLength('450mm', 'm'), 0.45);
+  assert.equal(parseLength('1m 25cm', 'mm'), 1250);
+  assert.equal(parseLength('1.5 metres', 'cm'), 150);
+  assert.equal(parseLength('2 yd', 'ft'), 6);
+  assert.equal(parseLength('6 in.', 'ft'), 0.5);
+  assert.equal(parseLength('5ft 3in', 'in'), 63);
+  // Marks and spacing users type.
+  assert.equal(parseLength(`5' 6`, 'ft'), 5.5);
+  assert.equal(parseLength(`2-1/2"`, 'in'), 2.5);
+  assert.equal(parseLength(`6''`, 'in'), 6);
+  assert.equal(parseLength('25′-6″', 'ft'), 25.5);
+  assert.equal(parseLength('10 FT', 'ft'), 10);
+  assert.equal(parseLength('.5', 'm'), 0.5);
+  assert.equal(parseLength('5 1/2', 'in'), 5.5);
+  // What formatLength writes reads back, digit groups and unit included.
+  assert.equal(parseLength('1,250.50 m', 'm'), 1250.5);
+  assert.equal(parseLength('2,500mm', 'm'), 2.5);
+  assert.equal(parseLength('12.5 ft', 'ft'), 12.5);
+  // A metric suffix that ends in the scale's unit letter is not cut short.
+  assert.equal(parseLength('450mm', 'm'), 0.45);
+  // Not lengths.
+  assert.equal(parseLength('1,25', 'm'), null);
+  assert.equal(parseLength('5 parsecs', 'm'), null);
+  assert.equal(parseLength('1m 25', 'mm'), null);
+  assert.equal(parseLength('5 6', 'ft'), null);
+  assert.equal(parseLength('1/0"', 'in'), null);
+  assert.equal(parseLength(`0'`, 'ft'), null);
+  assert.equal(parseLength('5.', 'ft'), null);
 });
 
 test('display quantities for spreadsheets', () => {
@@ -205,6 +252,24 @@ test('arc segments: lengths and areas are exact, both ways round', () => {
   // Measurements use the arcs.
   assert.ok(Math.abs(measureValue('area', ccw, 1, { bulges: out }) - (4 + Math.PI / 2)) < 1e-9);
   assert.ok(Math.abs(measureValue('polylength', [[0, 0], [2, 0]], 1, { bulges: [1] }) - Math.PI) < 1e-9);
+});
+
+test('a 3-point arc bulge goes through its point exactly, wherever it is on the arc', () => {
+  // The middle of the arc agrees with the sagitta estimate.
+  assert.ok(Math.abs(bulgeThroughPoint([0, 0], [2, 0], [1, -1]) - bulgeThrough([0, 0], [2, 0], [1, -1])) < 1e-12);
+  // 120° of a circle of radius 5 about the origin, through a point a quarter of the way along.
+  const at = (deg: number): [number, number] => [5 * Math.cos((deg * Math.PI) / 180), 5 * Math.sin((deg * Math.PI) / 180)];
+  for (const via of [10, 30, 60, 100]) {
+    const b = bulgeThroughPoint(at(0), at(120), at(via));
+    assert.ok(Math.abs(Math.abs(b) - Math.tan(Math.PI / 6)) < 1e-12, `${via}: ${b}`);
+    assert.ok(Math.abs(pathLengthArcs([at(0), at(120)], [b]) - (5 * 2 * Math.PI) / 3) < 1e-9);
+    for (const [x, y] of arcPoints(at(0), at(120), b, 24)) assert.ok(Math.abs(Math.hypot(x, y) - 5) < 1e-9);
+  }
+  // The long way round: 240° through a point on the far side.
+  assert.ok(Math.abs(Math.abs(bulgeThroughPoint(at(0), at(120), at(200))) - Math.tan(Math.PI / 3)) < 1e-12);
+  // In a line: straight.
+  assert.equal(bulgeThroughPoint([0, 0], [2, 0], [1, 0]), 0);
+  assert.equal(bulgeThroughPoint([0, 0], [2, 0], [0, 0]), 0);
 });
 
 test('a bulge from a point on the arc; the arc drawn through it', () => {
@@ -289,4 +354,77 @@ test('feet read as feet and inches on any scale while the preference is on', () 
   } finally {
     feetDisplay.feetAndInches = false;
   }
+});
+
+test('slopes: pitch, ratio, elevations, hips and valleys give true lengths and areas', async () => {
+  const { effectiveSlopeFactor, formatSlope, measureDetails, planValue, slopeAngle, slopeApplies, slopeFactor, slopeNeedsRun } = await import('./measure.ts');
+  type Slope = import('./measure.ts').Slope;
+  const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
+  // 6/12 pitch: sqrt(1 + 0.25).
+  close(slopeFactor({ kind: 'pitch', value: 6 }), 1.118034);
+  // A free ratio, in any units: 1:4 is 3:12 is 25%.
+  close(slopeFactor({ kind: 'ratio', rise: 1, run: 4 }), Math.sqrt(1 + 1 / 16));
+  close(slopeFactor({ kind: 'ratio', rise: 1, run: 4 }), slopeFactor({ kind: 'percent', value: 25 }));
+  assert.equal(formatSlope({ kind: 'ratio', rise: 1, run: 4 }), '1:4');
+  assert.equal(slopeFactor({ kind: 'ratio', rise: 1, run: 0 }), 1);
+  // Hips: equal 6/12 pitches give sqrt(1 + t²/2); 6/12 meeting 12/12 gives sqrt(1.2).
+  const hip: Slope = { kind: 'hip', a: { kind: 'pitch', value: 6 } };
+  close(slopeFactor(hip), 1.06066);
+  close(slopeFactor({ kind: 'hip', a: { kind: 'pitch', value: 6 }, b: { kind: 'pitch', value: 12 } }), 1.095445);
+  close(slopeFactor({ kind: 'valley', a: { kind: 'pitch', value: 12 }, b: { kind: 'pitch', value: 6 } }), 1.095445);
+  close(measureValue('polylength', [[0, 0], [10, 0]], 1, { slope: hip }), 10 * Math.sqrt(1.125));
+  assert.equal(formatSlope(hip), 'Hip 6:12');
+  assert.equal(formatSlope({ kind: 'hip', a: { kind: 'pitch', value: 6 }, b: { kind: 'pitch', value: 8 } }), 'Hip 6:12/8:12');
+  close(1 / Math.cos(slopeAngle(hip)), 1.06066);
+  // Hips and valleys are runs: an area ignores them.
+  const square: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+  assert.equal(slopeApplies('area', hip), false);
+  assert.equal(measureValue('area', square, 1, { slope: hip }), 100);
+  // Elevations: a 10 m plan run rising 1 m is exactly sqrt(101) long, over the whole path.
+  const rise: Slope = { kind: 'elevation', from: 2, to: 3 };
+  close(measureValue('length', [[0, 0], [10, 0]], 1, { slope: rise }), 10.04988, 1e-5);
+  close(measureValue('polylength', [[0, 0], [6, 0], [6, 4]], 1, { slope: rise }), Math.sqrt(101));
+  close(effectiveSlopeFactor('length', 10, rise), Math.sqrt(101) / 10);
+  assert.equal(formatSlope({ kind: 'elevation', from: 10, to: 11.2 }), 'Δ1.20 m');
+  // An area needs the run the rise is over; without it the area stays flat and is flagged.
+  assert.equal(measureValue('area', square, 1, { slope: rise }), 100);
+  assert.equal(slopeNeedsRun('area', rise), true);
+  close(measureValue('area', square, 1, { slope: { ...rise, run: 1 } }), 100 * Math.SQRT2);
+  // The perimeter stays on plan; plan values are before the slope.
+  const d = measureDetails('area', square, 1, { slope: { kind: 'pitch', value: 12 } });
+  close(d.area!, 100 * Math.SQRT2);
+  assert.equal(d.length, 40);
+  assert.equal(planValue('area', square, 1, { slope: { kind: 'pitch', value: 12 } }), 100);
+  // Volumes are not sloped.
+  assert.equal(measureValue('volume', square, 1, { depth: 2, slope: { kind: 'pitch', value: 12 } }), 200);
+  // Slopes saved before the new kinds still load.
+  const old = JSON.parse('{"kind":"pitch","value":6}') as Slope;
+  close(measureValue('length', [[0, 0], [12, 0]], 1, { slope: old }), 12 * 1.118034, 1e-5);
+  assert.equal(formatSlope(old), '6:12');
+  assert.equal(formatSlope({ kind: 'degrees', value: 30 }), '30°');
+  assert.equal(formatSlope({ kind: 'percent', value: 8 }), '8%');
+});
+
+test('betterSnap picks across indexes as one index would', () => {
+  const page = new SnapIndex(new Float32Array([0, 0, 200, 0]));
+  const picture = new SnapIndex(new Float32Array([60, -40, 60, 200]));
+  const p: [number, number] = [61, 2];
+  // The page line only offers a point on it; the picture's line passes nearer still, but neither has an end in reach.
+  const a = page.snap(p, 10);
+  const b = picture.snap(p, 10);
+  assert.equal(a?.kind, 'nearest');
+  assert.equal(b?.kind, 'nearest');
+  assert.deepEqual(betterSnap(a, b, p, 10)?.point, b!.point);
+  // An end beats a nearer point on a line.
+  const end = new SnapIndex(new Float32Array([64, 6, 90, 90]));
+  assert.equal(betterSnap(b, end.snap(p, 10), p, 10)?.kind, 'endpoint');
+  assert.equal(betterSnap(null, b, p, 10), b);
+  assert.equal(betterSnap(a, null, p, 10), a);
+});
+
+test('a scale kept in fractions shows lengths in other units with the default decimals of that unit', () => {
+  const base = { metersPerPoint: 1, feetInches: true, precision: 16, label: 'x' };
+  assert.equal(formatLength(3.048, { ...base, unit: 'mm' }), '3,048 mm');
+  assert.equal(formatLength(3048, { ...base, unit: 'km' }), '3.048 km');
+  assert.equal(formatLength(3.048, { ...base, unit: 'm' }), '3.05 m');
 });

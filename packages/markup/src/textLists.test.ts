@@ -140,15 +140,15 @@ test('wrapped list lines hang under their text', () => {
 });
 
 test('a text box draws wrapped list lines indented, and right-aligned ones as a block', () => {
-  const m = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [100 + 2 * TEXT_PADDING, 100]], style: { ...DEFAULT_STYLES.text, fontSize: 10 }, status: 'none', author: '', createdAt: 1, modifiedAt: 1, text: '1. aaa bbb ccc ddd' } as Markup;
+  const m = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [108, 100]], style: { ...DEFAULT_STYLES.text, fontSize: 10, textMargin: 4 }, status: 'none', author: '', createdAt: 1, modifiedAt: 1, text: '1. aaa bbb ccc ddd' } as Markup;
   const measure = (s: string) => s.length * 10;
-  assert.deepEqual(textBoxLines(m, measure).map((l) => [l.text, l.x]), [['1. aaa bbb', TEXT_PADDING], ['ccc ddd', TEXT_PADDING + 30]]);
+  assert.deepEqual(textBoxLines(m, measure).map((l) => [l.text, l.x]), [['1. aaa bbb', 4], ['ccc ddd', 34]]);
   const right = textBoxLines({ ...m, style: { ...m.style, textAlign: 'right' } }, measure);
-  assert.equal(right[1]!.x + right[1]!.width, 100 + TEXT_PADDING);
+  assert.equal(right[1]!.x + right[1]!.width, 104);
 });
 
 test('justified text fills each line but a paragraph\'s last', () => {
-  const m = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [100 + 2 * TEXT_PADDING, 100]], style: { ...DEFAULT_STYLES.text, fontSize: 10, textAlign: 'justify' }, status: 'none', author: '', createdAt: 1, modifiedAt: 1, text: 'aaa bbb ccc ddd' } as Markup;
+  const m = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [108, 100]], style: { ...DEFAULT_STYLES.text, fontSize: 10, textMargin: 4, textAlign: 'justify' }, status: 'none', author: '', createdAt: 1, modifiedAt: 1, text: 'aaa bbb ccc ddd' } as Markup;
   const measure = (s: string) => s.length * 10;
   const lines = textBoxLines(m, measure);
   assert.equal(lines.length, 2);
@@ -168,11 +168,9 @@ test('textBlockShift is the first line\'s drop below top alignment, for the edit
   const measure = (s: string) => s.length * 6;
   const m = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [200, 100]], status: 'none', author: '', createdAt: 1, modifiedAt: 1, text: 'one\ntwo' } as Markup;
   const at = (verticalAlign: 'top' | 'middle' | 'bottom') => ({ ...m, style: { ...DEFAULT_STYLES.text, fontSize: 12, verticalAlign } });
-  // Top: capitals one padding below the box's top, the line a little above that.
-  const fm = TEXT_INK_METRICS.sans;
-  assert.ok(Math.abs(textBlockShift(at('top'), measure) + (fm.ascent - fm.cap) * 12) < 1e-9);
+  assert.equal(textBlockShift(at('top'), measure), 0);
   const lines = (v: 'top' | 'middle' | 'bottom') => textBoxLines(at(v), measure)[0]!.y;
-  assert.ok(Math.abs(textBlockShift(at('middle'), measure) - textBlockShift(at('top'), measure) - (lines('middle') - lines('top'))) < 1e-9);
+  assert.ok(Math.abs(textBlockShift(at('middle'), measure) - (lines('middle') - lines('top'))) < 1e-9);
   assert.ok(textBlockShift(at('middle'), measure) > 0);
   assert.ok(textBlockShift(at('bottom'), measure) > textBlockShift(at('middle'), measure));
 });
@@ -186,10 +184,11 @@ test('middle and bottom vertical alignment place the visible text block, not the
       const fm = TEXT_INK_METRICS[family];
       const ink = (valign: 'middle' | 'bottom') => {
         const lines = textBoxLines({ ...base, style: { ...DEFAULT_STYLES.text, fontSize: size, fontFamily: family, verticalAlign: valign } }, measure);
-        return { top: lines[0]!.y + (fm.ascent - fm.cap) * size, bottom: lines[lines.length - 1]!.y + fm.ascent * size };
+        return { top: lines[0]!.y + (fm.ascent - fm.cap) * size, bottom: lines[lines.length - 1]!.y + (fm.ascent + fm.descent) * size };
       };
+      // Middle centres cap top to the last baseline (so capitals have equal gaps); descenders hang below.
       const mid = ink('middle');
-      assert.ok(Math.abs((mid.top + mid.bottom) / 2 - 50) < 0.5, `${family} ${text.length} middle`);
+      assert.ok(Math.abs((mid.top + mid.bottom - fm.descent * size) / 2 - 50) < 0.5, `${family} ${text.length} middle`);
       const bot = ink('bottom');
       assert.ok(Math.abs(bot.bottom - (100 - TEXT_PADDING)) < 0.5, `${family} ${text.length} bottom`);
     }

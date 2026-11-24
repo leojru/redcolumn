@@ -1,24 +1,33 @@
 // Modified in the leojru/redcolumn fork (revu-layout): plain menu bar in the toolbar layouts; classic toolbars; vector snapshots; classic panel layout and status bar; markups hide with their PDF layer; dimension text edited in place; split view of the same document; Copy File Path.
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from './i18n/keyed';
+import { lazy } from './i18n/lazy';
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
-import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, redrawMarkupImages, setVectorPictureDrawer } from '@nb/markup';
+import { IMPORT_VERSION, bytesToBase64, markupBounds, autoSizedPoints, pointInPolygon, canBeCountSymbol, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, symbolFromMarkups, redrawMarkupImages, setVectorPictureDrawer } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { trimmedVectors, regroup, actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup, trimmedVectors, regroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
+import { hipValleySlope } from './markup/slopePicker';
 import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
+import { parseRotationInput } from './markup/rotationInput';
 import { isMarkupTool, MarkupTools, setDefaultLayerSource, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
-import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
+import { ApplyStitchingDialog } from './components/ApplyStitchingDialog';
+import { applyStitching, stitchSourceSheets } from './documents/bulkStitch';
+import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
-import { cacheFile, contentHash, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
+import { cacheFile, contentHash, holdContents, keepRevision, keepRevisionOf, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
+import { studioFileId, studioDocOf } from './studio/documentId';
+import { saveConfirmedArchiveFile } from './studio/archive';
 import { DriveAuthError } from './studio/drive/DriveApi';
 import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
@@ -27,8 +36,25 @@ import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from '
 import { Library } from './components/Library';
 import { MarkupList } from './components/MarkupList';
 import { SheetSyncDialog } from './components/SheetSyncDialog';
+import { ReportsDialog, type ReportRequest } from './components/ReportsDialog';
+import { ManualQuantityDialog, type ManualRequest } from './components/ManualQuantityDialog';
 import { toTable } from './sheetsync/table';
-import { useSheetSync } from './sheetsync/useSheetSync';
+import { exportListWorkbook, planImport } from './sheetsync/importExcel';
+import { isOpenChange, patchesFor } from './sheetsync/apply';
+import type { CellChange } from './sheetsync/merge';
+import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRead';
+import { ImportExcelDialog } from './components/ImportExcelDialog';
+import { ExportRegisterDialog, RegisterTemplatesDialog, type RegisterScope } from './components/RegisterDialogs';
+import { checkClientFile, planFill } from './sheetsync/clientFile';
+import { checkMarkupLink, linkedFile, markupLinkUrl, parseMarkupQuery, stripMarkupQuery, type LinkBase, type MarkupLink } from './sheetsync/links';
+import { closeOut, closedComments, closedStatuses, isComment, raisedRevisions } from './sheetsync/closeOut';
+import { CloseOutDialog } from './components/CloseOutDialog';
+import { THUMB_PX, type RegisterThumb } from './sheetsync/register';
+import { exportRegisterWorkbook, exportTemplate, parseTemplateFile, starterTemplate, templateFileName, templateFor, wording, type RegisterTemplate, type RegisterValue } from './sheetsync/register';
+import type { SheetSpec } from './sheetsync/xlsx';
+import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
+import { NEW_REPLY, replyColumn, toSyncTable } from './sheetsync/keyed';
+import { NEW_REPLY_LABEL } from './sheetsync/importExcel';
 import { localExcel } from './sheetsync/targets';
 import { askText, AskTextHost } from './components/AskText';
 import { parseSecret } from './studio/crypto/keys';
@@ -39,6 +65,11 @@ import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
 import { AssembliesDialog } from './components/AssembliesDialog';
+import { ItemsDialog } from './components/ItemsDialog';
+import { ProductListsDialog } from './components/ProductListsDialog';
+import { TemplatesDialog } from './components/TemplatesDialog';
+import { addToLibrary, copyIntoDocument, documentFile, libraryFile } from './assemblies/estimatingLibrary';
+import { estimatingFromJson, estimatingToJson, mergeAssemblies, mergeEstimating, referencedRecords, resolveAssemblies, type TakeoffTemplate } from '@nb/markup';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
 import { CommentsTableDialog } from './components/CommentsTableDialog';
 import { commentRows, type CommentRow } from './studio/comments';
@@ -49,20 +80,25 @@ import { SheetScaleReview } from './components/SheetScaleReview';
 import { isNotToScale, scaleReviewRows, type PageScan } from './measure/scaleReview';
 import { pageReadings } from './measure/scaleCheck';
 import { proposeViews } from './measure/viewScales';
-import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
+import { migrateLocalProposals } from './assemblies/proposals';
+import { waitingKeys as aiWaitingKeys } from './takeoff/aiReview';
+import { toolLibrary } from './takeoff/toolLibrary';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
-import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
+import { scaleInDefaultUnits, settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
-import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
+import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
+import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
+import { addCountSymbol, addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
-import { setTemplate } from './storage/fileStore';
+import { hideFromRecents, setTemplate } from './storage/fileStore';
+import { recentFiles } from './storage/recents';
 import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickImage } from './markup/pickImage';
-import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
+import { adjustPixels, polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
@@ -95,9 +131,10 @@ import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
 import { HeaderFooterDialog } from './components/HeaderFooterDialog';
-import { PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
+import { PROCESS_ENGLISH, PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
 import { OcrDialog } from './components/OcrDialog';
 import { CompareDialog, type ComparePairing, type CompareSpec } from './components/CompareDialog';
+import type { PickerPageHandle } from './components/ComparePagePicker';
 import type { OverlayPageSpec } from './documents/overlay';
 import type { PagePair } from './compare/pairing';
 import { SlipSheetDialog, type SlipSheetSpec } from './components/SlipSheetDialog';
@@ -110,7 +147,7 @@ import type { SignatureCheck } from './documents/pdfSign';
 import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
-import { BatchDialog, BATCH_LABELS, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
+import { BatchDialog, BATCH_ENGLISH, batchLabel, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
 import { drawingSets, type SetSheet, type SheetIndex } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
@@ -134,16 +171,21 @@ import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './compo
 import { CommentDialog } from './components/CommentDialog';
 import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
+import { anyLinked, PortalDialogHost, usePortalGuides, type PortalDialogState } from './takeoff/portalsUi';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { PictureColoursDialog } from './components/PictureColoursDialog';
 import { recolourVectorSnapshot } from './fork/vectorRecolour';
+import { AdjustImageDialog } from './components/AdjustImageDialog';
+import { bakePicture } from './markup/pictureBake';
 import { MENU_ICONS } from './components/menuIcons';
 import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
+import { RevuMigrationDialog } from './components/RevuMigrationDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
 import { LineStylesDialog, MANAGE_LINE_STYLES_EVENT } from './components/LineStylesDialog';
+import { CountSymbolsDialog, MANAGE_COUNT_SYMBOLS_EVENT } from './components/CountSymbolsDialog';
 import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
 import { StartScreen } from './components/StartScreen';
 import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
@@ -179,7 +221,7 @@ import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
 import { countsFromHits, type CountTool } from './search/countFromHits';
-import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
+import { MenuBar, LEFT_TABS, leftTitles, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
@@ -208,8 +250,12 @@ import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readP
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
-import { droppedPdfs, fileLocationPath, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
+import { LibraryDialog } from './components/LibraryDialog';
+import { installPack } from './library/install';
+import { describeCounts } from './library/pack';
+import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle, fileLocationPath } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { managedPolicy } from './desktop/policy';
 import { hostDocumentId } from './desktop/embedHost';
 import { fileLocationToken, movedFiles, tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
@@ -224,7 +270,8 @@ import { apply as applyAffine, compose as composeAffine, invert as invertStitch,
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
-import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink } from './fonts/fontNotices';
+import { pickSplitPartner, touchRecent } from './splitPartner';
+import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink, afterFontNotice } from './fonts/fontNotices';
 
 // Fork (leojru/redcolumn): new markups go on the layer set as default in the Layers panel.
 setDefaultLayerSource(defaultMarkupLayer);
@@ -269,7 +316,7 @@ function pageOpsLabel(ops: readonly PageOp[]): string {
     case 'insert':
       return 'Insert pages';
     case 'blank':
-      return `Insert ${op.count === 1 ? 'a blank page' : `${op.count} blank pages`}`;
+      return `Insert ${op.count === 1 ? 'a blank page' : msg('{count} blank pages', { count: op.count })}`;
   }
 }
 
@@ -381,7 +428,7 @@ function TabName({ t, saved }: { t: OpenFile; saved: number }) {
   return (
     <span className="tab-title">
       {shown}
-      {dirty && <span className="dirty" title="Unsaved changes">*</span>}
+      {dirty && <span className="dirty" title={msg('Unsaved changes')}>*</span>}
     </span>
   );
 }
@@ -398,9 +445,12 @@ function loadAuthor() {
 
 /** Asks which template to start from. */
 async function pickTemplate(templates: readonly StoredFile[]): Promise<StoredFile | null> {
-  const id = await askText('New PDF from Template', templates[0]!.id, { label: 'Start from which template?', confirm: 'Next', choices: templates.map((t) => ({ value: t.id, label: t.name })) });
+  const id = await askText(msg('New PDF from Template'), templates[0]!.id, { label: msg('Start from which template?'), confirm: msg('Next'), choices: templates.map((t) => ({ value: t.id, label: t.name })) });
   return templates.find((t) => t.id === id) ?? null;
 }
+
+/** One empty list, so a profile without templates gives the same value every render. */
+const NO_REGISTER_TEMPLATES: RegisterTemplate[] = [];
 
 /** Asks the user for one file of the given types; null if they cancel. */
 function pickFile(accept: string): Promise<File | null> {
@@ -480,7 +530,7 @@ function download(name: string, blob: Blob) {
     (r) => {
       if (r === 'unsupported') anchorDownload(name, blob);
     },
-    (err) => window.alert(err instanceof Error ? err.message : `${name} could not be saved.`),
+    (err) => window.alert(err instanceof Error ? err.message : msg('{name} could not be saved.', { name })),
   );
 }
 
@@ -514,16 +564,6 @@ function anchorDownload(name: string, blob: Blob) {
 /** Stops PDFium drawing annotations that were imported as editable markups. */
 async function hideImported(doc: PdfDocument, store: MarkupStore) {
   await Promise.all(Object.entries(store.importedAnnotations()).map(([page, indices]) => doc.hideAnnotations(Number(page), indices)));
-}
-
-/** Library-style ids for documents opened from a Live Session: `studio:<session>:<doc>`. */
-function studioFileId(sessionId: string, docId: string) {
-  return `studio:${sessionId}:${docId}`;
-}
-
-function studioDocOf(fileId: string | undefined): { sessionId: string; docId: string } | null {
-  const m = fileId ? /^studio:([^:]+):(.+)$/.exec(fileId) : null;
-  return m ? { sessionId: m[1]!, docId: m[2]! } : null;
 }
 
 const STUDIO_HASHES = 'nb.studio.docs';
@@ -561,7 +601,10 @@ function toolChestItemOf(group: Markup | readonly Markup[], store?: MarkupStore 
   ms.sort((x, y) => x.createdAt - y.createdAt);
   const m = ms[0]!;
   const b = boundsOf(ms.flatMap((x) => x.points));
-  const templates: Markup[] = ms.map((x) => ({ ...structuredClone(x), id: '', pageIndex: 0, ...moved(x, -b.x, -b.y), status: 'none', author: '', createdAt: 0, modifiedAt: 0 }));
+  const isSingleCount = ms.length === 1 && m.type === 'count';
+  const templates: Markup[] = isSingleCount
+    ? [{ ...structuredClone(m), id: '', pageIndex: 0, points: [[0, 0]], status: 'none', author: '', createdAt: 0, modifiedAt: 0 }]
+    : ms.map((x) => ({ ...structuredClone(x), id: '', pageIndex: 0, ...moved(x, -b.x, -b.y), status: 'none', author: '', createdAt: 0, modifiedAt: 0 }));
   const snippet = isTextType(m.type) && m.text?.trim() ? m.text.trim().split('\n')[0]!.slice(0, 40) : '';
   return {
     type: m.type,
@@ -570,6 +613,8 @@ function toolChestItemOf(group: Markup | readonly Markup[], store?: MarkupStore 
     ...(m.subject ? { subject: m.subject } : {}),
     ...(m.image ? { image: m.image } : {}),
     markups: templates,
+    // Saved Count tools arm the Count tool in its look rather than pasting the original points.
+    ...(isSingleCount ? { mode: 'style' as const } : {}),
     // The page scale it was drawn at, so sets that scale to the page keep its real size.
     ...(store?.hasScale(m.pageIndex) ? { metersPerPoint: store.scaleOf(m).metersPerPoint } : {}),
   };
@@ -605,6 +650,14 @@ function lastStamp(): StampDef {
 /** A stamp's {File} and {Page}: the document's name and the page's sheet number (or page number). */
 function stampValuesFor(o: OpenFile | null, pageIndex: number): { file: string; page: string } {
   return { file: o?.file.name ?? '', page: o?.store.allSheets()[pageIndex]?.number ?? String(pageIndex + 1) };
+}
+
+/** True when the desktop app knows the file a document came from and it is gone from there (moved, renamed or deleted). */
+async function movedAway(id: string): Promise<boolean> {
+  const host = desktop();
+  if (!host?.tokenExists) return false;
+  const token = fileLocationToken(id) ?? tokenOf(await recallHandle(id));
+  return !!token && !(await host.tokenExists(token).catch(() => true));
 }
 
 /** Recent Tools: every look the user draws with (signatures and images excepted: they need their picture). */
@@ -669,8 +722,8 @@ function visibleView(viewer: TileViewer, canvas: HTMLCanvasElement | null): View
  */
 async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array> {
   const viaDesktop = desktop()?.pkiFetch;
-  if (!viaDesktop) throw new Error('Time stamps and revocation checks need the desktop app');
-  requireOnline('Time stamps and revocation checks');
+  if (!viaDesktop) throw new Error(msg('Time stamps and revocation checks need the desktop app'));
+  requireOnline(msg('Time stamps and revocation checks'));
   return viaDesktop(url, body, type);
 }
 
@@ -698,9 +751,9 @@ async function withLtv(signed: Uint8Array): Promise<{ bytes: Uint8Array; note: s
   try {
     // Only the signature just made: others in the file are their signers' to complete.
     const out = await addLtv(signed, { newest: true });
-    return { bytes: out.bytes, note: out.problems.length ? `LTV added, but not for all of it: ${out.problems.join('; ')}` : null };
+    return { bytes: out.bytes, note: out.problems.length ? msg('LTV added, but not for all of it: {problems}', { problems: out.problems.join('; ') }) : null };
   } catch (err) {
-    return { bytes: signed, note: `Long-term validation not added: ${err instanceof Error ? err.message : String(err)}` };
+    return { bytes: signed, note: msg('Long-term validation not added: {value}', { value: err instanceof Error ? err.message : String(err) }) };
   }
 }
 
@@ -719,7 +772,7 @@ const panelSide = (id: LeftTab): DockSide => (!narrowScreen() && profiles.active
 /** The first panel the profile docks on a side, which that side panel starts on. */
 const firstPanelOn = (side: DockSide): LeftTab | undefined => {
   const ws = profiles.active().state;
-  return RAIL.find(({ id }) => panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
+  return RAIL().find(({ id }) => panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
 };
 
 /** Progress within one of `count` steps of a job, as part of the whole. */
@@ -814,6 +867,9 @@ async function annotatedBytes(
     columns: cur.store.columnSet().columns,
     statuses: cur.store.columnSet().statuses,
     assemblies: cur.store.assemblies(),
+    estimating: cur.store.estimating(),
+    portals: cur.store.portals(),
+    aiReview: cur.store.aiReviewForSave(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -830,7 +886,7 @@ async function annotatedBytes(
  */
 async function projectCopyBytes(libraryId: string): Promise<ArrayBuffer> {
   const file = (await listFiles()).find((f) => f.id === libraryId);
-  if (!file) throw new Error('Your copy is no longer in the library.');
+  if (!file) throw new Error(msg('Your copy is no longer in the library.'));
   return readFile(file.hash);
 }
 
@@ -883,7 +939,7 @@ function readOnlyReason(o: OpenFile, snaps: readonly StudioSnapshot[]): string {
 }
 
 function isTyping(target: EventTarget | null) {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.getAttribute('role') === 'combobox');
 }
 
 /** Opens the editor on the selected table cell at once, so keys typed right after the first reach it. */
@@ -898,7 +954,7 @@ function startCellEdit(tools: MarkupTools, typed?: string): boolean {
 /** Drag data for reordering document tabs. */
 const TAB_DRAG_TYPE = 'application/x-nb-tab';
 
-const INDEX_PHASES: Record<IndexProgress['phase'], string> = { annotations: 'Importing markups', text: 'Reading text', links: 'Finding links', marks: 'Finding taught marks', stitch: 'Stitching sheets' };
+const INDEX_PHASES = (): Record<IndexProgress['phase'], string> => ({ annotations: msg('Importing markups'), text: msg('Reading text'), links: msg('Finding links'), marks: msg('Finding taught marks'), stitch: msg('Stitching sheets') });
 
 /** Jobs that rewrite a document's pages; while one runs, page operations are turned off. */
 const PAGES_JOB = { kind: 'pages', cancellable: false } as const;
@@ -909,8 +965,11 @@ const PAGES_JOB = { kind: 'pages', cancellable: false } as const;
  */
 async function rewriteSigned(doc: PdfDocument, what: string): Promise<boolean> {
   const { signatures } = await doc.info();
-  return !signatures || confirm(`This file is digitally signed. ${what} writes the file again, so its ${signatures === 1 ? 'signature' : `${signatures} signatures`} will no longer be valid. Continue?`);
+  return !signatures || confirm(msg('This file is digitally signed. {what} writes the file again, so its {value} will no longer be valid. Continue?', { what, value: signatures === 1 ? msg('signature') : msg('{signatures} signatures', { signatures }) }));
 }
+
+/** Largest vector Snapshot kept in a markup (its PDF); a larger one is copied as a picture only. */
+const MAX_VECTOR_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -926,6 +985,9 @@ export function App() {
   ctlsRef.current = [ctl?.tools, ctlB?.tools];
   useEffect(() => ctlsRef.current.forEach((t) => t?.setSnap(prefs.snapToGeometry)), [prefs.snapToGeometry]);
   useEffect(() => ctlsRef.current.forEach((t) => t?.setShowLinks(prefs.showHyperlinks)), [prefs.showHyperlinks]);
+  useEffect(() => {
+    if (ctl) ctl.engine.includeShxText = prefs.importShxText;
+  }, [ctl, prefs.importShxText]);
   const [open, setOpen] = useState<OpenFile | null>(null);
   const openRef = useRef<OpenFile | null>(null);
   const [openB, setOpenB] = useState<OpenFile | null>(null);
@@ -981,7 +1043,7 @@ export function App() {
         const text = missingFontsNotice(missing);
         if (text && !fontWarned.current.has(d.file.id)) {
           fontWarned.current.add(d.file.id);
-          setNotice(text);
+          setNotice((current) => afterFontNotice(current, text));
         }
       }
     };
@@ -1021,7 +1083,7 @@ export function App() {
   const readSavedPanel = (side: DockSide) => {
     try {
       const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
-      const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      const tab = saved?.tab && (LEFT_TABS as readonly string[]).includes(saved.tab) && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
       return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
     } catch {
       return { tab: null, open: null };
@@ -1031,7 +1093,9 @@ export function App() {
   const [leftTab, setLeftTab] = useState<LeftTab>(() => saved.left.tab ?? (classicLayout && panelSide('toolchest') === 'left' ? 'toolchest' : panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
   // On narrow screens the panel covers the drawing, so it starts closed whatever was saved.
   const [leftOpen, setLeftOpen] = useState(() => (narrowScreen() ? false : (saved.left.open ?? true)));
-  const [leftWidth, setLeftWidth] = useState(classicLayout ? 340 : 440);
+  // Panel widths and the Markups list's state, kept between launches (see workspace/layoutState.ts).
+  const [savedLayout] = useState(loadLayout);
+  const [leftWidth, setLeftWidth] = useState(() => savedLayout?.leftWidth ?? (classicLayout ? 340 : DEFAULT_LAYOUT.leftWidth));
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
   const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? (!classicLayout && !!firstPanelOn('right')));
@@ -1043,7 +1107,7 @@ export function App() {
       /* storage off limits: the layout lasts for this session */
     }
   }, [leftTab, leftOpen, rightTab, rightOpen]);
-  const [rightWidth, setRightWidth] = useState(360);
+  const [rightWidth, setRightWidth] = useState(() => savedLayout?.rightWidth ?? DEFAULT_LAYOUT.rightWidth);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
   const [railLabels, setRailLabels] = useState<Record<DockSide, boolean>>(() => {
@@ -1084,6 +1148,9 @@ export function App() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [assembliesOpen, setAssembliesOpen] = useState(false);
   const [quantitiesOpen, setQuantitiesOpen] = useState(false);
+  const [itemsOpen, setItemsOpen] = useState(false);
+  const [productListsOpen, setProductListsOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   /** The Comments table, for a Project or a Live Session; hidden while one of its rows is open. */
   const [commentsTable, setCommentsTable] = useState<{
     key: string;
@@ -1102,19 +1169,46 @@ export function App() {
   const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, PageScan>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  /** Import from Excel: the workbook being previewed, for which document, and the words mapped to choices so far. */
+  const registerTemplates = ws.registerTemplates ?? NO_REGISTER_TEMPLATES;
+  /** A link to a comment being followed: its document is opening, and the comment is gone to once its markups are there. */
+  const [pendingLink, setPendingLink] = useState<{ fileId: string; markupId: string; since: number } | null>(null);
+  /** Document › Close-out, and the register template whose closed statuses it counts by ('' is the usual ones; null follows the document's client). */
+  const [closeOutOpen, setCloseOutOpen] = useState(false);
+  const [closeOutTemplate, setCloseOutTemplate] = useState<string | null>(null);
+  /** Export Comment Register, and the template editor (on one template, or the list). */
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [registerTemplatesOpen, setRegisterTemplatesOpen] = useState<{ id?: string } | null>(null);
+  const [importExcel, setImportExcel] = useState<{ fileId: string; fileName: string; book: ReadWorkbook; aliases: Record<string, Record<string, string>> } | null>(null);
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const [reportsBusy, setReportsBusy] = useState(false);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  /** The typed quantity the next click on a page places (Takeoff › Manual Quantity). */
+  const manualPendingRef = useRef<ManualRequest | null>(null);
   const exportBusy = useJobRunning('export');
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
   // On a phone the Markups list is a drawer over the drawing, so it starts closed there.
-  // Fork change: in the classic layout the list starts closed (the button at the foot of the left rail opens it).
-  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked && !profiles.active().state.classicLayout);
-  const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
-  const [dockHeight, setDockHeight] = useState(180);
+  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked && (savedLayout?.showBottom ?? !profiles.active().state.classicLayout));
+  const [bottomTab, setBottomTab] = useState<BottomTab>(() => savedLayout?.bottomTab ?? 'markups');
+  const [dockHeight, setDockHeight] = useState(() => savedLayout?.dockHeight ?? DEFAULT_LAYOUT.dockHeight);
   // Clicking the Markups list's top edge collapses it to a thin strip; clicking the strip opens it again.
-  const [dockOpen, setDockOpen] = useState(true);
-  // Showing the list again (menu, shortcut) opens it rather than leaving the strip.
+  const [dockOpen, setDockOpen] = useState(() => savedLayout?.dockOpen ?? true);
+  // Showing the list again (menu, shortcut) opens it rather than leaving the strip. Not on launch,
+  // where the strip is how it was left.
+  const lastShowBottom = useRef(showBottom);
+  // The list was left off at launch by the window width or a profile, not by the user: what they chose
+  // last time stays saved until they show or hide it themselves.
+  const showBottomForced = useRef(narrowScreen() || profiles.active().state.markupsDocked);
+  const layoutRef = useRef(savedLayout ?? DEFAULT_LAYOUT);
+  const restoringBottom = useRef(false);
   useEffect(() => {
-    if (showBottom) setDockOpen(true);
+    // Not when it came back by itself (wider window, undocked profile): the strip stays a strip.
+    if (showBottom && !lastShowBottom.current && !restoringBottom.current) setDockOpen(true);
+    restoringBottom.current = false;
+    if (showBottom !== lastShowBottom.current) showBottomForced.current = false;
+    lastShowBottom.current = showBottom;
   }, [showBottom]);
   // Collapsed to its strip, the list counts as closed: menus show it unchecked and toggling opens it.
   const bottomOpen = showBottom && dockOpen;
@@ -1134,6 +1228,68 @@ export function App() {
     mq.addEventListener('change', on);
     return () => mq.removeEventListener('change', on);
   }, []);
+  // Back from a phone-width window, or off a profile that docks the list, it returns as it was left.
+  useEffect(() => {
+    if (!narrow && !ws.markupsDocked && showBottomForced.current) {
+      showBottomForced.current = false;
+      restoringBottom.current = layoutRef.current.showBottom !== showBottom;
+      setShowBottom(layoutRef.current.showBottom);
+    }
+  }, [narrow, ws.markupsDocked]);
+  // The layout is saved a moment after it changes, so dragging a divider writes once. Nothing is written
+  // on a phone (the panels are drawers), when nothing differs from what is saved, or for the list's
+  // visibility while something other than the user is deciding it.
+  useEffect(() => {
+    if (narrow) return;
+    const forced = showBottomForced.current || ws.markupsDocked;
+    const next = { leftWidth, rightWidth, showBottom: forced ? layoutRef.current.showBottom : showBottom, dockOpen, bottomTab, dockHeight };
+    if (serializeLayout(next) === serializeLayout(layoutRef.current)) return;
+    const t = window.setTimeout(() => {
+      layoutRef.current = next;
+      saveLayout(next);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [narrow, ws.markupsDocked, leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight]);
+  /** The side panels as drawn: the saved widths, shrunk when both are open in a window too small for them. */
+  const shownWidths = (() => {
+    const [left, right] = leftOpen && rightOpen ? fitWidths(leftWidth, rightWidth, window.innerWidth) : [leftWidth, rightWidth];
+    return { left, right };
+  })();
+  /**
+   * Window > Reset Layout: side panel tabs, widths and rail labels, panel order and hidden panels, the
+   * Markups list (shown, size, tab), ribbon and toolbar visibility, split view, and the remembered
+   * Recents and Measurements sections. Documents, profiles and tools are untouched.
+   */
+  const resetLayout = () => {
+    clearLayout();
+    layoutRef.current = DEFAULT_LAYOUT;
+    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        /* nothing kept */
+      }
+    }
+    window.dispatchEvent(new Event(LAYOUT_RESET_EVENT));
+    updateWorkspace((w) => ({ ...w, hiddenPanels: [], panelOrder: [], showToolbar: true, ribbonCollapsed: false }));
+    const docked = profiles.active().state.markupsDocked;
+    showBottomForced.current = narrow || docked;
+    setLeftWidth(DEFAULT_LAYOUT.leftWidth);
+    setRightWidth(DEFAULT_LAYOUT.rightWidth);
+    setDockHeight(DEFAULT_LAYOUT.dockHeight);
+    setBottomTab(DEFAULT_LAYOUT.bottomTab);
+    setShowBottom(!narrow && !docked);
+    setDockOpen(true);
+    setLeftTab(panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files'));
+    setRightTab(firstPanelOn('right') ?? 'properties');
+    // On a phone the panels are drawers over the drawing, so they stay shut.
+    setLeftOpen(!narrow);
+    setRightOpen(!narrow && !!firstPanelOn('right'));
+    setRailLabels({ left: true, right: true });
+    setSplitRatio(0.5);
+    setSplitHorizontal(false);
+    if (split) unsplit();
+  };
   const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -1175,12 +1331,13 @@ export function App() {
       if (!reasons || reasons === updateWaitingFor.current) return;
       updateWaitingFor.current = reasons;
       const when = desktop() ? 'restarts' : 'loads';
-      setNotice(`A new version of redcolumn is ready. It ${when} when you are done (${reasons}); Help › Check for Updates ${when} it now.`);
+      setNotice(msg('A new version of redcolumn is ready. It {when} when you are done ({reasons}); Help › Check for Updates {when2} it now.', { when, reasons, when2: when }));
     };
     window.addEventListener('nb-update-ready', ready);
     return () => window.removeEventListener('nb-update-ready', ready);
   }, []);
   const [installOpen, setInstallOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   useEffect(() => {
     const host = desktop();
     if (host) void host.assistantInfo().then((info) => setAssistantOn(info.enabled));
@@ -1189,7 +1346,8 @@ export function App() {
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   useEffect(() => {
     const host = desktop();
-    if (!host?.onUpdateState) return;
+    // Under the organisation's policy nothing is checked, and nothing about updates is shown.
+    if (!host?.onUpdateState || managedPolicy().disableAutoUpdate) return;
     const off = host.onUpdateState(setUpdateState);
     void host.updateState().then((s) => setUpdateState((prev) => prev ?? s)).catch(() => undefined);
     return off;
@@ -1201,7 +1359,7 @@ export function App() {
       .then((r) => {
         if (!r.ok) setNotice(r.reason);
       })
-      .catch(() => setNotice('Could not restart to update. It installs when you close redcolumn.'));
+      .catch(() => setNotice(msg('Could not restart to update. It installs when you close redcolumn.')));
   const onUpdateButton = () => {
     if (updateState?.status === 'ready') restartIntoUpdate();
     else if (updateState?.status === 'available' && updateState.url) window.open(updateState.url, '_blank', 'noopener');
@@ -1233,6 +1391,8 @@ export function App() {
    * pop-ups are blocked. `step` is where it opens; `n` changes when a command asks for a step.
    */
   const [setup, setSetup] = useState<{ pane: Pane; inline: boolean; step?: WizardStepId; n: number } | null>(null);
+  /** Apply Stitching to Other Sheets is open (from the active document). */
+  const [applyStitch, setApplyStitch] = useState(false);
   const [setupTexts, setSetupTexts] = useState<PageText[] | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
@@ -1260,11 +1420,18 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
   const [lineStylesOpen, setLineStylesOpen] = useState(false);
+  const [countSymbolsOpen, setCountSymbolsOpen] = useState(false);
+  const [revuMigrationOpen, setRevuMigrationOpen] = useState(false);
   useEffect(() => {
     // The Line style pickers open the manager from wherever they sit.
     const open = () => setLineStylesOpen(true);
     window.addEventListener(MANAGE_LINE_STYLES_EVENT, open);
     return () => window.removeEventListener(MANAGE_LINE_STYLES_EVENT, open);
+  }, []);
+  useEffect(() => {
+    const open = () => setCountSymbolsOpen(true);
+    window.addEventListener(MANAGE_COUNT_SYMBOLS_EVENT, open);
+    return () => window.removeEventListener(MANAGE_COUNT_SYMBOLS_EVENT, open);
   }, []);
   /** Manage Stamps opened on the new-stamp editor (the toolbar menu's New Stamp). */
   const [stampsCreating, setStampsCreating] = useState(false);
@@ -1280,12 +1447,20 @@ export function App() {
     window.addEventListener('nb-assistant-open', open);
     return () => window.removeEventListener('nb-assistant-open', open);
   }, []);
-  const pendingSplit = useRef<File | null>(null);
-  /** Fork (leojru/redcolumn): the open document to show in the right pane as well, once it is up. */
-  const pendingSame = useRef<OpenFile | null>(null);
   /** A library file or a tab waiting for the right pane to exist (Open in Split View, Move to Right Pane). */
   const pendingSplitStored = useRef<{ file: StoredFile; bytes: ArrayBuffer } | null>(null);
   const pendingMove = useRef<OpenFile | null>(null);
+  /** Split View with one file open: once the right pane exists, show the front document in it too. */
+  const pendingMirror = useRef(false);
+  /**
+   * The right pane is a tab-less second view of the left pane's front document, following it
+   * (one document, one markup store, two views). It ends when the right pane is given its own document.
+   */
+  const mirrorRef = useRef(false);
+  /** Where Split View took a tab from, so Unsplit puts it back in the same place. */
+  const splitOrigin = useRef<{ id: string; index: number } | null>(null);
+  /** Documents most recently shown first, for choosing the other side of a split. */
+  const recentOpenIds = useRef<string[]>([]);
   const moveTabRef = useRef<(from: Pane, t: OpenFile) => void>(() => {});
   const canvasMenuRef = useRef<(e: MouseEvent, pane: Pane) => void>(() => {});
   /** Where the pointer last was over a page, for pasting at the cursor. */
@@ -1335,7 +1510,7 @@ export function App() {
   nameSpaceRef.current = (o, id) => {
     if (!o) return;
     const n = o.store.all().filter((m) => m.type === 'space').length;
-    void askText('Name the Space', `Space ${n}`, { label: 'Name', confirm: 'Save' }).then((name) => {
+    void askText(msg('Name the Space'), `Space ${n}`, { label: msg('Name'), confirm: msg('Save') }).then((name) => {
       if (name?.trim()) o.store.update(id, { subject: name.trim() });
     });
   };
@@ -1346,6 +1521,7 @@ export function App() {
   /** Right-click › Change Colours: the markups whose colours are being changed. */
   const [changeColoursFor, setChangeColoursFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
   const [pictureColoursFor, setPictureColoursFor] = useState<{ pane: Pane; id: string } | null>(null);
+  const [adjustImageFor, setAdjustImageFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
   /** Right-click › Capture › View Capture: the picture shown. */
   const [captureView, setCaptureView] = useState<string | null>(null);
   /** File → New PDF, or Document → Insert → Blank Pages. */
@@ -1359,11 +1535,13 @@ export function App() {
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
   /** A saved drawing standard that fits the document just opened, offered until used or turned down. */
   const [suggestion, setSuggestion] = useState<{ fileId: string; standard: DrawingStandard; fit: number } | null>(null);
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean; bookmarks?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
   const stitchRegionRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const portalDrawnRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const [portalDialog, setPortalDialog] = useState<PortalDialogState | null>(null);
   const matchLineEditedRef = useRef<(pane: Pane, id: string, p0: Point, p1: Point) => boolean>(() => false);
   const stitchDragRef = useRef<(pane: Pane, delta: Point, done: boolean) => void>(() => {});
   /** The Geospatial panel's handlers for drags and picks on the page (null while it is closed). */
@@ -1398,7 +1576,6 @@ export function App() {
   const insertFileRef = useRef<HTMLInputElement>(null);
   const bulkInsertFileRef = useRef<HTMLInputElement>(null);
   const [bulkInsertFiles, setBulkInsertFiles] = useState<File[] | null>(null);
-  const splitFileRef = useRef<HTMLInputElement>(null);
   /** Views to return to after following hyperlinks (Alt+Left). */
   const history = useRef<ViewState[]>([]);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -1470,6 +1647,9 @@ export function App() {
   const columnSet = paneB ? columnsB : columnsA;
   const viewports = useViewports(activeStore);
   const assemblies = useAssemblies(activeStore);
+  /** The assemblies with their catalog items filled in: what quantities are worked out from. */
+  const takeoffAssemblies = useResolvedAssemblies(activeStore);
+  const estimating = useEstimating(activeStore);
   /** The scale a markup in the active pane is measured at: its viewport's, else its page's. */
   const scaleOf = useCallback((m: Markup) => scaleOfMarkup(m, scales[m.pageIndex] ?? DEFAULT_SCALE, viewports), [scales, viewports]);
 
@@ -1484,6 +1664,8 @@ export function App() {
         .catch(console.error),
     [],
   );
+  /** Remove from Recents, Clear Recents: the documents stay on the device. */
+  const removeFromRecents = useCallback((ids: string[]) => void hideFromRecents(ids).then(refreshLibrary).catch(console.error), [refreshLibrary]);
 
   /** A pane's markup tools. Every callback goes through refs or stable setters, so the effects creating them need no dependencies. */
   const createTools = (pane: Pane, viewer: TileViewer) => {
@@ -1499,6 +1681,14 @@ export function App() {
         const d = measureDefaultsRef.current;
         return d.assemblyId && !front()?.store.assemblies().some((a) => a.id === d.assemblyId) ? { ...d, assemblyId: undefined } : d;
       },
+      manualQuantity: () => {
+        const p = manualPendingRef.current;
+        // The assembly chosen in one document is not one of another's.
+        return p ? { ...p, assemblyId: p.assemblyId && front()?.store.assemblies().some((a) => a.id === p.assemblyId) ? p.assemblyId : undefined } : null;
+      },
+      onManualPlaced: () => {
+        manualPendingRef.current = null;
+      },
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
       defaultFields: () => defaultFieldsFor(front()?.store),
@@ -1506,6 +1696,7 @@ export function App() {
       onRegion: (_pageIndex, rect) => regionRef.current(rect),
       onMatchLine: (pageIndex, p0, p1) => matchLineRef.current(pane, pageIndex, p0, p1),
       onStitchRegion: (pageIndex, points) => stitchRegionRef.current(pane, pageIndex, points),
+      onPortalDrawn: (pageIndex, points) => portalDrawnRef.current(pane, pageIndex, points),
       onMatchLineEdited: (id, p0, p1) => matchLineEditedRef.current(pane, id, p0, p1),
       onStitchDrag: (delta, done) => stitchDragRef.current(pane, delta, done),
       onGeoMoved: (dx, dy) => geoHandlersRef.current?.moved(dx, dy),
@@ -1560,9 +1751,9 @@ export function App() {
         viewer.engineRestarted();
         viewerBRef.current?.engineRestarted();
         resetThumbnails();
-        setNotice(lost ? `The PDF renderer restarted. ${lost} open document${lost === 1 ? '' : 's'} could not be drawn again; close and reopen ${lost === 1 ? 'it' : 'them'}.` : 'The PDF renderer restarted.');
+        setNotice(lost ? msg('The PDF renderer restarted. {lost} open {lost2, plural, one {document} other {documents}} could not be drawn again; close and reopen {value}.', { lost, lost2: lost, value: lost === 1 ? msg('it') : msg('them') }) : msg('The PDF renderer restarted.'));
       },
-      onGaveUp: () => setNotice("The PDF renderer stopped again. Use Retry on the page to restart it."),
+      onGaveUp: () => setNotice(msg('The PDF renderer stopped again. Use Retry on the page to restart it.')),
       log: (message, detail) => console.error(message, detail),
     });
     const retry = () => (supervisor.needsRetry ? supervisor.retry().then(() => undefined) : undefined);
@@ -1575,6 +1766,9 @@ export function App() {
         __nb: {
           engine,
           viewer,
+          get viewerB() {
+            return viewerBRef.current;
+          },
           tools,
           commands: () => commandsRef.current,
           assistant: (method: string, params: unknown) => {
@@ -1614,10 +1808,28 @@ export function App() {
   const tabsRefOf = (pane: Pane) => (pane === 'b' ? tabsBRef : tabsARef);
   const paneParts = (pane: Pane) => ({ c: ctlOf(pane), o: openRefOf(pane).current });
 
+  /** The pane whose tab list holds a pane's documents: a mirrored right pane has no tabs, its document's tab is in the left pane. */
+  const tabPaneOf = (pane: Pane): Pane => (pane === 'b' && mirrorRef.current ? 'a' : pane);
+
   const setTabs = useCallback((pane: Pane, tabs: OpenFile[]) => {
     (pane === 'b' ? tabsBRef : tabsARef).current = tabs;
     (pane === 'b' ? setTabsB : setTabsA)(tabs);
   }, []);
+
+  /** Replaces a tab's document in whichever pane's tab list holds it (the mirror can end while an edit is in flight); false if none does. */
+  const replaceTab = useCallback(
+    (cur: OpenFile, next: OpenFile) => {
+      let replaced = false;
+      for (const p of ['a', 'b'] as const) {
+        const tabs = (p === 'b' ? tabsBRef : tabsARef).current;
+        if (!tabs.includes(cur)) continue;
+        setTabs(p, tabs.map((t) => (t === cur ? next : t)));
+        replaced = true;
+      }
+      return replaced;
+    },
+    [setTabs],
+  );
 
   /** The pane's front document, in its ref and its state. */
   const setFront = useCallback((pane: Pane, packed: OpenFile | null) => {
@@ -1627,11 +1839,16 @@ export function App() {
 
   /** Puts a document (or nothing) in front in a pane, remembering where the previous one was scrolled. */
   const showInPane = useCallback(
-    (pane: Pane, packed: OpenFile | null) => {
+    (pane: Pane, packed: OpenFile | null, follow = false) => {
       const c = pane === 'b' ? ctlB : ctl;
       const cur = openRefOf(pane).current;
+      // A mirrored right pane's view is not what the left pane saved for the same document.
+      const mirrored = pane === 'b' && mirrorRef.current;
       if (cur === packed) return;
-      if (cur && c) savedViews.current.set(cur.file.id, c.viewer.getView());
+      if (pane === 'b' && !follow) mirrorRef.current = false;
+      if (packed) recentOpenIds.current = touchRecent(recentOpenIds.current, packed.file.id);
+      if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
+      if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
       setFront(pane, packed);
       if (pane === 'a') {
         // Per-document state of the front document.
@@ -1770,7 +1987,7 @@ export function App() {
     const { signal, progress, end } = startJob(`Reading · ${cur.file.name}`, { kind: 'index' });
     signal.addEventListener('abort', () => abort.abort());
     try {
-      await job(cur, abort.signal, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]));
+      await job(cur, abort.signal, (p) => progress(p.done, p.total, INDEX_PHASES()[p.phase]));
     } catch (err) {
       if (!abort.signal.aborted) setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1866,7 +2083,7 @@ export function App() {
         await linkFromMarks(() => readFile(cur.file.hash), cur.store, marksFor(cur.store), report, signal, standardOf(cur.store)?.links);
         if (!announce) return;
         const review = cur.store.allLinks().filter((l) => l.id.startsWith('mark-') && l.status === 'review').length;
-        setNotice(review ? `${review} link${review === 1 ? '' : 's'} from taught marks to review in the Links tab.` : 'No marks like it were found in this document.');
+        setNotice(review ? msg('{review, plural, one {# link} other {# links}} from taught marks to review in the Links tab.', { review }) : msg('No marks like it were found in this document.'));
       }),
     [runIndexJob],
   );
@@ -2017,12 +2234,12 @@ export function App() {
         try {
           const open = await ctl.engine.unlock(bytes.slice(0), password);
           if (!open) return bytes;
-          setNotice(`${name} was protected. This device keeps it unprotected so it can be worked on; Document › Security saves a protected copy.`);
+          setNotice(msg('{name} was protected. This device keeps it unprotected so it can be worked on; Document › Security saves a protected copy.', { name }));
           return open;
         } catch (err) {
           if (!(err instanceof Error) || err.message !== NEEDS_PASSWORD) throw err;
-          const typed = await askText(attempt ? 'Wrong password' : 'Password', '', { label: `${name} is protected. Type its password to open it.`, confirm: 'Open', password: true });
-          if (typed === null) throw new Error(`${name} was not opened: it needs its password.`);
+          const typed = await askText(attempt ? msg('Wrong password') : msg('Password'), '', { label: msg('{name} is protected. Type its password to open it.', { name }), confirm: msg('Open'), password: true });
+          if (typed === null) throw new Error(msg('{name} was not opened: it needs its password.', { name }));
           password = typed;
         }
       }
@@ -2136,7 +2353,7 @@ export function App() {
         for (const src of sources) {
           if (src.kind === 'open') {
             const tab = tabs.find((t) => t.file.id === src.id);
-            if (!tab) throw new Error(`${src.name} is no longer open.`);
+            if (!tab) throw new Error(msg('{name} is no longer open.', { name: src.name }));
             const bytes = await annotatedBytes(tab);
             parts.push(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
           } else {
@@ -2149,7 +2366,7 @@ export function App() {
         const combined = rest.length ? await ctl.engine.editPdf(first, rest.map((_, i) => ({ type: 'insert' as const, source: i, at: Number.MAX_SAFE_INTEGER })), rest) : first;
         await openCreated(name, combined);
       } catch (err) {
-        setError(`Combine failed: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('Combine failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         job.end();
       }
@@ -2168,6 +2385,12 @@ export function App() {
         const pending = openingFiles.current.get(file.id);
         if (pending) return await pending;
         const opening = (async () => {
+          // A file moved, renamed or deleted on disk since is not opened from here: Save would
+          // write it back where it was. Opened from its new place, it finds its markups again.
+          if (await movedAway(file.id)) {
+            if (confirm(msg('"{name}" is no longer in its folder. It may have been moved, renamed or deleted, so it was not opened. Open it from where it is now with File › Open.\n\nRemove it from the recent files?', { name: file.name }))) removeFromRecents([file.id]);
+            return;
+          }
           await openStored(file, await readFile(file.hash), target ?? (split && activePane === 'b' ? 'b' : 'a'));
           await touchFile(file.id);
           void refreshLibrary();
@@ -2182,8 +2405,42 @@ export function App() {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [openStored, activateTab, refreshLibrary, split, activePane],
+    [openStored, activateTab, refreshLibrary, removeFromRecents, split, activePane],
   );
+
+  /** Follows a link to a comment (clicked on an item number in a register): opens its document, then goes to the comment. */
+  const openMarkupLink = useCallback(
+    async (link: MarkupLink) => {
+      const file = linkedFile(await listFiles(), link);
+      if (!file) {
+        setNotice(msg('The document this link is for{value} is not in the library on this device.', { value: link.name ? ` (${link.name})` : '' }));
+        return;
+      }
+      setPendingLink({ fileId: file.id, markupId: link.markup, since: Date.now() });
+      await openFromLibrary(file);
+    },
+    [openFromLibrary],
+  );
+  const openMarkupLinkRef = useRef(openMarkupLink);
+  openMarkupLinkRef.current = openMarkupLink;
+  useEffect(() => {
+    if (!ctl || !libraryReady) return;
+    const follow = (links: readonly unknown[]) => {
+      // One at a time: the last link clicked is the one that shows.
+      const link = checkMarkupLink(links[links.length - 1] as MarkupLink | undefined);
+      if (link) void openMarkupLinkRef.current(link);
+    };
+    // The web app is opened at a link's address; the desktop app is handed the link.
+    const inAddress = parseMarkupQuery(window.location.search);
+    if (inAddress) {
+      stripMarkupQuery();
+      follow([inAddress]);
+    }
+    const host = desktop();
+    void host?.takeMarkupLinks?.().then(follow, () => undefined);
+    return host?.onMarkupLinks?.(follow);
+    // Once, when the viewer and the library are ready.
+  }, [ctl, libraryReady]);
 
   useEffect(() => {
     if (restoredTabs.current || !ctl || !libraryReady) return;
@@ -2222,7 +2479,7 @@ export function App() {
       if (settings.get().documentRecovery) {
         const recovered = recoveredDocs();
         const names = [...reopened, ...(startup ? [startup] : [])].filter((f, i, all) => recovered.has(f.id) && all.indexOf(f) === i).map((f) => f.name);
-        if (names.length) setNotice(`Recovered changes not yet saved to ${names.join(', ')}.`);
+        if (names.length) setNotice(msg('Recovered changes not yet saved to {names}.', { names: names.join(', ') }));
       }
     })();
   }, [ctl, libraryReady, library, openFromLibrary]);
@@ -2234,19 +2491,28 @@ export function App() {
     if (stored) void openStored(stored.file, stored.bytes, 'b');
     const moving = pendingMove.current;
     pendingMove.current = null;
-    if (moving) moveTabRef.current('a', moving);
-    // Fork: the split to the same document: a tab for it in the right pane, its own view.
-    const same = pendingSame.current;
-    pendingSame.current = null;
-    if (same && tabsARef.current.includes(same)) {
-      if (!tabsBRef.current.includes(same)) setTabs('b', [...tabsBRef.current, same]);
-      showInPane('b', same);
+    if (moving) {
+      moveTabRef.current('a', moving);
+      setActivePane('a');
     }
-    const f = pendingSplit.current;
-    if (!f) return;
-    pendingSplit.current = null;
-    void openNewFile(f, 'b');
-  }, [ctlB, openNewFile, openStored]);
+    const mirror = pendingMirror.current;
+    pendingMirror.current = false;
+    if (mirror && openRef.current) {
+      // One document in both panes (one markup store, two views), kept in step.
+      mirrorRef.current = true;
+      showInPane('b', openRef.current, true);
+      setSync('document');
+      setActivePane('a');
+    }
+  }, [ctlB, openStored, showInPane]);
+
+  useEffect(() => {
+    if (!split) {
+      mirrorRef.current = false;
+      splitOrigin.current = null;
+      pendingMirror.current = false;
+    }
+  }, [split]);
 
   // Load the library (the tabs are reopened above, as Preferences › Options says).
   const restored = useRef(false);
@@ -2299,43 +2565,36 @@ export function App() {
    */
   const reopenInPane = useCallback(
     async (cur: OpenFile, pane: Pane, next: OpenFile, keep: 'view' | ((was: number) => number)) => {
-      const c = ctlOf(pane);
-      if (!c) {
+      if (!ctlOf(pane)) {
         void next.doc.close();
         return;
       }
       await hideImported(next.doc, cur.store);
-      setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? next : t)));
-      setFront(pane, next);
-      const { tools, viewer } = c;
-      tools.setSnapSource(async (pageIndex) => {
-        const g = await next.doc.geometry(pageIndex);
-        return new SnapIndex(g.segments, undefined, g.curves);
-      });
-      tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
-      const view = viewer.getView();
-      viewer.setDocument(next.doc);
-      if (keep === 'view') viewer.setView(view);
-      else viewer.goToPage(keep(view.pageIndex));
-      // Fork (leojru/redcolumn): the same document split into both panes follows in the other one too.
-      const other: Pane = pane === 'a' ? 'b' : 'a';
-      if (tabsRefOf(other).current.includes(cur)) setTabs(other, tabsRefOf(other).current.map((t) => (t === cur ? next : t)));
-      const oc = ctlOf(other);
-      if (openRefOf(other).current === cur && oc) {
-        setFront(other, next);
-        oc.tools.setSnapSource(async (pageIndex) => {
+      const replaced = replaceTab(cur, next);
+      // Every pane showing this document, by file (a mirrored right pane has no tab to find it by). A tab
+      // that is not in front anywhere only has its tab entry replaced.
+      const showing = (['a', 'b'] as const).filter((p) => ctlOf(p) && openRefOf(p).current?.file.id === cur.file.id);
+      if (!replaced && !showing.length) {
+        // The tab was closed while the edit ran (which closed `cur`'s document): drop the new one.
+        void next.doc.close();
+        return;
+      }
+      for (const p of showing) {
+        const { tools, viewer } = ctlOf(p)!;
+        setFront(p, next);
+        tools.setSnapSource(async (pageIndex) => {
           const g = await next.doc.geometry(pageIndex);
           return new SnapIndex(g.segments, undefined, g.curves);
         });
-        oc.tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
-        const otherView = oc.viewer.getView();
-        oc.viewer.setDocument(next.doc);
-        if (keep === 'view') oc.viewer.setView(otherView);
-        else oc.viewer.goToPage(keep(otherView.pageIndex));
+        tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
+        const view = viewer.getView();
+        viewer.setDocument(next.doc);
+        if (keep === 'view') viewer.setView(view);
+        else viewer.goToPage(keep(view.pageIndex));
       }
       void cur.doc.close();
     },
-    [ctl, ctlB, setTabs, setFront],
+    [ctl, ctlB, replaceTab, setFront],
   );
 
   /**
@@ -2401,7 +2660,7 @@ export function App() {
           await reopenInPane(tab, inA ? 'a' : 'b', { file, doc, store }, (was) => Math.min(was, doc.pages.length - 1));
         }
       } catch (err) {
-        setError(`Could not bring the document back as it was: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('Could not bring the document back as it was: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         wanted.delete(store);
         void refreshLibrary();
@@ -2460,7 +2719,7 @@ export function App() {
       const viewer = intoB ? ctlB?.viewer : ctl?.viewer;
       if (!cur || !ctl || !tools || !viewer) return;
       if (studioDocOf(cur.file.id)) {
-        setError('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.');
+        setError(msg('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.'));
         return;
       }
       const job = startJob(`Pages · ${cur.file.name}`, PAGES_JOB);
@@ -2489,7 +2748,7 @@ export function App() {
         // Inserted pages have no sheet information yet; the tab now holds the new file.
         if (ops.some((op) => op.type === 'insert')) void detectSheetsOffline(openRefOf(intoB ? 'b' : 'a').current);
       } catch (err) {
-        setError(`Page operation failed: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('Page operation failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         job.end();
       }
@@ -2509,7 +2768,7 @@ export function App() {
         const p = pages[k]!;
         const size = cur.doc.pages[p]!;
         const scale = Math.min(dpi / 72, 7000 / Math.max(size.width, size.height));
-        progress(k, pages.length, `Page ${p + 1}: rendering`);
+        progress(k, pages.length, msg('Page {number}: rendering', { number: p + 1 }));
         const w = Math.ceil(size.width * scale);
         const h = Math.ceil(size.height * scale);
         const { bitmap } = await cur.doc.renderTile(p, scale, 0, 0, w, h);
@@ -2520,11 +2779,11 @@ export function App() {
         ctx.drawImage(bitmap, 0, 0);
         bitmap.close();
         const image = await canvas.convertToBlob({ type: 'image/png' });
-        progress(k, pages.length, `Page ${p + 1}: reading text (${k + 1} of ${pages.length})`);
+        progress(k, pages.length, msg('Page {number}: reading text ({number2} of {count})', { number: p + 1, number2: k + 1, count: pages.length }));
         words.set(p, await recognise(image, scale));
       }
       if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-      progress(pages.length, pages.length, 'Adding the text');
+      progress(pages.length, pages.length, msg('Adding the text'));
       const bytes = await addTextLayer(await readFile(cur.file.hash), words);
       await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
       return [...words.values()].reduce((n, l) => n + l.length, 0);
@@ -2535,15 +2794,15 @@ export function App() {
   const runOcr = useCallback(
     async (cur: OpenFile, pages: number[], dpi: number) => {
       if (studioDocOf(cur.file.id)) {
-        setError('A Live Session document is shared with others, so its content cannot be changed here.');
+        setError(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
         return;
       }
       try {
         const count = await runJob(`OCR · ${cur.file.name}`, (ctx) => ocrDocument(cur, pages, dpi, ctx));
-        setNotice(`OCR found ${count} word${count === 1 ? '' : 's'} on ${pages.length} page${pages.length === 1 ? '' : 's'}; they can now be searched and selected.`);
+        setNotice(msg('OCR found {count, plural, one {# word} other {# words}} on {count2, plural, one {# page} other {# pages}}; they can now be searched and selected.', { count, count2: pages.length }));
       } catch (err) {
-        if (isAbort(err)) setNotice('OCR cancelled; the document was not changed.');
-        else setError(`OCR failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (isAbort(err)) setNotice(msg('OCR cancelled; the document was not changed.'));
+        else setError(msg('OCR failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       }
     },
     [ocrDocument],
@@ -2556,11 +2815,11 @@ export function App() {
    */
   const acquireDocument = useCallback(
     async (fileId: string): Promise<{ open: OpenFile; release: () => void }> => {
-      if (!ctl) throw new Error('The PDF engine is not ready');
+      if (!ctl) throw new Error(msg('The PDF engine is not ready'));
       const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
       if (tab) return { open: tab, release: () => {} };
       const file = (await listFiles()).find((f) => f.id === fileId);
-      if (!file) throw new Error('That document is no longer in the library');
+      if (!file) throw new Error(msg('That document is no longer in the library'));
       const [doc, store] = await Promise.all([ctl.engine.open(await readFile(file.hash)), MarkupStore.open(file.id)]);
       await hideImported(doc, store);
       return {
@@ -2584,7 +2843,7 @@ export function App() {
       const { open, release } = await acquireDocument(file.id);
       try {
         const found = await readPdfAnnotations(bytes.slice(0), open.store);
-        await commitDocument(open, bytes, () => open.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), 'Before reopening from the embedding application');
+        await commitDocument(open, bytes, () => open.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), `Before reopening from the embedding application`);
       } finally {
         release();
       }
@@ -2618,6 +2877,58 @@ export function App() {
       }
     },
     [acquireDocument],
+  );
+
+  /** Live handle to a library page for Align Pages / Select Region (crisp zoomed tiles + Snap to Content). */
+  const openPickerPage = useCallback(
+    async (fileId: string, page: number): Promise<PickerPageHandle> => {
+      const { open, release } = await acquireDocument(fileId);
+      const index = Math.min(Math.max(0, page), open.doc.pages.length - 1);
+      const size = open.doc.pages[index]!;
+      let snapPromise: Promise<SnapIndex> | null = null;
+      return {
+        width: size.width,
+        height: size.height,
+        renderTile: async (scale, x, y, width, height, signal) => {
+          const { bitmap } = await open.doc.renderTile(index, scale, x, y, width, height, { signal, thinLines: settings.get().thinLines });
+          return bitmap;
+        },
+        snapIndex: () => {
+          if (!snapPromise) {
+            snapPromise = open.doc.geometry(index).then((g) => new SnapIndex(g.segments, undefined, g.curves));
+          }
+          return snapPromise;
+        },
+        release,
+      };
+    },
+    [acquireDocument],
+  );
+
+  /** Adds a file picked from the user's computer to the library without opening a tab, returning its ID. */
+  const importLibraryFile = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        const cad = isCadFile(file);
+        const image = !cad && isImageFile(file);
+        const conversion = cad ? await convertFile(file) : null;
+        const raw = image || cad ? null : await file.arrayBuffer();
+        const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+        const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+        const source = handleOf(file);
+        const hostId = cad ? null : hostDocumentId(tokenOf(source));
+        let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
+        if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
+        if (source && bytes === raw) await rememberHandle(stored.id, source);
+        if (conversion) cadSession.set(stored.id, conversion);
+        await refreshLibrary();
+        return stored.id;
+      } catch (err) {
+        if (isAbort(err)) return null;
+        throw err;
+      }
+    },
+    [refreshLibrary, unlockBytes],
   );
 
   /**
@@ -2708,7 +3019,7 @@ export function App() {
         if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         const id = all[k]!;
         if (refs.has(id)) continue;
-        progress(k, all.length, `Reading sheets: ${library.find((f) => f.id === id)?.name ?? ''}`);
+        progress(k, all.length, msg('Reading sheets: {value}', { value: library.find((f) => f.id === id)?.name ?? '' }));
         const known = drawingSets.index()[id];
         if (known) {
           refs.set(id, Array.from({ length: known.pageCount }, (_, page) => ({ fileId: id, page, label: known.sheets[page]?.number ?? null })));
@@ -2757,18 +3068,18 @@ export function App() {
           const found = done.reduce((n, r) => n + r.pages.reduce((m, p) => m + p.differences.length, 0), 0);
           const crowded = done.reduce((n, r) => n + r.pages.filter((p) => p.found).length, 0);
           if (!done.length) {
-            setNotice('No sheets in the two sets matched.');
+            setNotice(msg('No sheets in the two sets matched.'));
             return;
           }
-          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded.${crowded ? ` ${crowded} sheet${crowded === 1 ? '' : 's'} had too many to mark one by one and were grouped; they may not line up.` : ''} Showing the pair with the most.`);
+          setNotice(msg('Bulk Compare: {sheets, plural, one {# sheet} other {# sheets}} in {count, plural, one {# pair} other {# pairs}} of files, {found, plural, one {# difference} other {# differences}} clouded.{value} Showing the pair with the most.', { sheets, count: done.length, found, value: crowded ? ' ' + msg('{crowded, plural, one {# sheet} other {# sheets}} had too many to mark one by one and were grouped; they may not line up.', { crowded }) : '' }));
           // Ranked by what was found, not what one page keeps.
           const weight = (r: (typeof done)[number]) => r.pages.reduce((m, p) => m + (p.found ?? p.differences.length), 0);
           const most = done.reduce((a, b) => (weight(b) > weight(a) ? b : a));
           setCompareResults(most);
           await sideBySideRef.current(most.oldId, most.newId);
         } catch (err) {
-          if (isAbort(err)) setNotice('Bulk Compare cancelled.');
-          else setError(`Bulk Compare failed: ${err instanceof Error ? err.message : String(err)}`);
+          if (isAbort(err)) setNotice(msg('Bulk Compare cancelled.'));
+          else setError(msg('Bulk Compare failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
         }
         return;
       }
@@ -2777,8 +3088,8 @@ export function App() {
         setCompareResults(results);
         await sideBySideRef.current(results.oldId, results.newId);
       } catch (err) {
-        if (isAbort(err)) setNotice('Compare cancelled.');
-        else setError(`Compare failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (isAbort(err)) setNotice(msg('Compare cancelled.'));
+        else setError(msg('Compare failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       }
     },
     [compareFiles, pairBatch, library],
@@ -2804,7 +3115,7 @@ export function App() {
             for (let k = 0; k < pairs.length; k++) {
               if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
               const pair = pairs[k]!;
-              progress(k, pairs.length, `${pageLabelFor(n, pair.newPage)}: lining up (${k + 1} of ${pairs.length})`);
+              progress(k, pairs.length, msg('{pageLabelFor}: lining up ({number} of {count})', { pageLabelFor: pageLabelFor(n, pair.newPage), number: k + 1, count: pairs.length }));
               const fitted = spec.options.align || spec.options.scaleToFit || spec.options.transform;
               const transform = fitted ? (await comparePages(o.doc, n.doc, pair, { ...spec.options, graphics: false, text: false })).transform : undefined;
               pages.push({
@@ -2832,7 +3143,7 @@ export function App() {
           if (spec.batch) {
             // Every pair of files stacked into one PDF.
             const groups = await pairBatch(spec.batch, spec.pairing.kind !== 'order', ctx);
-            if (!groups.length) throw new Error('No sheets in the two sets matched');
+            if (!groups.length) throw new Error(msg('No sheets in the two sets matched'));
             const pages: OverlayPageSpec[] = [];
             const sources = [];
             for (let g = 0; g < groups.length; g++) {
@@ -2841,12 +3152,12 @@ export function App() {
               pages.push(...plan.pages);
               sources.push({ bytes: await readFile(plan.oldFile.hash), color: rgbOf(spec.colors.old) }, { bytes: await readFile(plan.newFile.hash), color: rgbOf(spec.colors.new) });
             }
-            ctx.progress(1, 1, 'Making the overlay');
+            ctx.progress(1, 1, msg('Making the overlay'));
             const bytes = await overlayPages(sources, pages);
             return { name: `Bulk Overlay ${new Date().toISOString().slice(0, 10)}.pdf`, bytes, count: pages.length };
           }
           const plan = await overlayPlan(spec, ctx);
-          ctx.progress(1, 1, 'Making the overlay');
+          ctx.progress(1, 1, msg('Making the overlay'));
           const bytes = await overlayPages(
             [
               { bytes: await readFile(plan.oldFile.hash), color: rgbOf(spec.colors.old) },
@@ -2858,10 +3169,10 @@ export function App() {
           return { name: `Overlay - ${base(plan.newFile.name)} over ${base(plan.oldFile.name)}.pdf`, bytes, count: plan.pages.length };
         });
         await openCreated(made.name, made.bytes.slice().buffer);
-        setNotice(`Overlaid ${made.count} page${made.count === 1 ? '' : 's'}: dark lines are in both revisions, coloured lines only in the revision drawn in that colour.`);
+        setNotice(msg('Overlaid {count, plural, one {# page} other {# pages}}: dark lines are in both revisions, coloured lines only in the revision drawn in that colour.', { count: made.count }));
       } catch (err) {
-        if (isAbort(err)) setNotice('Overlay cancelled.');
-        else setError(`Overlay failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (isAbort(err)) setNotice(msg('Overlay cancelled.'));
+        else setError(msg('Overlay failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       }
     },
     [overlayPlan, pairBatch, library, openCreated],
@@ -2907,7 +3218,7 @@ export function App() {
         },
         { signal, onProgress: (done, total) => progress(done, total, `Page ${regions[done]!.pageIndex + 1} (${done + 1} of ${total})`) },
       );
-      progress(regions.length, regions.length, 'Saving the redacted document');
+      progress(regions.length, regions.length, msg('Saving the redacted document'));
       const report = redacted.report;
       let bytes = redacted.bytes;
       if (redacting && options?.stripMetadata) {
@@ -2931,7 +3242,7 @@ export function App() {
       let checked = 0;
       for (const { pageIndex } of regions) {
         const here = areas.filter((a) => a.pageIndex === pageIndex);
-        progress(checked++, regions.length, `Checking page ${pageIndex + 1} for text left inside (${checked} of ${regions.length})`);
+        progress(checked++, regions.length, msg('Checking page {page} for text left inside ({checked} of {count})', { page: pageIndex + 1, checked, count: regions.length }));
         const words = (await doc?.text(pageIndex)) ?? [];
         // The overlay's own label is not left-over text.
         const label = new Set((options?.text ?? '').split(/\s+/).filter(Boolean));
@@ -2943,10 +3254,10 @@ export function App() {
         }).length;
       }
       const what = `${report.chars} character${report.chars === 1 ? '' : 's'}, ${report.paths} line${report.paths === 1 ? '' : 's'} or shape${report.paths === 1 ? '' : 's'}, ${report.images} picture${report.images === 1 ? '' : 's'}`;
-      const markupNote = gone.filter((m) => m.type !== 'redaction').length ? `, and ${gone.filter((m) => m.type !== 'redaction').length} markup(s) over them` : '';
+      const markupNote = gone.filter((m) => m.type !== 'redaction').length ? msg(', and {count} markup(s) over them', { count: gone.filter((m) => m.type !== 'redaction').length }) : '';
       const onPages = erase ? ` on ${regions.length} page${regions.length === 1 ? '' : 's'}` : '';
-      if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}${onPages}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${covering ? ' (they are covered by the box)' : ''}. Check the file before sharing it.`);
-      else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
+      if (left || report.skipped) setError(msg('{value} removed {what}{markupNote}{onPages}, but {value2}{value3}. Check the file before sharing it.', { value: redacting ? msg('Redaction') : msg('Erase'), what, markupNote, onPages, value2: left ? msg('{left} word(s) can still be read inside the areas', { left }) : msg('{skipped} item(s) inside embedded forms could not be removed', { skipped: report.skipped }), value3: covering ? ' ' + msg('(they are covered by the box)') : '' }));
+      else setNotice(msg('{value}: removed {what}{markupNote}{onPages}. Checked: no text is left in the {value2} areas.', { value: redacting || erase ? msg('Redacted') : msg('Erased'), what, markupNote, onPages, value2: redacting || erase ? msg('redacted') : msg('erased') }));
     },
     [ctl, ctlB, swapDocument],
   );
@@ -2955,14 +3266,14 @@ export function App() {
   const runRedact = useCallback(
     async (cur: OpenFile, intoB: boolean, mode: 'redact' | 'erase', areas: Parameters<typeof redactPages>[4], options?: RedactOptions, erase?: Parameters<typeof redactPages>[6]) => {
       if (!ctl || !areas.length) return;
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
+      if (studioDocOf(cur.file.id)) throw new Error(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
       if (!(await rewriteSigned(cur.doc, mode === 'redact' ? 'Redaction' : 'Erase Content'))) return;
       const pages = new Set(areas.map((a) => a.pageIndex)).size;
       try {
         await runJob(`${mode === 'redact' ? 'Redact' : 'Bulk Redact'} · ${cur.file.name}`, (ctx) => redactPages(ctx, cur, intoB, mode, areas, options, erase), { ...PAGES_JOB, cancellable: true, shown: pages > 1 });
       } catch (err) {
         if (!isAbort(err)) throw err;
-        setNotice(`${mode === 'redact' ? 'Redaction' : 'Erase'} cancelled; the document was not changed.`);
+        setNotice(msg('{value} cancelled; the document was not changed.', { value: mode === 'redact' ? msg('Redaction') : msg('Erase') }));
       }
     },
     [ctl, redactPages],
@@ -2973,30 +3284,30 @@ export function App() {
     const c = paneB ? ctlB : ctl;
     if (!cur || !c || !ctl) return;
     if (studioDocOf(cur.file.id)) {
-      setError('A Live Session document is shared with others, so its content cannot be changed here.');
+      setError(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
       return;
     }
     void (async () => {
       const obj = await cur.doc.textObjectAt(pageIndex, at[0], at[1]);
       if (!obj) {
         // Clicking where there is no text adds new text to the page there.
-        const text = await askText('Add Text', '', { label: 'New text for the page (Helvetica, 10 pt; Enter a line break as \\n). It becomes part of the PDF, not a markup.', confirm: 'Add' });
+        const text = await askText(msg('Add Text'), '', { label: msg('New text for the page (Helvetica, 10 pt; Enter a line break as \\n). It becomes part of the PDF, not a markup.'), confirm: msg('Add') });
         if (!text) return;
         const bytes = await ctl.engine.addText(await readFile(cur.file.hash), pageIndex, at[0], at[1], text.replace(/\\n/g, '\n'));
         await swapDocument(cur, paneB, bytes, undefined, undefined, 'Add text');
         return;
       }
       c.tools.flash(pageIndex, obj.rect);
-      const text = await askText('Edit text', obj.text, { label: 'Text', confirm: 'Replace' });
+      const text = await askText(msg('Edit text'), obj.text, { label: msg('Text'), confirm: msg('Replace') });
       if (text === null || text === obj.text) return;
       const { bytes, keptFont } = await ctl.engine.replaceText(await readFile(cur.file.hash), pageIndex, obj.index, text);
       await swapDocument(cur, paneB, bytes, undefined, undefined, 'Edit text');
-      if (!keptFont) setNotice("The text's own font does not have all the new characters, so it is set in Helvetica.");
-    })().catch((err) => setError(`Edit text failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (!keptFont) setNotice(msg('The text\'s own font does not have all the new characters, so it is set in Helvetica.'));
+    })().catch((err) => setError(msg('Edit text failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
   };
   eraseRef.current = (pageIndex, rect, polygon) => {
     const cur = activeOpen;
-    if (cur) void runRedact(cur, paneB, 'erase', [{ pageIndex, rect, ...(polygon ? { polygon } : {}) }]).catch((err) => setError(`Erase failed: ${err instanceof Error ? err.message : String(err)}`));
+    if (cur) void runRedact(cur, paneB, 'erase', [{ pageIndex, rect, ...(polygon ? { polygon } : {}) }]).catch((err) => setError(msg('Erase failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
   };
 
   /** Flatten, Unflatten, Repair, Reduce File Size and Colour Processing (Document menu). */
@@ -3016,15 +3327,15 @@ export function App() {
           const exported = await annotatedBytes(cur, { links: false, markups });
           const { bytes, count } = await p.flattenAnnotations(exported, spec.recovery ? JSON.stringify(await trimmedVectors(markups)) : null);
           await commitDocument(cur, bytes.slice().buffer, () => cur.store.resetMarkups(links), revisionNote);
-          return `Flattened ${count} markup${count === 1 ? '' : 's'}${spec.recovery ? '; Document › Unflatten brings them back' : ''}.`;
+          return msg('Flattened {count, plural, one {# markup} other {# markups}}{value}.', { count, value: spec.recovery ? msg('; Document › Unflatten brings them back') : '' });
         }
         case 'unflatten': {
           const { bytes, recovery } = await p.unflatten(await readFile(cur.file.hash));
-          if (recovery === null) return 'This file has no flattened markups to recover.';
+          if (recovery === null) return msg('This file has no flattened markups to recover.');
           const markups = JSON.parse(recovery) as Markup[];
           const kept = cur.store.all().filter((m) => !markups.some((r) => r.id === m.id));
           await commitDocument(cur, bytes.slice().buffer, () => cur.store.resetMarkups([...kept, ...markups]), revisionNote);
-          return `Recovered ${markups.length} markup${markups.length === 1 ? '' : 's'}.`;
+          return msg('Recovered {count, plural, one {# markup} other {# markups}}.', { count: markups.length });
         }
         case 'repair': {
           if (!ctl) return null;
@@ -3038,21 +3349,21 @@ export function App() {
           const recompress = spec.recompress ? (jpeg: Uint8Array) => recompressJpeg(jpeg, spec.quality) : undefined;
           const { bytes, images } = await p.reduceFileSize(await readFile(cur.file.hash), recompress, (done, total) => {
             stopped();
-            progress(done, total, `Picture ${done + 1} of ${total}`);
+            progress(done, total, msg('Picture {number} of {total}', { number: done + 1, total }));
           });
-          if (bytes.length >= before) return 'The file is already as small as this can make it.';
+          if (bytes.length >= before) return msg('The file is already as small as this can make it.');
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
           const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
-          return `Reduced from ${mb(before)} to ${mb(bytes.length)}${images ? ` (${images} picture${images === 1 ? '' : 's'} recompressed)` : ''}.`;
+          return msg('Reduced from {mb} to {mb2}{value}.', { mb: mb(before), mb2: mb(bytes.length), value: images ? ' ' + msg('({images, plural, one {# picture} other {# pictures}} recompressed)', { images }) : '' });
         }
         case 'colour': {
           const bytes = await p.recolourPages(await readFile(cur.file.hash), spec.pages, spec.mode, recolourJpeg, (done, total, phase) => {
             stopped();
-            progress(done, total, phase === 'pages' ? `Page ${spec.pages[done]! + 1} (${done + 1} of ${total})` : `Picture ${done + 1} of ${total}`);
+            progress(done, total, phase === 'pages' ? `Page ${spec.pages[done]! + 1} (${done + 1} of ${total})` : msg('Picture {number} of {total}', { number: done + 1, total }));
           });
           stopped();
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
-          return `Changed the colours of ${spec.pages.length} page${spec.pages.length === 1 ? '' : 's'}.`;
+          return msg('Changed the colours of {count, plural, one {# page} other {# pages}}.', { count: spec.pages.length });
         }
       }
     },
@@ -3062,16 +3373,16 @@ export function App() {
   /** `processDocument` as a job, so the longer ones show progress and can be cancelled before the file is changed. */
   const runProcess = useCallback(
     async (cur: OpenFile, spec: Parameters<typeof processDocument>[2], revisionNote?: string): Promise<string | null> => {
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
-      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
+      if (studioDocOf(cur.file.id)) throw new Error(msg('A Live Session document is shared with others, so it cannot be changed here.'));
+      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: msg('Reduce File Size'), colour: 'Colour Processing' };
       const rewriting = rewrites[spec.kind];
       if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
-      const title = { flatten: 'Flatten', unflatten: 'Unflatten', repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' }[spec.kind];
+      const title = { flatten: 'Flatten', unflatten: 'Unflatten', repair: 'Repair', reduce: msg('Reduce File Size'), colour: 'Colour Processing' }[spec.kind];
       try {
         return await runJob(`${title} · ${cur.file.name}`, (ctx) => processDocument(ctx, cur, spec, revisionNote), { ...PAGES_JOB, cancellable: spec.kind === 'reduce' || spec.kind === 'colour' });
       } catch (err) {
         if (!isAbort(err)) throw err;
-        return `${title} cancelled; the document was not changed.`;
+        return msg('{title} cancelled; the document was not changed.', { title });
       }
     },
     [processDocument],
@@ -3087,13 +3398,13 @@ export function App() {
     async (cur: OpenFile, intoB: boolean, spec: SlipSheetSpec) => {
       if (!ctl) return;
       if (studioDocOf(cur.file.id)) {
-        setError('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.');
+        setError(msg('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.'));
         return;
       }
       // The Slip Sheet job below shows progress; this one keeps page operations off until the end.
       const job = startJob('Slip Sheet', { ...PAGES_JOB, shown: false });
       try {
-        const report = await runJob(`Slip Sheet · ${cur.file.name}`, async ({ signal, progress }) => {
+        const report = await runJob(msg('Slip Sheet · {name}', { name: cur.file.name }), async ({ signal, progress }) => {
           const { detectSheets } = await import('@nb/sheets');
           const { planSlipSheet } = await import('./documents/slipSheet');
           const tools = await import('./documents/pageTools');
@@ -3111,7 +3422,7 @@ export function App() {
               const name = src.kind === 'file' ? src.file.name : src.name;
               progress(s, spec.sources.length, `Reading ${name}`);
               const stored = src.kind === 'library' ? library.find((f) => f.id === src.id) : null;
-              if (src.kind === 'library' && !stored) throw new Error(`${name} is no longer in the library`);
+              if (src.kind === 'library' && !stored) throw new Error(msg('{name} is no longer in the library', { name }));
               const bytes = src.kind === 'file' ? await src.file.arrayBuffer() : await readFile(stored!.hash);
               // The engine takes the buffer it is given, so it gets a copy.
               const doc = await ctl.engine.open(bytes.slice(0));
@@ -3124,14 +3435,20 @@ export function App() {
             const targetLabels = cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number ?? null);
             const plan = planSlipSheet(targetLabels, incoming, spec.mode, spec.addUnmatched);
             const labelOf = (p: IncomingPage) => p.label ?? `${opened[p.source]!.name} p${p.page + 1}`;
-            if (!plan.replace.length && !plan.add.length) return { plan, labelOf };
+            if (!plan.replace.length && !plan.add.length) return { plan, labelOf, left: 0 };
+            // Comments on the sheets being replaced: the revision they were raised on is the one going out,
+            // and the closed ones stay with it when asked.
+            const replaced = new Set(plan.replace.map((r) => r.target));
+            const before = cur.store.all();
+            const raised = raisedRevisions(before, cur.store.allSheets(), replaced);
+            const behind = spec.leaveClosed ? closedComments(before, replaced, closedStatuses(closeOutTemplateOf(cur.store))) : [];
 
             const moves = new Map<number, { scale: number; dx: number; dy: number }>();
             if (spec.alignMarkups)
               for (let k = 0; k < plan.replace.length; k++) {
                 cancelled();
                 const r = plan.replace[k]!;
-                progress(k, plan.replace.length, `Lining up ${labelOf(r.incoming)}`);
+                progress(k, plan.replace.length, msg('Lining up {labelOf}', { labelOf: labelOf(r.incoming) }));
                 // A sheet reissued at another paper size is scaled to it as well.
                 const { transform: t } = await comparePages(cur.doc, opened[r.incoming.source]!.doc, { oldPage: r.target, newPage: r.incoming.page }, { ...DEFAULT_COMPARE, graphics: false, text: false, scaleToFit: true });
                 if (Math.hypot(t[4], t[5]) > 0.5 || Math.abs(t[0] - 1) > 0.001) moves.set(r.target, { scale: t[0], dx: t[4], dy: t[5] });
@@ -3151,35 +3468,46 @@ export function App() {
             }
             for (const p of plan.add) bytes = await tools.appendPages(bytes, opened[p.source]!.bytes, [p.page]);
             const replacedLabels = plan.replace.map((r) => labelOf(r.incoming));
-            await keepRevision(cur.file.id, `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`);
+            const note = `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`;
+            // The revision kept is the stored file, which has no markups in it. Comments left behind are
+            // written into the copy that is kept, so they can still be read there.
+            if (behind.length) await keepRevisionOf(cur.file.id, (await annotatedBytes(cur)).slice().buffer, msg('{note} (with its markups: {count} closed {count2, plural, one {comment} other {comments}} left behind)', { note, count: behind.length, count2: behind.length }));
+            else await keepRevision(cur.file.id, note);
             const first = cur.doc.pages.length;
             await swapDocument(cur, intoB, bytes instanceof Uint8Array ? bytes.slice().buffer : bytes.slice(0), () => {
               cur.store.forgetImported(plan.replace.map((r) => r.target));
+              cur.store.batch(() => {
+                for (const [id, raisedRev] of raised) cur.store.update(id, { raisedRev });
+                cur.store.remove(behind.map((m) => m.id));
+              });
               cur.store.transformPages(moves);
+              // The replaced sheets are the new revision now.
+              cur.store.setDetectedSheets(plan.replace.flatMap((r) => (opened[r.incoming.source]!.sheets[r.incoming.page] ? [[r.target, opened[r.incoming.source]!.sheets[r.incoming.page]!] as [number, SheetInfo]] : [])));
               cur.store.setDetectedSheets(plan.add.flatMap((p, k) => (opened[p.source]!.sheets[p.page] ? [[first + k, opened[p.source]!.sheets[p.page]!] as [number, SheetInfo]] : [])));
             }, undefined, 'Slip Sheet');
-            return { plan, labelOf };
+            return { plan, labelOf, left: behind.filter((m) => !cur.store.get(m.id)).length };
           } finally {
             for (const o of opened) void o.doc.close();
           }
         });
-        const { plan, labelOf } = report;
+        const { plan, labelOf, left } = report;
         const list = (items: IncomingPage[]) => items.slice(0, 8).map(labelOf).join(', ') + (items.length > 8 ? ` and ${items.length - 8} more` : '');
         const parts = [
           plan.replace.length ? `replaced ${plan.replace.length} sheet${plan.replace.length === 1 ? '' : 's'} (${list(plan.replace.map((r) => r.incoming))})` : '',
           plan.add.length ? `added ${plan.add.length} (${list(plan.add)})` : '',
-          plan.skipped.length ? `left out ${plan.skipped.length} with no match (${list(plan.skipped)})` : '',
+          plan.skipped.length ? msg('left out {count} with no match ({list})', { count: plan.skipped.length, list: list(plan.skipped) }) : '',
+          left ? `left ${left} closed comment${left === 1 ? '' : 's'} behind` : '',
         ].filter(Boolean);
-        setNotice(plan.replace.length || plan.add.length ? `Slip Sheet ${parts.join('; ')}. The set as it was is kept under Document › Revisions.` : `Slip Sheet found no matching sheets${parts.length ? `: ${parts.join('; ')}` : ''}.`);
+        setNotice(plan.replace.length || plan.add.length ? msg('Slip Sheet {parts}. The set as it was is kept under Document › Revisions.', { parts: parts.join('; ') }) : msg('Slip Sheet found no matching sheets{value}.', { value: parts.length ? `: ${parts.join('; ')}` : '' }));
         void refreshLibrary();
       } catch (err) {
-        if (isAbort(err)) setNotice('Slip Sheet cancelled; the document was not changed.');
-        else setError(`Slip Sheet failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (isAbort(err)) setNotice(msg('Slip Sheet cancelled; the document was not changed.'));
+        else setError(msg('Slip Sheet failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         job.end();
       }
     },
-    [ctl, swapDocument, refreshLibrary],
+    [ctl, swapDocument, refreshLibrary, registerTemplates, closeOutTemplate],
   );
 
   /** Revisions: a kept version made the document's contents again (the current one is kept too). */
@@ -3199,10 +3527,10 @@ export function App() {
           await replaceFileContent(fileId, bytes);
           forgetText(fileId);
         }
-        setNotice('Restored. The version before it is kept as a revision.');
+        setNotice(msg('Restored. The version before it is kept as a revision.'));
         void refreshLibrary();
       } catch (err) {
-        setError(`Restore failed: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('Restore failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       }
     },
     [swapDocument, refreshLibrary],
@@ -3248,7 +3576,7 @@ export function App() {
           }
         });
       } catch (err) {
-        if (!isAbort(err)) setError(`Reading sheets failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (!isAbort(err)) setError(msg('Reading sheets failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         setIndexingSets(false);
       }
@@ -3261,7 +3589,7 @@ export function App() {
     async (fileId: string, page: number) => {
       const file = library.find((f) => f.id === fileId);
       if (!file) {
-        setError('That file is no longer in the library.');
+        setError(msg('That file is no longer in the library.'));
         return;
       }
       // Preferences › Sets › Open Documents (Open Edited Documents, when the one in front has unsaved
@@ -3378,7 +3706,7 @@ export function App() {
                     fonts.done();
                     const { flattenSelection } = await import('./documents/process');
                     const { bytes } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), {});
-                    await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), 'Before flattening markups copied from the earlier revision');
+                    await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), `Before flattening markups copied from the earlier revision`);
                   }
                 }
               }
@@ -3415,12 +3743,12 @@ export function App() {
           }
         });
       } catch (err) {
-        if (!isAbort(err)) setError(`Following up revisions failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (!isAbort(err)) setError(msg('Following up revisions failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         drawingSets.markRevised(setId, done);
       }
-      const parts = [copied ? `copied ${copied} markup${copied === 1 ? '' : 's'} to the new revision${done.length === 1 ? '' : 's'}` : '', stamped ? `stamped ${stamped} earlier revision${stamped === 1 ? '' : 's'} Superseded` : ''].filter(Boolean);
-      if (parts.length) setNotice(`Sets: ${parts.join('; ')}.`);
+      const parts = [copied ? msg('copied {copied, plural, one {# markup} other {# markups}} to the new {count, plural, one {revision} other {revisions}}', { copied, count: done.length }) : '', stamped ? `stamped ${stamped} earlier revision${stamped === 1 ? '' : 's'} Superseded` : ''].filter(Boolean);
+      if (parts.length) setNotice(msg('Sets: {parts}.', { parts: parts.join('; ') }));
     },
     [acquireDocument, commitDocument],
   );
@@ -3436,7 +3764,7 @@ export function App() {
       const known = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === hit.docId)?.file ?? library.find((f) => f.id === hit.docId);
       if (known) await openFromLibrary(known);
       else if (file) await openNewFile(file, split && activePaneRef.current === 'b' ? 'b' : 'a');
-      else return setError('That file is no longer in the library.');
+      else return setError(msg('That file is no longer in the library.'));
       // The document comes to the front of its pane on the next render.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     }
@@ -3451,12 +3779,13 @@ export function App() {
    */
   const runBatch = useCallback(
     async (spec: BatchSpec, onResult: (r: BatchResult) => void) => {
-      const label = BATCH_LABELS[spec.command.kind];
-      const note = spec.keepRevisions ? `Before Bulk ${label}` : undefined;
+      const label = batchLabel(spec.command.kind);
+      // Revision notes are kept in English: they are stored with the file, and stepLabel reads them back.
+      const note = spec.keepRevisions ? `Before Bulk ${BATCH_ENGLISH[spec.command.kind]}` : undefined;
       const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? id;
       const fail = (fileId: string, err: unknown) => onResult({ fileId, name: nameOf(fileId), ok: false, message: err instanceof Error ? err.message : String(err) });
       try {
-        await runJob(`Bulk ${label}`, async (ctx) => {
+        await runJob(msg('Bulk {operation}', { operation: label }), async (ctx) => {
           const { signal, progress } = ctx;
           const cancelled = () => {
             if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -3518,7 +3847,7 @@ export function App() {
                     modifiedAt: now,
                   });
                 const targets = [...new Set(mine.map((l) => l.target.name))];
-                onResult({ fileId: f.fileId, name: f.name, ok: true, message: mine.length ? `${mine.length} link${mine.length === 1 ? '' : 's'} to ${targets.join(', ')}` : 'No references to the other files' });
+                onResult({ fileId: f.fileId, name: f.name, ok: true, message: mine.length ? `${mine.length} link${mine.length === 1 ? '' : 's'} to ${targets.join(', ')}` : msg('No references to the other files') });
               }
             } finally {
               for (const h of held) h.release();
@@ -3541,14 +3870,14 @@ export function App() {
           let signer: { id: import('./documents/digitalIds').UnlockedId | import('./documents/pdfSign').Signer; image?: Uint8Array } | null = null;
           if (command.kind === 'sign') {
             const record = digitalIds.list().find((r) => r.id === command.sign.idId);
-            if (!record) throw new Error('That Digital ID is no longer on this device');
+            if (!record) throw new Error(msg('That Digital ID is no longer on this device'));
             const id = (await import('./documents/signers')).signerFor(record, command.sign.password);
             if (!record.token) rememberPassword(record.id, command.sign.password);
             const picture = command.sign.imageId ? signatures.get().find((x) => x.id === command.sign.imageId) : undefined;
             signer = { id, ...(picture ? { image: new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) } : {}) };
           }
           const stampDef = command.kind === 'stamp' ? stampLibrary(profiles.active().state).find((x) => x.id === command.stampId) : null;
-          if (command.kind === 'stamp' && !stampDef) throw new Error('That stamp is no longer in the library');
+          if (command.kind === 'stamp' && !stampDef) throw new Error(msg('That stamp is no longer in the library'));
           for (let k = 0; k < spec.fileIds.length; k++) {
             cancelled();
             const id = spec.fileIds[k]!;
@@ -3562,7 +3891,7 @@ export function App() {
             }
             const cur = h.open;
             try {
-              if (command.kind !== 'summary' && command.kind !== 'print' && command.kind !== 'split' && studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
+              if (command.kind !== 'summary' && command.kind !== 'print' && command.kind !== 'split' && studioDocOf(cur.file.id)) throw new Error(msg('A Live Session document is shared with others, so it cannot be changed here.'));
               const allPages = cur.doc.pages.map((_, i) => i);
               let message: string;
               switch (command.kind) {
@@ -3609,7 +3938,7 @@ export function App() {
                   } else {
                     const rel = [
                       { key: '__id', label: 'ID', width: 140 },
-                      { key: '__parent', label: 'Parent', width: 140 },
+                      { key: '__parent', label: msg('Parent'), width: 140 },
                     ];
                     summaryCols = [...rel, ...cols.map((c) => ({ key: c.key, label: c.label, width: c.defaultWidth, ...(c.align ? { align: c.align } : {}) }))];
                     for (const r of rows) summaryRows.push({ cells: [cur.file.name, ...summaryCols.map((c) => text(r, c.key))], color: r.reply ? undefined : r.markup.style.stroke });
@@ -3628,7 +3957,7 @@ export function App() {
                   const texts = await Promise.all(cur.doc.pages.map((_, i) => cur.doc.text(i)));
                   const pages = texts.flatMap((w, i) => (w.length ? [] : [i]));
                   if (!pages.length) {
-                    message = 'Every page already has text';
+                    message = msg('Every page already has text');
                     break;
                   }
                   const count = await ocrDocument(cur, pages, command.dpi, { signal, progress: (d, t, st) => progress(k, spec.fileIds.length, `${nameOf(id)}: ${st ?? `${d}/${t}`}`) }, note);
@@ -3685,7 +4014,7 @@ export function App() {
                     const r = tools.marginRect(cur.doc.pages[i]!, command.margins);
                     if (r) crops.set(i, r);
                   }
-                  if (!crops.size) throw new Error('Nothing would be left of the pages: use smaller margins.');
+                  if (!crops.size) throw new Error(msg('Nothing would be left of the pages: use smaller margins.'));
                   const { bytes, transforms } = await tools.cropPages(await readFile(cur.file.hash), crops);
                   await commitDocument(cur, bytes.slice().buffer, () => cur.store.transformPages(transforms), note);
                   message = `${crops.size} page${crops.size === 1 ? '' : 's'} cropped`;
@@ -3763,7 +4092,7 @@ export function App() {
                   const labels = allPages.map((i) => sheets[i]?.number || null);
                   const n = labels.filter(Boolean).length;
                   if (!n) {
-                    message = 'No sheet numbers found';
+                    message = msg('No sheet numbers found');
                     break;
                   }
                   const [{ PDFDocument }, { writePageLabels }] = await Promise.all([import('pdf-lib'), import('@nb/markup/export')]);
@@ -3778,11 +4107,11 @@ export function App() {
                   const { hasHeaderFooter, removeHeaderFooter } = await import('./documents/headerFooter');
                   const bytes = await readFile(cur.file.hash);
                   if (!(await hasHeaderFooter(bytes))) {
-                    message = 'No headers or footers added here';
+                    message = msg('No headers or footers added here');
                     break;
                   }
                   await commitDocument(cur, (await removeHeaderFooter(bytes)).slice().buffer, undefined, note);
-                  message = 'Headers and footers removed';
+                  message = msg('Headers and footers removed');
                   break;
                 }
                 case 'colour':
@@ -3790,7 +4119,7 @@ export function App() {
                   break;
                 case 'flatten':
                   if (!cur.store.all().some((m) => m.type !== 'hyperlink')) {
-                    message = 'No markups to flatten';
+                    message = msg('No markups to flatten');
                     break;
                   }
                   message = (await runProcess(cur, command, note)) ?? 'Done';
@@ -3815,9 +4144,9 @@ export function App() {
             summaryCols = summaryCols.filter((_, i) => used[i]);
             for (const r of summaryRows) r.cells = [r.cells[0]!, ...r.cells.slice(1).filter((_, i) => used[i])];
             const out = await summaryPdf({
-              title: 'Markup Summary',
+              title: msg('Markup Summary'),
               subtitle: `${spec.fileIds.length} file${spec.fileIds.length === 1 ? '' : 's'} · ${summaryRows.length} row${summaryRows.length === 1 ? '' : 's'} · ${new Date().toLocaleString()} by ${authorRef.current}`,
-              columns: [{ label: 'File', width: 160 }, ...summaryCols.map(({ key: _, ...c }) => c)],
+              columns: [{ label: msg('File'), width: 160 }, ...summaryCols.map(({ key: _, ...c }) => c)],
               rows: summaryRows,
             });
             download('Markup summary.pdf', new Blob([out as BlobPart], { type: 'application/pdf' }));
@@ -3838,8 +4167,8 @@ export function App() {
           }
         });
       } catch (err) {
-        if (!isAbort(err)) setError(`Bulk ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
-        else setNotice(`Bulk ${label} cancelled; files already done keep their changes.`);
+        if (!isAbort(err)) setError(msg('Bulk {label} failed: {value}', { label, value: err instanceof Error ? err.message : String(err) }));
+        else setNotice(msg('Bulk {label} cancelled; files already done keep their changes.', { label }));
       }
       void refreshLibrary();
     },
@@ -3896,7 +4225,7 @@ export function App() {
         .then(async () => {
           const cur = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
           if (!cur) return false;
-          if (studioDocOf(fileId)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
+          if (studioDocOf(fileId)) throw new Error(msg('A Live Session document is shared with others, so it cannot be changed here.'));
           return runJob(
             what,
             async () => {
@@ -3912,7 +4241,7 @@ export function App() {
         })
         .catch((err) => {
           if (rethrow) throw err;
-          setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
+          setError(msg('{what} failed: {error}', { what, error: err instanceof Error ? err.message : String(err) }));
           return false;
         });
       // The queue carries on after a failure.
@@ -3924,7 +4253,7 @@ export function App() {
 
   const fillFields = useCallback(
     (fileId: string, values: Record<string, string>) =>
-      editForm(fileId, 'Filling in the form', async (bytes) => (await import('./documents/forms')).fillForm(bytes, values, { validate: true })),
+      editForm(fileId, msg('Filling in the form'), async (bytes) => (await import('./documents/forms')).fillForm(bytes, values, { validate: true })),
     [editForm],
   );
 
@@ -3967,13 +4296,13 @@ export function App() {
     switch (a.kind) {
       case 'url':
         if (/^(https?|mailto):/i.test(a.url)) window.open(a.url, '_blank', 'noopener');
-        else setError(`The button’s address is not a web address: ${a.url}`);
+        else setError(msg('The button’s address is not a web address: {url}', { url: a.url }));
         return;
       case 'page':
         navigate(Math.min(a.pageIndex, o.doc.pages.length - 1), null);
         return;
       case 'reset':
-        void editForm(o.file.id, 'Resetting the form', async (bytes) => (await import('./documents/forms')).resetForm(bytes));
+        void editForm(o.file.id, msg('Resetting the form'), async (bytes) => (await import('./documents/forms')).resetForm(bytes));
         return;
       case 'print':
         setPrintOpen(true);
@@ -3984,15 +4313,15 @@ export function App() {
         if (/^mailto:/i.test(a.url)) {
           // Mail apps take no attachments from a link: the data is downloaded to attach.
           download(`${o.file.name.replace(/\.pdf$/i, '')} form data.xfdf`, new Blob([xfdf], { type: 'application/vnd.adobe.xfdf' }));
-          window.open(`${a.url}${a.url.includes('?') ? '&' : '?'}subject=${encodeURIComponent(`Form data: ${o.file.name}`)}&body=${encodeURIComponent('The form data is attached (XFDF).')}`, '_blank');
-          setNotice('The form data was saved as an XFDF file; attach it to the email that opened.');
+          window.open(`${a.url}${a.url.includes('?') ? '&' : '?'}subject=${encodeURIComponent(msg('Form data: {name}', { name: o.file.name }))}&body=${encodeURIComponent(msg('The form data is attached (XFDF).'))}`, '_blank');
+          setNotice(msg('The form data was saved as an XFDF file; attach it to the email that opened.'));
           return;
         }
         try {
           const res = await fetch(a.url, { method: 'POST', headers: { 'content-type': 'application/vnd.adobe.xfdf' }, body: xfdf });
-          setNotice(res.ok ? `Form submitted to ${new URL(a.url).host}.` : `Submitting failed: ${new URL(a.url).host} answered ${res.status}.`);
+          setNotice(res.ok ? msg('Form submitted to {host}.', { host: new URL(a.url).host }) : msg('Submitting failed: {host} answered {status}.', { host: new URL(a.url).host, status: String(res.status) }));
         } catch {
-          setError(`Could not submit the form to ${a.url} (the server may not accept requests from this app).`);
+          setError(msg('Could not submit the form to {url} (the server may not accept requests from this app).', { url: a.url }));
         }
         return;
       }
@@ -4008,7 +4337,7 @@ export function App() {
       // The box for a signature being made: sign there.
       pendingSign.current = null;
       (pane === 'b' ? ctlB : ctl)?.tools.setTool('select');
-      void runSign(o.file.id, signing, { area: { pageIndex, rect } }).catch((err) => setError(`Signing failed: ${err instanceof Error ? err.message : String(err)}`));
+      void runSign(o.file.id, signing, { area: { pageIndex, rect } }).catch((err) => setError(msg('Signing failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
       return;
     }
     const model = formModels[o.file.hash];
@@ -4020,7 +4349,7 @@ export function App() {
       const joining = newFieldType === 'radio' && selected?.type === 'radio';
       const name = joining ? selected.name : uniqueName(FIELD_BASE[newFieldType], names);
       const options = newFieldType === 'radio' ? [uniqueName('Choice', joining ? selected.options : [])] : undefined;
-      await editForm(o.file.id, 'Adding the field', (bytes) => createFields(bytes, [{ type: newFieldType, name, pageIndex, rect, ...(options ? { options } : {}) }]));
+      await editForm(o.file.id, msg('Adding the field'), (bytes) => createFields(bytes, [{ type: newFieldType, name, pageIndex, rect, ...(options ? { options } : {}) }]));
       setSelectedField(name);
       showPanel('forms');
     })();
@@ -4059,7 +4388,7 @@ export function App() {
   const runSign = useCallback(
     async (fileId: string, c: SignChoice, target: { fieldName?: string; area?: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } } }) => {
       const record = digitalIds.list().find((r) => r.id === c.idId);
-      if (!record) throw new Error('That Digital ID is no longer on this device');
+      if (!record) throw new Error(msg('That Digital ID is no longer on this device'));
       const { signerFor } = await import('./documents/signers');
       const { signPdf } = await import('./documents/pdfSign');
       const id = signerFor(record, c.password);
@@ -4090,7 +4419,7 @@ export function App() {
         true,
       );
       if (!ok) return;
-      setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.${ltvNote ? ` ${ltvNote}` : ''}`);
+      setNotice(msg('Signed by {name}{value}. The version before signing is kept under Document › Revisions.{value2}', { name: record.name, value: c.certify ? ' ' + msg('and certified') : '', value2: ltvNote ? ` ${ltvNote}` : '' }));
       showPanel('signatures');
     },
     [editForm],
@@ -4109,7 +4438,7 @@ export function App() {
       const tools = await import('./documents/pageTools');
       const base = cur.file.name.replace(/\.pdf$/i, '');
       const writes = spec.kind === 'replace' || spec.kind === 'crop' || spec.kind === 'setup';
-      if (writes && studioDocOf(cur.file.id)) throw new Error('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.');
+      if (writes && studioDocOf(cur.file.id)) throw new Error(msg('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.'));
       const zipDownload = async (name: string, parts: Uint8Array[], names: (i: number) => string) => {
         const { zipFiles } = await import('./documents/zip');
         download(name, new Blob([zipFiles(parts.map((data, i) => ({ name: names(i), data }))) as BlobPart], { type: 'application/zip' }));
@@ -4132,7 +4461,7 @@ export function App() {
         case 'split': {
           const parts = await tools.splitDocument(await annotatedBytes(cur), base, cur.store.bookmarks(), spec);
           await zipDownload(`${base} (split).zip`, parts.map((p) => p.data), (i) => parts[i]!.name);
-          setNotice(`Split into ${parts.length} files.`);
+          setNotice(msg('Split into {count} files.', { count: parts.length }));
           return;
         }
         case 'replace': {
@@ -4153,7 +4482,7 @@ export function App() {
             r = { x: x0, y: y0, w: Math.min(size.width, r.x + r.w) - x0, h: Math.min(size.height, r.y + r.h) - y0 };
             if (r.w > 1 && r.h > 1) crops.set(p, r);
           }
-          if (!crops.size) throw new Error('Nothing would be left of the pages: use smaller margins.');
+          if (!crops.size) throw new Error(msg('Nothing would be left of the pages: use smaller margins.'));
           const { bytes, transforms } = await tools.cropPages(await readFile(cur.file.hash), crops);
           await swapDocument(cur, intoB, bytes.slice().buffer, () => cur.store.transformPages(transforms), undefined, 'Crop pages');
           return;
@@ -4178,7 +4507,7 @@ export function App() {
       const label = pages.length === 1 ? `page ${pages[0]! + 1}` : `${pages.length} pages`;
       download(`${cur.file.name.replace(/\.pdf$/i, '')} (${label}).pdf`, new Blob([out], { type: 'application/pdf' }));
     } catch (err) {
-      setError(`Extract failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Extract failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     } finally {
       job.end();
     }
@@ -4203,16 +4532,13 @@ export function App() {
         if (renamed) {
           now = { ...cur, file: renamed };
           markSaved(now);
-          // Fork (leojru/redcolumn): in both panes, when the same document is split into both.
-          for (const p of ['a', 'b'] as const) {
-            if (tabsRefOf(p).current.includes(cur)) setTabs(p, tabsRefOf(p).current.map((t) => (t === cur ? now : t)));
-            if (openRefOf(p).current === cur) setFront(p, now);
-          }
+          replaceTab(cur, now);
+          for (const p of ['a', 'b'] as const) if (openRefOf(p).current?.file.id === cur.file.id) setFront(p, now);
           void refreshLibrary();
         }
       }
       setSavedTick((n) => n + 1);
-      if (!silent) setNotice(`Saved ${fileName}.`);
+      if (!silent) setNotice((current) => afterFontNotice(current, `Saved ${fileName}.`));
     };
     try {
       // Autosave never asks where to save or downloads: it writes only to a file already chosen.
@@ -4229,7 +4555,7 @@ export function App() {
           await saved(handle.name);
           return true;
         }
-        if (!silent) setError(`${handle.name} was not saved: the browser did not allow writing to it.`);
+        if (!silent) setError(msg('{name} was not saved: the browser did not allow writing to it.', { name: handle.name }));
         return false;
       }
       const picked = await saveAsWithPicker(cur.file.name.endsWith('.pdf') ? cur.file.name : `${cur.file.name}.pdf`, 'application/pdf', blob);
@@ -4243,10 +4569,10 @@ export function App() {
       return true;
     } catch (err) {
       // Autosave retries after the next edit; a document that cannot be saved quietly stays unsaved.
-      if (!silent) setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (!silent) setError(msg('Save failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       return false;
     }
-  }, [setTabs, setFront, refreshLibrary]);
+  }, [replaceTab, setFront, refreshLibrary]);
 
   // Preferences › Document › Autosave: a few seconds after the last edit, documents with changes
   // and a file to write to are saved in the background.
@@ -4285,6 +4611,7 @@ export function App() {
    */
   const closeTab = useCallback(
     (pane: Pane, fileId: string) => {
+      pane = tabPaneOf(pane);
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
@@ -4294,6 +4621,12 @@ export function App() {
       const elsewhere = (pane === 'b' ? tabsARef.current : tabsBRef.current).includes(closing);
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
+      // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.
+      if (pane === 'a' && mirrorRef.current && openRef.current === closing && !rest.length) {
+        showInPane('b', null);
+        setSplit(false);
+        setActivePane('a');
+      }
       const front = pane === 'b' ? openBRef.current : openRef.current;
       if (front === closing) {
         const next = rest[Math.min(idx, rest.length - 1)] ?? null;
@@ -4369,16 +4702,63 @@ export function App() {
    */
   const requestCloseTab = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
-      // Fork (leojru/redcolumn): a view of a document still open in the other pane closes without asking about saving.
-      const other = pane === 'b' ? tabsARef.current : tabsBRef.current;
-      const elsewhere = other.some((t) => t.file.id === fileId);
-      if (!elsewhere && !(await settleUnsaved(pane, fileId))) return false;
+      pane = tabPaneOf(pane);
+      if (!(await settleUnsaved(pane, fileId))) return false;
       closeTab(pane, fileId);
       return true;
     },
     [closeTab, settleUnsaved],
   );
   closeTabRef.current = requestCloseTab;
+
+  /**
+   * Before the window goes (closing it, or Restart Now): asks about each document with unsaved
+   * changes, showing it first, then saves Live Sessions on this device. False when the person
+   * cancels or a session could not be saved, and the app keeps running.
+   */
+  const settleBeforeLeaving = useCallback(async () => {
+    for (const pane of ['a', 'b'] as const) {
+      for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
+        if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
+        activateTab(pane, t);
+        if (!(await settleUnsaved(pane, t.file.id))) return false;
+      }
+    }
+    try {
+      await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.()));
+    } catch {
+      setError(msg('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing or restarting.'));
+      return false;
+    }
+    return true;
+  }, [activateTab, settleUnsaved]);
+
+  /**
+   * Leaves the app (the desktop window closing, or Restart Now) once `settleBeforeLeaving` allows it.
+   * One guard covers both, so a close request while Restart Now is asking (or the reverse) does not
+   * ask about the same documents twice.
+   */
+  const leaving = useRef(false);
+  const leaveApp = useCallback(
+    async (go: () => void, failed: (error: string) => string) => {
+      if (leaving.current) return;
+      leaving.current = true;
+      try {
+        if (await settleBeforeLeaving()) go();
+      } catch (e) {
+        setError(failed(e instanceof Error ? e.message : String(e)));
+      } finally {
+        leaving.current = false;
+      }
+    },
+    [settleBeforeLeaving],
+  );
+
+  /**
+   * Restarts the app (Preferences › Language), after the same questions closing the window asks
+   * (the desktop app has no browser prompt on reload).
+   */
+  const restartApp = useCallback(() => leaveApp(() => location.reload(), (error) => msg('Could not restart: {error}', { error })), [leaveApp]);
 
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
@@ -4388,27 +4768,30 @@ export function App() {
     const stores = [...tabsA, ...tabsB];
     let last: boolean | null = null;
     const report = () => {
-      const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t));
+      const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) || sessions.some((s) => {
+        const state = s.getSnapshot().localSave;
+        return state === 'saving' || state === 'error';
+      });
       if (on !== last) host.setUnsavedChanges!((last = on));
     };
     report();
-    const offs = stores.map((t) => t.store.subscribe(report));
+    const offs = [...stores.map((t) => t.store.subscribe(report)), ...sessions.map((s) => s.subscribe(report))];
     return () => offs.forEach((off) => off());
-  }, [tabsA, tabsB, savedTick]);
+  }, [tabsA, tabsB, savedTick, sessions]);
   // In a browser, leaving or refreshing the page while documents have unsaved changes asks first
   // (the browser shows its own Leave / Reload site? prompt). The desktop app asks above instead.
   useEffect(() => {
     if (desktop()) return;
     const stores = [...tabsA, ...tabsB];
     const warn = (e: BeforeUnloadEvent) => {
-      if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t))) return;
+      if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) && !sessions.some((s) => ['saving', 'error'].includes(s.getSnapshot().localSave ?? ''))) return;
       e.preventDefault();
       // Older browsers show the prompt only when returnValue is set.
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [tabsA, tabsB, savedTick]);
+  }, [tabsA, tabsB, savedTick, sessions]);
   // Document Recovery: remember which open documents have changes not saved to their file.
   const recovery = prefs.documentRecovery;
   useEffect(() => {
@@ -4429,26 +4812,8 @@ export function App() {
   useEffect(() => {
     const host = desktop();
     if (!host?.onCloseRequest) return;
-    let asking = false;
-    return host.onCloseRequest(() => {
-      if (asking) return;
-      asking = true;
-      void (async () => {
-        try {
-          for (const pane of ['a', 'b'] as const) {
-            for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
-              if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
-              activateTab(pane, t);
-              if (!(await settleUnsaved(pane, t.file.id))) return;
-            }
-          }
-          host.closeWindow?.();
-        } finally {
-          asking = false;
-        }
-      })();
-    });
-  }, [activateTab, settleUnsaved]);
+    return host.onCloseRequest(() => void leaveApp(() => host.closeWindow?.(), (error) => msg('Could not close the window: {error}', { error })));
+  }, [leaveApp]);
 
   /** Closes tabs one after another, stopping when the person cancels one. */
   const requestCloseTabs = useCallback(
@@ -4464,8 +4829,13 @@ export function App() {
     const bFront = openBRef.current;
     showInPane('b', null);
     setTabs('b', []);
-    // Fork (leojru/redcolumn): a document in both panes (split to itself) stays one tab.
-    setTabs('a', [...tabsARef.current, ...moved.filter((t) => !tabsARef.current.includes(t))]);
+    // The tab Split View took across goes back where it was.
+    const origin = splitOrigin.current;
+    splitOrigin.current = null;
+    const back = origin ? moved.find((t) => t.file.id === origin.id) : undefined;
+    const joined = [...tabsARef.current, ...moved.filter((t) => t !== back)];
+    if (back) joined.splice(Math.min(origin!.index, tabsARef.current.length), 0, back);
+    setTabs('a', joined);
     if (!openRef.current && bFront) showInPane('a', bFront);
     setSplit(false);
     setActivePane('a');
@@ -4497,7 +4867,7 @@ export function App() {
     const fileId = studioFileId(sessionId, docId);
     const wasOpen = [...tabsARef.current, ...tabsBRef.current].some((t) => t.file.id === fileId);
     closeStudioDocs(sessionId, docId);
-    if (wasOpen) setError(`${name ?? 'A document'} was removed from the session.`);
+    if (wasOpen) setError(msg('{value} was removed from the session.', { value: name ?? msg('A document') }));
   };
 
   /** Opens a session document in a tab: downloads it (or uses this device's copy offline) and syncs its markups. */
@@ -4612,7 +4982,7 @@ export function App() {
       const open = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === d.fileId);
       if (open) return { bytes: await readFile(open.file.hash), seed: Y.encodeStateAsUpdate(open.store.doc) };
       const stored = library.find((f) => f.id === d.fileId);
-      if (!stored) throw new Error(`${d.name} is no longer in the library.`);
+      if (!stored) throw new Error(msg('{name} is no longer in the library.', { name: d.name }));
       const store = await MarkupStore.open(stored.id);
       const seed = Y.encodeStateAsUpdate(store.doc);
       await store.destroy();
@@ -4775,7 +5145,7 @@ export function App() {
           for (const r of withThreads(buildRows(store.all(), ctx, {}, null), ctx)) rows.push({ ...r, cells: { document: { text: d.name, num: null }, ...r.cells } });
         });
       }
-      return rowsToCsv(rows, [{ key: 'document', label: 'Document', defaultWidth: 160 }, ...(columns ?? listColumns([]).filter((c) => keep.has(c.key)))], true);
+      return rowsToCsv(rows, [{ key: 'document', label: msg('Document'), defaultWidth: 160 }, ...(columns ?? listColumns([]).filter((c) => keep.has(c.key)))], true);
     },
     [withSessionMarkups],
   );
@@ -4789,7 +5159,7 @@ export function App() {
     async (sessionId: string, choice: EndSessionChoice, onProgress: (p: EndProgress) => void = () => {}) => {
       const session = sessionById(sessionId);
       if (!session?.end) return;
-      const meta = session.meta;
+      let meta = session.meta;
       const saving = choice.pdfs || choice.markupsCsv || choice.recordCsv || choice.reportPdf;
       // Each file is made, then saved; then documents go back to the library; then the session is removed.
       const made = (choice.pdfs ? meta.documents.length : 0) + (choice.markupsCsv && meta.documents.length ? 1 : 0) + (choice.recordCsv ? 1 : 0) + (choice.reportPdf ? 1 : 0);
@@ -4809,12 +5179,18 @@ export function App() {
           try {
             dir = await pick({ id: 'end-session', mode: 'readwrite' });
           } catch {
-            throw new Error('No folder was chosen, so the session was not ended.');
+            throw new Error(msg('No folder was chosen, so the session was not ended.'));
           }
         }
       } else if (saving && choice.destination === 'onedrive') await authorizeMicrosoft();
       else if (saving && choice.destination === 'project' && choice.projectId) project = projectById(choice.projectId) ?? (await openProject(choice.projectId, authorRef.current, true, false));
 
+      // Ask for a destination while the initiating user gesture is still available.
+      // Then confirm our writes and refresh the shared state before preparing exports.
+      await session.prepareCloseout?.();
+      meta = session.meta;
+      const reviewState = () => JSON.stringify({ documents: session.meta.documents, revision: session.getSnapshot().revision, record: session.getSnapshot().record });
+      const archivedState = reviewState();
       const files: { name: string; blob: Blob }[] = [];
       if (choice.pdfs && meta.documents.length) {
         const { exportWithAnnotations } = await import('@nb/markup/export');
@@ -4840,6 +5216,9 @@ export function App() {
                 columns: store.columnSet().columns,
                 statuses: store.columnSet().statuses,
                 assemblies: store.assemblies(),
+                estimating: store.estimating(),
+                portals: store.portals(),
+                aiReview: store.aiReviewForSave(),
                 places: store.places(),
               },
             );
@@ -4849,14 +5228,14 @@ export function App() {
           files.push({ name: safe(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`), blob: new Blob([out.slice().buffer], { type: 'application/pdf' }) });
         }
       }
-      if (choice.markupsCsv && meta.documents.length) step('Preparing the markups CSV');
+      if (choice.markupsCsv && meta.documents.length) step(msg('Preparing the markups CSV'));
       if (choice.markupsCsv && meta.documents.length) files.push({ name: safe(`${meta.name} markups.csv`), blob: new Blob(['﻿' + (await sessionMarkupsCsv(session))], { type: 'text/csv' }) });
       if (choice.recordCsv) {
-        step('Preparing the session record');
+        step(msg('Preparing the session record'));
         const snap = session.getSnapshot();
         files.push({ name: safe(`${meta.name} session record.csv`), blob: new Blob(['﻿' + recordToCsv(snap.meta, snap.record)], { type: 'text/csv' }) });
       }
-      if (choice.reportPdf) step('Preparing the session report');
+      if (choice.reportPdf) step(msg('Preparing the session report'));
       if (choice.reportPdf) files.push({ name: safe(`${meta.name} session report.pdf`), blob: new Blob([(await sessionReportBytes(session)) as BlobPart], { type: 'application/pdf' }) });
 
       let where = '';
@@ -4873,38 +5252,40 @@ export function App() {
           } else {
             for (const f of files) {
               step(`Saving ${f.name}`);
-              download(f.name, f.blob);
+              await saveConfirmedArchiveFile(f.name, f.blob);
             }
-            where = 'your Downloads';
+            where = 'the files you chose';
           }
         } else if (choice.destination === 'onedrive') {
           const folder = `${meta.name} (ended ${stamp})`;
           const folderId = await oneDriveApi.createFolder(folder);
           for (const f of files) {
-            step(`Uploading ${f.name} to OneDrive`);
+            step(msg('Uploading {name} to OneDrive', { name: f.name }));
             await oneDriveApi.createFile(folderId, f.name, f.blob.type, f.blob, {});
           }
-          where = `OneDrive, Apps/redcolumn/${folder}`;
+          where = msg('OneDrive, Apps/redcolumn/{folder}', { folder });
         } else {
-          if (!project) throw new Error('Choose a Project to save to.');
+          if (!project) throw new Error(msg('Choose a Project to save to.'));
           const taken = new Set(project.getSnapshot().folders.filter((f) => f.parentId === null).map((f) => f.name.toLowerCase()));
           let folder = `${safe(meta.name)} (ended ${stamp})`;
           for (let n = 2; taken.has(folder.toLowerCase()); n++) folder = `${safe(meta.name)} (ended ${stamp}) ${n}`;
           const { id } = await project.addFolder(folder, null);
           for (const f of files) {
-            step(`Uploading ${f.name} to the Project`);
+            step(msg('Uploading {name} to the Project', { name: f.name }));
             await project.addFile(f.name, id, await f.blob.arrayBuffer());
           }
-          where = `the Project “${project.getSnapshot().manifest.name}”, folder ${folder}`;
+          where = msg('the Project “{name}”, folder {folder}', { name: project.getSnapshot().manifest.name, folder });
         }
       }
 
       // Session Roundtrip: library documents take the session's markups (and its newer revision, if the host updated it).
+      await session.prepareCloseout?.();
+      if (reviewState() !== archivedState) throw new Error(msg('The review changed while its archive was being saved. Its shared files have been kept. Check the latest changes and save the archive again.'));
       const sentBack: string[] = [];
       for (const d of meta.documents) {
         const back = choice.sendBack.includes(d.id) ? sourceOf(sessionId, d.id) : null;
         if (!back) continue;
-        step(`Sending ${d.name} back to your library`);
+        step(msg('Sending {name} back to your library', { name: d.name }));
         const bytes = await session.fetchDocument(d.id);
         const chosen = await withSessionMarkups(session, d.id, (store) => store.all().filter((m) => choice.authors.includes(m.author)));
         const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === back.fileId);
@@ -4925,14 +5306,14 @@ export function App() {
       if (sentBack.length) void refreshLibrary();
 
       // Everything is saved: only now does the session go.
-      step('Removing the session and its files');
+      step(msg('Removing the session and its files'));
       await session.end();
       closeStudioDocs(sessionId);
       forgetRoundtrip(sessionId);
       sessionsRef.current = sessionsRef.current.filter((s) => s.id !== sessionId);
       setSessions(sessionsRef.current);
       setFocusedSession((f) => (f === sessionId ? null : f));
-      setNotice(`Ended “${meta.name}” and removed its files.${files.length ? ` Saved ${files.length} file${files.length === 1 ? '' : 's'} to ${where}.` : ''}${sentBack.length ? ` Sent back: ${sentBack.join(', ')}.` : ''}`);
+      setNotice(msg('Ended “{name}” and removed its files.{value}{value2}', { name: meta.name, value: files.length ? ' ' + msg('Saved {count, plural, one {# file} other {# files}} to {where}.', { count: files.length, where }) : '', value2: sentBack.length ? ' ' + msg('Sent back: {sentBack}.', { sentBack: sentBack.join(', ') }) : '' }));
     },
     [withSessionMarkups, sessionMarkupsCsv, sessionReportBytes, closeStudioDocs, acquireDocument, commitDocument, refreshLibrary],
   );
@@ -4953,8 +5334,8 @@ export function App() {
         void session
           .fetchDocument(d.id)
           .then((bytes) => swapDocument(tab, !inA, bytes, () => tab.store.forgetImported(tab.doc.pages.map((_, i) => i))))
-          .then(() => setNotice(`${d.name} was updated to revision ${version}; markups are on the same pages.`))
-          .catch((err) => setError(`Could not load the new revision of ${d.name}: ${err instanceof Error ? err.message : String(err)}`));
+          .then(() => setNotice(msg('{name} was updated to revision {version}; markups are on the same pages.', { name: d.name, version: String(version) })))
+          .catch((err) => setError(msg('Could not load the new revision of {name}: {value}', { name: d.name, value: err instanceof Error ? err.message : String(err) })));
       }
     }
   }, [snapshots, swapDocument]);
@@ -5027,7 +5408,7 @@ export function App() {
           const got = await project.download(file.id).catch((err) => {
             // Offline: the copy on this device opens as it is.
             if (!(err instanceof TypeError)) throw err;
-            setNotice(`Offline: opened your copy of ${file.name} (revision ${link.rev}); the Project has revision ${latest}.`);
+            setNotice(msg('Offline: opened your copy of {name} (revision {rev}); the Project has revision {latest}.', { name: file.name, rev: String(link.rev), latest: String(latest) }));
             return null;
           });
           if (!got) return void (await openFromLibrary(stored));
@@ -5043,7 +5424,7 @@ export function App() {
             held?.release();
           }
           setLink(copyId, { ...link, rev: got.revision.n });
-          setNotice(`${file.name}: updated to revision ${got.revision.n} from the Project.`);
+          setNotice(msg('{name}: updated to revision {n} from the Project.', { name: file.name, n: String(got.revision.n) }));
         }
         await openFromLibrary((await listFiles()).find((f) => f.id === copyId)!);
         return;
@@ -5063,7 +5444,7 @@ export function App() {
       const file = await project.addFile(s.name, folderId, s.bytes);
       if (s.libraryId) setLink(s.libraryId, { projectId: project.id, fileId: file.id, rev: 1, name: s.name });
     }
-    setNotice(`Added ${sources.map((s) => s.name).join(', ')} to the Project.`);
+    setNotice(msg('Added {list} to the Project.', { list: sources.map((s) => s.name).join(', ') }));
   }, []);
 
   /**
@@ -5073,17 +5454,17 @@ export function App() {
   const checkInProjectFile = useCallback(
     async (project: Project, file: ProjectFile, comment: string) => {
       const copyId = libraryCopyOf(project.id, file.id);
-      if (!copyId) throw new Error('Open the file from the Project first, then make your changes.');
+      if (!copyId) throw new Error(msg('Open the file from the Project first, then make your changes.'));
       const link = linkOf(copyId)!;
       const queue = () => {
         projectQueue().add({ kind: 'checkin', projectId: project.id, fileId: file.id, fileName: file.name, by: authorRef.current, libraryId: copyId, baseRev: link.rev, comment, keep: false });
-        setNotice(`${file.name} will be checked in when OneDrive can be reached.`);
+        setNotice(msg('{name} will be checked in when OneDrive can be reached.', { name: file.name }));
       };
       if (!navigator.onLine) return queue();
       try {
         const rev = await project.checkIn(file.id, await projectCopyBytes(copyId), comment);
         setLink(copyId, { ...link, rev: rev.n });
-        setNotice(`Checked in ${file.name} as revision ${rev.n}.`);
+        setNotice(msg('Checked in {name} as revision {n}.', { name: file.name, n: String(rev.n) }));
       } catch (err) {
         if (!isUnreachable(err)) throw err;
         queue();
@@ -5126,16 +5507,16 @@ export function App() {
       await project.poll();
       if (c.kind === 'note') return void (await project.note('file', noteText(c), { fileId: c.fileId }));
       const file = project.getSnapshot().files.find((f) => f.id === c.fileId);
-      if (!file) throw new Error('It is no longer in the Project.');
-      if (!project.heldByMe(file)) throw new Error(file.checkout ? `${file.checkout.by} has it checked out.` : 'It is no longer checked out to you. Check it out again, then retry.');
+      if (!file) throw new Error(msg('It is no longer in the Project.'));
+      if (!project.heldByMe(file)) throw new Error(file.checkout ? msg('{by} has it checked out.', { by: file.checkout.by }) : msg('It is no longer checked out to you. Check it out again, then retry.'));
       const latest = file.revisions[file.revisions.length - 1]!.n;
-      if (latest > c.baseRev) throw new Error(`Someone checked in revision ${latest} after your copy (revision ${c.baseRev}).`);
+      if (latest > c.baseRev) throw new Error(msg('Someone checked in revision {latest} after your copy (revision {baseRev}).', { latest: String(latest), baseRev: String(c.baseRev) }));
       const rev = await project.checkIn(file.id, await projectCopyBytes(c.libraryId), c.comment);
       const link = linkOf(c.libraryId);
       if (link) setLink(c.libraryId, { ...link, rev: rev.n });
     });
-    if (r.sent.length) setNotice(`Sent ${r.sent.length} Project change${r.sent.length === 1 ? '' : 's'} made offline.`);
-    if (r.failed.length) setError(`Not sent: ${r.failed.map((c) => `${c.fileName} (${c.error})`).join('; ')}. Retry or discard them in the Projects panel.`);
+    if (r.sent.length) setNotice(msg('Sent {count} Project {count2, plural, one {change} other {changes}} made offline.', { count: r.sent.length, count2: r.sent.length }));
+    if (r.failed.length) setError(msg('Not sent: {list}. Retry or discard them in the Projects panel.', { list: r.failed.map((c) => `${c.fileName} (${c.error})`).join('; ') }));
   }, []);
   const sendQueuedRef = useRef(sendQueuedProjectChanges);
   sendQueuedRef.current = sendQueuedProjectChanges;
@@ -5212,8 +5593,8 @@ export function App() {
   useEffect(() => {
     if (!ctl) return;
     const offs = [
-      addBusyCheck('jobs', () => (runningJobs().length ? `${runningJobs()[0]!.label.toLowerCase()} is running` : null)),
-      addBusyCheck('projects', () => (projectQueue().busy ? 'Project changes are being sent' : null)),
+      addBusyCheck('jobs', () => (runningJobs().length ? msg('{label} is running', { label: runningJobs()[0]!.label.toLowerCase() }) : null)),
+      addBusyCheck('projects', () => (projectQueue().busy ? msg('Project changes are being sent') : null)),
       addBusyCheck('drawing', () => (ctl.tools.inProgress || ctlBRef.current?.tools.inProgress ? 'a markup is being drawn' : null)),
     ];
     return () => offs.forEach((o) => o());
@@ -5239,9 +5620,9 @@ export function App() {
           const res = await fetch(launch.url).catch(() => null);
           const blob = res?.ok ? await res.blob() : null;
           if (blob && (blob.type === 'application/pdf' || /\.pdf($|\?)/i.test(launch.url))) return openNewFileRef.current([new File([blob], decodeURIComponent(new URL(launch.url).pathname.split('/').pop() || 'Shared.pdf'), { type: 'application/pdf' })], 'a');
-          return setError(`Could not open the shared link ${launch.url}. Download the PDF and share the file instead.`);
+          return setError(msg('Could not open the shared link {url}. Download the PDF and share the file instead.', { url: launch.url }));
         }
-        setError(launch.error ? 'The shared file could not be received.' : 'Nothing to open was shared: share a PDF file.');
+        setError(launch.error ? msg('The shared file could not be received.') : msg('Nothing to open was shared: share a PDF file.'));
       })();
     }
     // Once, when the viewer is ready.
@@ -5465,7 +5846,7 @@ export function App() {
       const rows: CommentRow[] = [];
       const failed: string[] = [];
       const open = (row: CommentRow) => void openCommentRow(() => openSessionDocument(session.id, row.fileId), row).catch((err) => setError(err instanceof Error ? err.message : String(err)));
-      setCommentsTable({ key, title: `Live Session ${session.meta.name}`, rows: null, progress: { done: 0, total: docs.length }, failed, open, refresh: () => void showSessionComments(session) });
+      setCommentsTable({ key, title: msg('Live Session {name}', { name: session.meta.name }), rows: null, progress: { done: 0, total: docs.length }, failed, open, refresh: () => void showSessionComments(session) });
       for (const [i, d] of docs.entries()) {
         try {
           rows.push(
@@ -5551,8 +5932,8 @@ export function App() {
     }
     const replace = m.type === 'replaceText';
     const connector = m.type === 'connector';
-    void askText(replace ? 'Replace Text' : connector ? 'Connector Text' : 'Dimension Text', m.text ?? '', {
-      label: replace ? `Replacing "${m.comment ?? ''}" with:` : connector ? 'Shown on the connector, e.g. Yes or No.' : 'Shown along the dimension line.',
+    void askText(replace ? msg('Replace Text') : connector ? msg('Connector Text') : msg('Dimension Text'), m.text ?? '', {
+      label: replace ? msg('Replacing "{value}" with:', { value: m.comment ?? '' }) : connector ? msg('Shown on the connector, e.g. Yes or No.') : msg('Shown along the dimension line.'),
       confirm: 'OK',
     }).then((text) => {
       if (text !== null && text !== (m.text ?? '')) {
@@ -5645,7 +6026,7 @@ export function App() {
     if (!p) return;
     if (activeOpen?.file.id !== p.fileId) {
       // Its document is open in another tab: the view cannot go there from here.
-      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to open ${p.title}.`);
+      setNotice(msg('Switch to {value} to open {title}.', { value: previewFile(p.fileId)?.file.name ?? msg('its document'), title: p.title }));
       return;
     }
     navigate(p.link.targetPage, p.link.targetRect);
@@ -5657,7 +6038,7 @@ export function App() {
     const p = linkPreviews.find((x) => x.id === id);
     if (!p) return;
     if (activeOpen?.file.id !== p.fileId) {
-      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to go back.`);
+      setNotice(msg('Switch to {value} to go back.', { value: previewFile(p.fileId)?.file.name ?? msg('its document') }));
       return;
     }
     navigate(p.link.pageIndex, p.link.rect);
@@ -5710,15 +6091,15 @@ export function App() {
       // at the size it was captured, not at a size that depends on the zoom.
       lastSnapshot.current = { width: canvas.width, height: canvas.height, markups };
       setClipboardCount(markups.length);
-      const kind = vector ? 'Vector snapshot' : 'Snapshot';
-      const pastesAs = vector ? 'the drawing (vector)' : 'an image';
+      const kind = vector ? msg('Vector snapshot') : msg('Snapshot');
+      const pastesAs = vector ? msg('the drawing (vector)') : msg('an image');
       try {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-        setNotice(`${kind} copied to the clipboard. Ctrl+V pastes ${pastesAs}.`);
+        setNotice(msg('{kind} copied to the clipboard. Ctrl+V pastes {pastesAs}.', { kind, pastesAs }));
       } catch {
-        setNotice(`${kind} copied. Ctrl+V pastes ${pastesAs} here.`);
+        setNotice(msg('{kind} copied. Ctrl+V pastes {pastesAs} here.', { kind, pastesAs }));
       }
-    })().catch((err) => setError(`Snapshot failed: ${err instanceof Error ? err.message : String(err)}`));
+    })().catch((err) => setError(msg('Snapshot failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
   };
   // An image pasted from another app becomes an image markup at the pointer (or the view's centre).
   pasteImageRef.current = (file, dropped) => {
@@ -5772,7 +6153,7 @@ export function App() {
       const at = c.viewer.pageNearClient(x, y) + 1;
       void Promise.all(files.map((f) => imageToPdf(f)))
         .then((pages) => applyPageOps(pages.map((_, i) => ({ type: 'insert', source: i, at: at + i })), pages))
-        .catch((err) => setError(`Adding the pictures failed: ${err instanceof Error ? err.message : String(err)}`));
+        .catch((err) => setError(msg('Adding the pictures failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
       return;
     }
     if (o.store.readOnly) return;
@@ -5857,7 +6238,7 @@ export function App() {
         if (i % 8 === 7 || i === texts.length - 1) setScaleReadings({ file: o.file.id, pages: { ...pages }, done: i === texts.length - 1 });
       }
     })().catch((err) => {
-      if (!isAbort(err) && !ctrl.signal.aborted) setError(`Could not read the pages' scale bars: ${err instanceof Error ? err.message : String(err)}`);
+      if (!isAbort(err) && !ctrl.signal.aborted) setError(msg('Could not read the pages\' scale bars: {value}', { value: err instanceof Error ? err.message : String(err) }));
     });
     return () => ctrl.abort();
   }, [scaleReviewOpen, activeOpen]);
@@ -5873,7 +6254,7 @@ export function App() {
       const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
       await applyPageOps(where === 'end' ? ops : ops.reverse(), sources);
     } catch (err) {
-      setError(`Bulk insert failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Bulk insert failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
   const activeTools = paneB && ctlB ? ctlB.tools : ctl?.tools;
@@ -6037,10 +6418,11 @@ export function App() {
       if (!viewer) continue;
       viewer.setPageFilter(prefs.pageFilter);
       viewer.setThinLines(prefs.thinLines);
+      viewer.keepViewBetweenPages = prefs.keepViewBetweenPages;
       const cur = viewer.spread;
       if (cur.columns !== spread.columns || cur.cover !== spread.cover) viewer.setSpread(spread.columns, spread.cover);
     }
-  }, [prefs.pageFilter, prefs.thinLines, spread, ctl, ctlB]);
+  }, [prefs.pageFilter, prefs.thinLines, prefs.keepViewBetweenPages, spread, ctl, ctlB]);
 
   // Read each open document's PDF layers once; layers the file starts with off count as hidden.
   useEffect(() => {
@@ -6137,24 +6519,44 @@ export function App() {
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
 
-  // Takeoff proposals from an AI client open Takeoff Review, so a person sees them straight away.
-  const activeHash = activeOpen?.store.fileHash ?? null;
+  // A grouping tool an AI client proposes for the library opens the review too.
   useEffect(() => {
-    if (!activeHash || !activeOpen) return;
-    const store = activeOpen.store;
-    const waiting = () => takeoffProposals.list(activeHash).filter((p) => proposalState(p, store.get(p.markupId)) === 'pending').length;
-    let seen = waiting();
-    // Ones that came while another document was in front are mentioned once it is.
-    if (seen) setNotice(`${seen} takeoff proposal${seen === 1 ? ' is' : 's are'} waiting for your review in Tools › Takeoff › Review AI Proposals.`);
-    return takeoffProposals.subscribe(() => {
-      const now = waiting();
+    const proposed = () => toolLibrary.list().filter((t) => t.status === 'proposed').length;
+    let seen = proposed();
+    return toolLibrary.subscribe(() => {
+      const now = proposed();
       if (now > seen) {
         setTakeoffReviewOpen(true);
-        setNotice(`${now} takeoff proposal${now === 1 ? ' is' : 's are'} waiting for your review. Nothing is added to the takeoff until you approve it.`);
+        setNotice(msg('An AI client proposed a grouping tool. Review it in Takeoff › Review AI Takeoff › Tools: it cannot run until you accept it.'));
       }
       seen = now;
     });
-  }, [activeHash, activeOpen]);
+  }, []);
+
+  // AI results (drafts, assembly and count proposals) open Review AI Takeoff, so a person sees them straight away.
+  useEffect(() => {
+    if (!activeOpen) return;
+    const store = activeOpen.store;
+    // Proposals from before they were kept in the document move into it.
+    migrateLocalProposals(store);
+    // Everything seen waiting so far: a person's own Undo, Review Again or deleting an approved
+    // measurement brings one back, and that is no reason to open the panel. Only new ones are.
+    const seen = aiWaitingKeys(store);
+    // Ones that came while another document was in front are mentioned once it is.
+    if (seen.size) setNotice(msg('{size} AI {size2, plural, one {result is} other {results are}} waiting for your review in Takeoff › Review AI Takeoff.', { size: seen.size, size2: seen.size }));
+    return store.subscribe(() => {
+      const now = aiWaitingKeys(store);
+      let fresh = false;
+      for (const k of now) if (!seen.has(k)) {
+        seen.add(k);
+        fresh = true;
+      }
+      if (fresh) {
+        setTakeoffReviewOpen(true);
+        setNotice(msg('{size} AI {size2, plural, one {result is} other {results are}} waiting for your review. Nothing counts towards the takeoff until you approve it.', { size: now.size, size2: now.size }));
+      }
+    });
+  }, [activeOpen]);
 
 
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
@@ -6179,9 +6581,9 @@ export function App() {
           copied = copies.length;
         },
         () => result.pageIndex,
-        'Stitch to New Page',
+        msg('Stitch to New Page'),
       );
-      setNotice(`Stitched ${group.placements.length} sheets onto page ${result.pageIndex + 1}${withMarkups ? ` with ${copied} markup${copied === 1 ? '' : 's'}` : ''}.`);
+      setNotice(msg('Stitched {count} sheets onto page {page}{value2}.', { count: group.placements.length, page: result.pageIndex + 1, value2: withMarkups ? ' ' + msg('with {copied, plural, one {# markup} other {# markups}}', { copied }) : '' }));
       return { pageIndex: result.pageIndex, markups: copied };
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -6207,13 +6609,61 @@ export function App() {
     };
   }, [activeOpen, markups]);
 
+  /** A measurement can be saved as a takeoff template: a drawn one (a typed quantity has no tool to arm). */
+  const templateable = (m: Markup) => isMeasureKind(m.type) && m.type !== 'manual';
+  /** Right-click › Save as Template: the measurement's tool, subject, layer, style, slope, depth, assembly and inputs, kept in the document and the library. */
+  const saveAsTemplate = async (m: Markup) => {
+    const store = activeOpen?.store;
+    if (!store || store.readOnly) return;
+    const assembly = m.assemblyId ? store.assemblies().find((a) => a.id === m.assemblyId) : undefined;
+    const name = (await askText(msg('Save as Template'), m.subject || assembly?.name || MARKUP_LABELS[m.type], { label: msg('Pick it from Takeoff › Templates to measure more like this one: the same tool, subject, layer, style, slope, depth, assembly and inputs.'), confirm: msg('Save') }))?.trim();
+    if (!name) return;
+    const t: TakeoffTemplate = {
+      id: crypto.randomUUID(),
+      name,
+      tool: m.type,
+      preset: { ...(m.subject ? { subject: m.subject } : {}), ...(m.layer ? { layer: m.layer } : {}), style: structuredClone(m.style), ...(m.slope ? { slope: structuredClone(m.slope) } : {}), ...(m.depth ? { depth: m.depth } : {}) },
+      ...(assembly ? { assemblyId: assembly.id } : {}),
+      ...(assembly && m.assemblyInputs ? { inputs: { ...m.assemblyInputs } } : {}),
+    };
+    store.checkpoint();
+    store.setEstimating({ templates: [...store.estimating().templates, t] });
+    // The library gets it too, with its assembly and what that prices from, for other documents.
+    const kept = addToLibrary({ ...referencedRecords(documentFile(store), assembly ? [assembly.id] : []), templates: [t] });
+    setNotice(msg('Saved the template “{name}”{value}. Pick it from Takeoff › Templates to measure more like it.', { name, value: kept ? '' : ' ' + msg('in this document (this browser would not keep the library)') }));
+  };
+  /** Arms a takeoff template's tool; one from the library is copied into the document first, with its assembly. */
+  const armTemplate = (t: TakeoffTemplate) => {
+    const store = activeOpen?.store;
+    const tools = activeTools;
+    if (!store || !tools) return;
+    if (!store.readOnly && !store.estimating().templates.some((x) => x.id === t.id)) {
+      store.checkpoint();
+      store.batch(() => {
+        copyIntoDocument(store, libraryFile(), t.assemblyId ? [t.assemblyId] : []);
+        store.setEstimating({ templates: [...store.estimating().templates, t] });
+      });
+    }
+    const assemblyId = t.assemblyId && store.assemblies().some((a) => a.id === t.assemblyId) ? t.assemblyId : undefined;
+    tools.setTool(t.tool as Tool, {
+      ...(t.preset.subject ? { subject: t.preset.subject } : {}),
+      ...(t.preset.layer ? { layer: t.preset.layer } : {}),
+      ...(t.preset.style ? { style: structuredClone(t.preset.style) } : {}),
+      ...(t.preset.slope ? { slope: t.preset.slope } : {}),
+      ...(t.preset.depth ? { depth: t.preset.depth } : {}),
+      ...(assemblyId ? { assemblyId, ...(t.inputs ? { assemblyInputs: t.inputs } : {}) } : {}),
+      takeoffTemplateId: t.id,
+    });
+    setNotice(msg('Template “{name}” armed: each {value} you draw gets its {value2}settings.', { name: t.name, value: MARKUP_LABELS[t.tool as Markup['type']]?.toLowerCase() ?? msg('measurement'), value2: assemblyId ? msg('assembly and ') : '' }));
+  };
+
   const cellContext: CellContext = {
     scaleOf,
     sheets,
     spaces: markups.filter((m) => m.type === 'space'),
     statuses: columnSet.statuses,
     columns: columnSet.columns,
-    assemblies,
+    assemblies: takeoffAssemblies,
   };
   /** The measurement the Assemblies window shows quantities for while editing: the first one selected. */
   const takeoffSample = markups.find((m) => toolsState.selected.has(m.id) && isMeasureKind(m.type) && m.type !== 'angle') ?? null;
@@ -6235,7 +6685,7 @@ export function App() {
   };
 
   /** Draws with a tool library tool. */
-  const useToolItem = (item: ToolChestItem, mode: 'copy' | 'style' = settings.get().toolChestMode) => {
+  const useToolItem = (item: ToolChestItem, mode: 'copy' | 'style' = item.mode ?? settings.get().toolChestMode) => {
     const tools = activeTools;
     if (!tools) return;
     if (item.markups?.length && mode === 'copy') {
@@ -6262,7 +6712,7 @@ export function App() {
     const form = carried?.stamp?.form;
     const stamp = carried?.stamp
       ? form
-        ? withFieldValues({ id: item.id, name: item.subject || item.label, lines: form.lines, color: form.color, frame: carried.stamp.frame, fields: form.fields }, form.values)
+        ? withFieldValues({ id: item.id, name: item.subject || item.label, ...formStamp(carried.stamp)! }, form.values)
         : { id: item.id, name: item.subject || item.label, lines: carried.stamp.lines, color: item.style.stroke, frame: carried.stamp.frame, ...(carried.stamp.art ? { art: carried.stamp.art } : {}) }
       : undefined;
     tools.setTool(item.tool ?? item.type, {
@@ -6270,6 +6720,7 @@ export function App() {
       style: item.style,
       ...(item.subject ? { subject: item.subject } : {}),
       ...(item.markupLabel ? { label: item.markupLabel } : {}),
+      ...(item.comment ? { comment: item.comment } : {}),
       ...(item.layer ? { layer: item.layer } : {}),
       ...(carried?.image ? { image: carried.image, ...(aspect ? { aspect } : {}) } : {}),
       ...(stamp ? { stamp } : {}),
@@ -6281,12 +6732,14 @@ export function App() {
   const takeoffTotals = (list: readonly Markup[]): string[] => {
     const totals = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();
     for (const m of list) {
-      if (!isMeasureKind(m.type) || m.type === 'angle') continue;
+      // AI drafts wait for review: left out of totals, as in reports.
+      if (!isMeasureKind(m.type) || m.type === 'angle' || isAiDraft(m)) continue;
       const scale = scaleOf(m);
-      const t = totals.get(m.type) ?? { value: 0, scale, n: 0 };
+      const kind = measureKindOf(m);
+      const t = totals.get(kind) ?? { value: 0, scale, n: 0 };
       t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
       t.n++;
-      totals.set(m.type, t);
+      totals.set(kind, t);
     }
     return [...totals].map(([kind, t]) => `Total ${MARKUP_LABELS[kind]} (${t.n}): ${formatMeasure(kind, t.value, t.scale)}`);
   };
@@ -6317,6 +6770,7 @@ export function App() {
             spaces: all.filter((m) => m.type === 'space'),
             statuses: set.statuses,
             columns: set.columns,
+            assemblies: cur.store.resolvedAssemblies(),
           },
         });
       }
@@ -6334,7 +6788,7 @@ export function App() {
           blobs.push({ name: file.filename, blob: new Blob([body], { type: file.mime }) });
         }
       }
-      if (!blobs.length) throw new Error('Nothing to export.');
+      if (!blobs.length) throw new Error(msg('Nothing to export.'));
       if (req.config.ExportFormat === 3) {
         const { printPdfBytes } = await import('./documents/printPdf');
         printPdfBytes(new Uint8Array(await blobs[0]!.blob.arrayBuffer()));
@@ -6355,7 +6809,7 @@ export function App() {
       }
       setSummaryOpen(false);
     } catch (err) {
-      setError(`Markup summary failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Markup summary failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     } finally {
       for (const h of held) h.release();
       job.end();
@@ -6375,10 +6829,230 @@ export function App() {
     // The context and layout are rebuilt every render; these are what they depend on.
     [sheetSync.link, syncOpen, markups, scaleOf, sheets, columnSet, ws.list],
   );
+  // Import from Excel: what the workbook would change, against every markup and column (not only those the list shows).
+  const importPlan = useMemo(
+    () =>
+      importExcel && activeOpen?.file.id === importExcel.fileId
+        ? planImport(importExcel.book, { rows: withThreads(buildRows(markups, cellContext, {}, null), cellContext), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, templates: registerTemplates }, { docId: importExcel.fileId, aliases: importExcel.aliases })
+        : null,
+    // The context is rebuilt every render; these are what it depends on.
+    [importExcel, activeOpen?.file.id, markups, scaleOf, sheets, columnSet, registerTemplates],
+  );
+  const saveRegisterTemplate = (t: RegisterTemplate) => updateWorkspace((w) => ({ ...w, registerTemplates: [...(w.registerTemplates ?? []).filter((x) => x.id !== t.id), t] }));
+  /** The markups a register lists: those that say something (a comment, text, or a reply), or every markup. Spaces are never comments. */
+  const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || isComment(m)));
+  /** The register template that says what closed means for this document: the one picked in Close-out, else the client's. */
+  const closeOutTemplateOf = (store: MarkupStore) => (closeOutTemplate === null ? templateFor(registerTemplates, store.drawingStandard()?.id) : registerTemplates.find((t) => t.id === closeOutTemplate));
+  // A followed link: once its document is in front and has its markups, go to the comment.
+  useEffect(() => {
+    if (!pendingLink || activeOpen?.file.id !== pendingLink.fileId) return;
+    const m = markups.find((x) => x.id === pendingLink.markupId);
+    if (m) {
+      setPendingLink(null);
+      const b = shapeBounds(m);
+      const pad = Math.max(48, Math.max(b.w, b.h));
+      navigate(m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 });
+      (paneB ? ctlB : ctl)?.tools.select([m.id]);
+      return;
+    }
+    // A document's own annotations are read in after it opens: give them a moment before saying it is gone.
+    const wait = setTimeout(() => {
+      setPendingLink(null);
+      setNotice(msg('The comment this link is for is no longer in the document.'));
+    }, Math.max(0, pendingLink.since + 8000 - Date.now()));
+    return () => clearTimeout(wait);
+    // The markups are what is waited for.
+  }, [pendingLink, activeOpen?.file.id, markups]);
+
+  /** A picture of each markup with the drawing around it, for a register's thumbnail column. Small JPEGs: they travel by email. */
+  const registerThumbs = async (o: OpenFile, list: readonly Markup[]) => {
+    const out = new Map<string, RegisterThumb>();
+    for (const m of list) {
+      const b = shapeBounds(m);
+      const pad = Math.max(24, Math.max(b.w, b.h) * 0.25);
+      const region = await renderRegion(o, m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }, (w, h) => Math.min(3, THUMB_PX / Math.max(w, h)));
+      if (!region) continue;
+      // JPEG has no transparency: paper white behind the drawing.
+      const flat = document.createElement('canvas');
+      flat.width = region.canvas.width;
+      flat.height = region.canvas.height;
+      const g = flat.getContext('2d')!;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, flat.width, flat.height);
+      g.drawImage(region.canvas, 0, 0);
+      const blob = await new Promise<Blob | null>((done) => flat.toBlob(done, 'image/jpeg', 0.7));
+      if (blob) out.set(m.id, { data: new Uint8Array(await blob.arrayBuffer()), type: 'jpeg', width: flat.width, height: flat.height });
+    }
+    return out;
+  };
+
+  const exportRegister = async (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, options: { fill: boolean; thumbnails: boolean }) => {
+    if (!activeOpen) return;
+    const { fill } = options;
+    // A comment's first export records the revision of its sheet: what it was raised on.
+    const listed = registerMarkups(scope);
+    const raised = raisedRevisions(listed, sheets);
+    if (raised.size) {
+      const store = activeOpen.store;
+      store.checkpoint();
+      store.batch(() => {
+        for (const [id, raisedRev] of raised) store.update(id, { raisedRev });
+      });
+      store.checkpoint();
+    }
+    // Links open the comment in the app they were made in: the desktop app's own scheme, or this web address.
+    const linkBase: LinkBase = desktop() ? { kind: 'desktop' } : { kind: 'web', href: window.location.href };
+    const linkFile = activeOpen.file;
+    const linkOf = (markupId: string) => markupLinkUrl(linkBase, { doc: linkFile.id, markup: markupId, name: linkFile.name });
+    const register = { rows: buildRows(listed.map((m) => (raised.has(m.id) ? { ...m, raisedRev: raised.get(m.id)! } : m)), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values, linkOf };
+    const name = `${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}`;
+    const excel = localExcel();
+    if (fill && template.clientFile && excel?.readSource && excel.fill) {
+      // The client's own file: read it to place the rows, then Excel fills a copy in.
+      try {
+        const plan = planFill(await readWorkbook(await excel.readSource(template.clientFile.id)), register);
+        if (!plan.ok) {
+          setError(plan.problem);
+          return;
+        }
+        const saved = await excel.fill(template.clientFile.id, name, plan.fill);
+        if (!saved) return;
+        setNotice(msg('{name} saved: the register in a copy of {name2}.', { name: saved.name, name2: template.clientFile.name }));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : msg('The client’s file could not be filled in.'));
+        return;
+      }
+    } else {
+      let thumbnails: Map<string, RegisterThumb> | undefined;
+      try {
+        if (options.thumbnails) thumbnails = await registerThumbs(activeOpen, listed);
+      } catch (err) {
+        setError(msg('The thumbnails could not be made: {value}', { value: err instanceof Error ? err.message : String(err) }));
+        return;
+      }
+      download(`${name}.xlsx`, new Blob([exportRegisterWorkbook({ ...register, ...(thumbnails ? { thumbnails } : {}) }) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    }
+    setRegisterOpen(false);
+  };
+  const exportMarkupsXlsx = () => {
+    if (!activeOpen) return;
+    // Preferences › Markups List › Exclude Filtered Markups on Export, as for the CSV.
+    const only = prefs.excludeFilteredOnExport;
+    const rows = withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext);
+    const bytes = exportListWorkbook({ rows, columns: visibleListColumns, statuses: columnSet.statuses, docId: activeOpen.file.id, exportedAt: new Date().toISOString() });
+    download(activeOpen.file.name.replace(/\.pdf$/i, '') + ' markups.xlsx', new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  };
+  const importMarkupsXlsx = async () => {
+    const cur = activeOpen;
+    if (!cur) return;
+    const file = await pickFile('.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    if (!file) return;
+    try {
+      if (file.size > READ_LIMITS.maxBytes) throw new Error(msg('That workbook is too large to import.'));
+      const book = await readWorkbook(new Uint8Array(await file.arrayBuffer()));
+      setImportExcel({ fileId: cur.file.id, fileName: file.name, book, aliases: {} });
+    } catch (err) {
+      setError(msg('Importing {name} failed: {value}', { name: file.name, value: err instanceof Error ? err.message : String(err) }));
+    }
+  };
+  // A two-way link has its own columns and every markup: a filter or a hidden column in the list must not look like deleted rows or columns.
+  const syncColumns = sheetSync.link?.columns;
+  const syncKeyed = useMemo(() => {
+    if (!syncColumns || !isTwoWay(sheetSync.link)) return null;
+    const all = new Map(listColumns(columnSet.columns).map((c) => [c.key, c]));
+    const columns = syncColumns.flatMap((k) => all.get(k) ?? []);
+    return toSyncTable(withThreads(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, {}, null), cellContext), columns, { statuses: columnSet.statuses, replyColumns: [replyColumn(NEW_REPLY, NEW_REPLY_LABEL)] });
+    // The context is rebuilt every render; these are what it depends on.
+  }, [sheetSync.link, syncColumns, markups, scaleOf, sheets, columnSet]);
+  /** The Quantities sheet: the Quantity Summary by Item over every measurement, as a second sheet of the synced workbook. */
+  const quantitiesSheet = async () => {
+    const { buildReport, reportPageLabel } = await import('./takeoff/reports');
+    const { reportSheet } = await import('./takeoff/reportFiles');
+    const table = buildReport('byItem', { markups, assemblies: takeoffAssemblies, items: estimating.items, ctx: cellContext, pageLabel: reportPageLabel(sheets) });
+    return { ...reportSheet(table), name: 'Quantities' };
+  };
+  const [syncExtras, setSyncExtras] = useState<SheetSpec[]>([]);
+  const wantQuantities = !!sheetSync.link?.quantities;
+  useEffect(() => {
+    if (!wantQuantities) {
+      setSyncExtras((x) => (x.length ? [] : x));
+      return;
+    }
+    let live = true;
+    void quantitiesSheet().then((sheet) => live && setSyncExtras([sheet]));
+    return () => {
+      live = false;
+    };
+    // The context is rebuilt every render; these are what the quantities depend on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantQuantities, markups, takeoffAssemblies, estimating, scaleOf, sheets, columnSet]);
+  // Edits typed in Excel, applied to the document as one undo step. Replies are from the person at this computer: it is their workbook.
+  const syncApplyRef = useRef<(changes: CellChange[]) => void>(() => undefined);
+  syncApplyRef.current = (changes) => {
+    const store = activeOpen?.store;
+    if (!store) return;
+    const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor: authorRef.current, now: Date.now(), newId: () => crypto.randomUUID() });
+    store.checkpoint();
+    store.batch(() => {
+      for (const [id, patch] of patches) store.update(id, patch);
+    });
+    store.checkpoint();
+  };
+  const syncDocId = activeOpen?.file.id;
+  const syncTwoWay = useMemo<TwoWay | null>(() => (syncKeyed && syncDocId ? { table: syncKeyed, docId: syncDocId, apply: (changes) => syncApplyRef.current(changes) } : null), [syncKeyed, syncDocId]);
   const pushSyncTable = sheetSync.update;
   useEffect(() => {
-    if (syncTable && sheetSync.link) pushSyncTable(syncTable);
-  }, [syncTable, sheetSync.link, pushSyncTable]);
+    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : [], syncTwoWay);
+  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities, syncTwoWay]);
+
+  /** Takeoff › Reports: builds the picked reports for the scope and saves them as one PDF, one workbook or CSV files. */
+  const runReports = async (req: ReportRequest) => {
+    const cur = activeOpen;
+    if (!cur) return;
+    setReportsBusy(true);
+    setReportsError(null);
+    try {
+      const { buildReports, scopeMarkups, scopeLabel, scaleNote, reportPageLabel } = await import('./takeoff/reports');
+      const { reportsXlsx, reportCsv, reportFileName } = await import('./takeoff/reportFiles');
+      const listIds = new Set(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced).map((r) => r.markup.id));
+      const scoped = scopeMarkups(markups, req.scope, { pageIndex, selected: toolsState.selected, listIds });
+      const pageLabel = reportPageLabel(cur.store.allSheets());
+      const tables = buildReports(req.reports, { markups: scoped, assemblies: takeoffAssemblies, items: estimating.items, ctx: cellContext, pageLabel });
+      const base = cur.file.name.replace(/\.pdf$/i, '');
+      const scope = scopeLabel(req.scope, { pageLabel: pageLabel(pageIndex), count: scoped.length });
+      const date = new Date().toISOString().slice(0, 10);
+      const note = scaleNote(scoped, cellContext, pageLabel);
+      if (req.format === 'pdf') {
+        const { reportPdf } = await import('@nb/markup/report');
+        const bytes = await reportPdf({ project: base, date, scope, ...(note ? { scaleNote: note } : {}), paper: req.paper, reports: tables });
+        download(`${base} - Takeoff Reports.pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+      } else if (req.format === 'xlsx') {
+        const info = [[`Project: ${base}`], [`Cover: ${scope}`], [`Date: ${date}`], ...(note ? [[note]] : [])];
+        download(`${base} - Takeoff Reports.xlsx`, new Blob([reportsXlsx(tables, info) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      } else {
+        // Byte-order mark so Excel reads the CSV as UTF-8.
+        const files = tables.map((t) => ({ name: reportFileName(base, t.title, 'csv'), data: new TextEncoder().encode(`\uFEFF${reportCsv(t)}`) }));
+        if (files.length === 1) download(files[0]!.name, new Blob([files[0]!.data as BlobPart], { type: 'text/csv' }));
+        else {
+          const { zipFiles } = await import('./documents/zip');
+          download(`${base} - Takeoff Reports.zip`, new Blob([zipFiles(files) as BlobPart], { type: 'application/zip' }));
+        }
+      }
+      setReportsOpen(false);
+    } catch (err) {
+      setReportsError(err instanceof Error ? err.message : msg('The reports could not be made.'));
+    } finally {
+      setReportsBusy(false);
+    }
+  };
+  /** What each report scope covers, for the dialog (measurements only: the reports ignore other markups). */
+  const reportCounts = useMemo(() => {
+    if (!reportsOpen) return { all: 0, page: 0, selection: 0, list: 0 };
+    const measured = markups.filter((m) => isMeasureKind(m.type));
+    const listIds = new Set(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced).map((r) => r.markup.id));
+    return { all: measured.length, page: measured.filter((m) => m.pageIndex === pageIndex).length, selection: measured.filter((m) => toolsState.selected.has(m.id)).length, list: measured.filter((m) => listIds.has(m.id)).length };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportsOpen, markups, pageIndex, toolsState.selected, scaleOf, sheets, columnSet, ws.list]);
 
   // Tell the others in the session which document and page this attendee is on.
   useEffect(() => {
@@ -6426,7 +7100,7 @@ export function App() {
       waiting.push({ store, id: m.id });
       if (asking) return;
       asking = true;
-      void askText('Your name', '', { label: 'Your markups are signed with this name. You can change it later in Preferences.', confirm: 'Save' }).then((name) => {
+      void askText(msg('Your name'), '', { label: msg('Your markups are signed with this name. You can change it later in Preferences.'), confirm: msg('Save') }).then((name) => {
         named = true; // Declined: ask again next time the app starts, not on every markup.
         if (!name) return;
         MarkupStore.author = name;
@@ -6485,7 +7159,7 @@ export function App() {
   const onSideResize = (side: DockSide, e: { preventDefault(): void; clientX: number }) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = side === 'left' ? leftWidth : rightWidth;
+    const startW = side === 'left' ? shownWidths.left : shownWidths.right;
     const setWidth = side === 'left' ? setLeftWidth : setRightWidth;
     // The right panel's inner edge is its left one: dragging it left widens the panel.
     const dir = side === 'left' ? 1 : -1;
@@ -6520,25 +7194,28 @@ export function App() {
     window.addEventListener('pointerup', up);
   };
 
+  /**
+   * Split View. With other documents open, the most recently used one goes in the new pane. With only
+   * one open, it is shown on both sides with the views synchronised.
+   */
   const startSplit = () => {
-    if (split) return;
-    // Fork (leojru/redcolumn): as in Revu, the other pane shows the same document (its own view of
-    // it, the markups shared); with nothing open, a file is picked for it.
-    const current = openRef.current;
-    if (current) {
-      pendingSame.current = current;
-      setSplit(true);
-      setActivePane('b');
-      return;
-    }
-    splitFileRef.current?.click();
+    const front = openRef.current;
+    if (split || !front) return;
+    const tabs = tabsARef.current;
+    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentOpenIds.current);
+    const partner = tabs.find((t) => t.file.id === partnerId);
+    if (partner) {
+      pendingMove.current = partner;
+      splitOrigin.current = { id: partner.file.id, index: tabs.indexOf(partner) };
+    } else pendingMirror.current = true;
+    setSplit(true);
   };
 
   /** Swaps the two panes' tabs. */
   const swapPanes = () => {
     const a = openRef.current;
     const b = openBRef.current;
-    if (!a || !b || !ctl || !ctlB) return;
+    if (!a || !b || mirrorRef.current || !ctl || !ctlB) return;
     const tabs = tabsARef.current;
     savedViews.current.set(a.file.id, ctl.viewer.getView());
     savedViews.current.set(b.file.id, ctlB.viewer.getView());
@@ -6554,7 +7231,7 @@ export function App() {
     const front = pane === 'b' ? openB : open;
     return (
       <DocTabStrip
-        label={pane === 'b' ? 'Right pane documents' : 'Documents'}
+        label={pane === 'b' ? msg('Right pane documents') : msg('Documents')}
         activeKey={front?.file.id ?? null}
         count={tabs.length}
         onOverflowMenu={(e) => {
@@ -6570,8 +7247,8 @@ export function App() {
           <button
             type="button"
             className="doc-tab-add"
-            title="New or open PDF"
-            aria-label="New or open PDF"
+            title={msg('New or open PDF')}
+            aria-label={msg('New or open PDF')}
             onClick={(e) => {
               setActivePane(pane);
               activePaneRef.current = pane;
@@ -6580,8 +7257,8 @@ export function App() {
                 x: r.left,
                 y: r.bottom,
                 items: [
-                  { label: 'New PDF…', shortcut: shortcutLabel('file.newPdf'), onClick: () => commandsRef.current.get('file.newPdf')?.run() },
-                  { label: 'Open PDF…', shortcut: shortcutLabel('file.open'), onClick: () => openFromDisk() },
+                  { label: msg('New PDF…'), shortcut: shortcutLabel('file.newPdf'), onClick: () => commandsRef.current.get('file.newPdf')?.run() },
+                  { label: msg('Open PDF…'), shortcut: shortcutLabel('file.open'), onClick: () => openFromDisk() },
                 ],
               });
             }}
@@ -6599,7 +7276,7 @@ export function App() {
               role="tab"
               aria-selected={t === front}
               className={`doc-tab${t === front ? ' active' : ''}`}
-              title={session ? `${t.file.name} · Live Session ${sessionName ?? session.sessionId}` : tabPaths[t.file.id] ? `${t.file.name}\n${tabPaths[t.file.id]}` : t.file.name}
+              title={session ? msg('{name} · Live Session {value}', { name: t.file.name, value: sessionName ?? session.sessionId }) : tabPaths[t.file.id] ? `${t.file.name}\n${tabPaths[t.file.id]}` : t.file.name}
               onMouseEnter={() => void fileLocationPath(t.file.id).then((p) => p && setTabPaths((had) => (had[t.file.id] === p ? had : { ...had, [t.file.id]: p }))).catch(() => undefined)}
               onClick={() => activateTab(pane, t)}
               onContextMenu={(e) => showMenu(e, tabMenu(pane, t))}
@@ -6643,15 +7320,15 @@ export function App() {
               }}
             >
               {session && (
-                <span className="studio-badge" title={`Live Session document${sessionName ? ` (${sessionName})` : ''}: markups sync with everyone in the session`}>
-                  Live
+                <span className="studio-badge" title={msg('Live Session document{value}: markups sync with everyone in the session', { value: sessionName ? ` (${sessionName})` : '' })}>
+                  {msg('Live')}
                 </span>
               )}
               <TabName t={t} saved={savedTick} />
               <button
                 type="button"
                 className="close"
-                title="Close"
+                title={msg('Close')}
                 onClick={(e) => {
                   e.stopPropagation();
                   void requestCloseTab(pane, t.file.id);
@@ -6662,7 +7339,7 @@ export function App() {
             </div>
           );
         })}
-        {tabs.length === 0 && <div className="doc-tab empty">No document</div>}
+        {tabs.length === 0 && <div className="doc-tab empty">{msg('No document')}</div>}
       </DocTabStrip>
     );
   };
@@ -6703,7 +7380,7 @@ export function App() {
   /** Tool picks for the page menu, grouped like the Markup and Measure menus. */
   const toolEntries = (tools: MarkupTools, list: { tool: Tool }[]): MenuEntry[] =>
     list.map(({ tool }) => ({
-      label: isMarkupTool(tool) ? MARKUP_LABELS[tool] : tool === 'select' ? 'Select' : 'Calibrate',
+      label: isMarkupTool(tool) ? MARKUP_LABELS[tool] : tool === 'select' ? msg('Select') : msg('Calibrate'),
       shortcut: toolShortcut(tool),
       checked: tools.getState().tool === tool,
       onClick: () => tools.setTool(tool),
@@ -6726,7 +7403,7 @@ export function App() {
       if (m.locked || !store.mayEdit(m)) return [];
       // As text boxes draw it: the font at its size in points.
       g.font = cssFont(m.style, m.style.fontSize ?? 12);
-      const points = autoSizedPoints(m, (t) => g.measureText(t).width, { keepWidth: true });
+      const points = autoSizedPoints(m, (t) => g.measureText(t).width);
       return points ? [{ id: m.id, points }] : [];
     });
     if (!sized.length) return;
@@ -6773,7 +7450,7 @@ export function App() {
     if (!pictures.length) return;
     store.checkpoint();
     store.batch(() => pictures.forEach(({ id, capture }) => store.update(id, { capture })));
-    setNotice(`Captured ${pictures.length} markup${pictures.length === 1 ? '' : 's'}. The Capture column in the Markups list shows ${pictures.length === 1 ? 'it' : 'them'}.`);
+    setNotice(msg('Captured {count, plural, one {# markup} other {# markups}}. The Capture column in the Markups list shows {value}.', { count: pictures.length, value: pictures.length === 1 ? msg('it') : msg('them') }));
   };
 
   /**
@@ -6784,7 +7461,7 @@ export function App() {
     const { c, o } = paneParts(pane);
     if (!o) return;
     if (studioDocOf(o.file.id)) {
-      setError('A Live Session document is shared with others, so its markups cannot be flattened here.');
+      setError(msg('A Live Session document is shared with others, so its markups cannot be flattened here.'));
       return;
     }
     const store = o.store;
@@ -6792,7 +7469,7 @@ export function App() {
     const targets = ms.filter((m) => m.type !== 'hyperlink' && m.type !== 'space' && !m.locked && store.mayEdit(m));
     if (!targets.length) return;
     const n = `${targets.length} markup${targets.length === 1 ? '' : 's'}`;
-    if (!confirm(`Flatten ${n} into the page? ${targets.length === 1 ? 'It becomes' : 'They become'} part of the drawing and can no longer be edited. The file as it is now is kept as a revision.`)) return;
+    if (!confirm(msg('Flatten {n} into the page? {value} part of the drawing and can no longer be edited. The file as it is now is kept as a revision.', { n, value: targets.length === 1 ? msg('It becomes') : msg('They become') }))) return;
     try {
       // The PDF's own annotations the targets stand for (with their replies and states) go too.
       const imported = store.importedAnnotations();
@@ -6812,9 +7489,9 @@ export function App() {
       const { bytes, count } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), drop);
       c?.tools.select([]);
       await commitDocument(o, bytes.slice().buffer, () => store.removeFlattened(targets.map((m) => m.id), drop), `Before flattening ${n}`);
-      setNotice(`Flattened ${count} markup${count === 1 ? '' : 's'} into the page. File › Revisions has the file as it was.`);
+      setNotice(msg('Flattened {count, plural, one {# markup} other {# markups}} into the page. File › Revisions has the file as it was.', { count }));
     } catch (err) {
-      setError(`Flatten failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Flatten failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -6835,9 +7512,11 @@ export function App() {
     // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
     const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
     const replyMarkup = oneGroup ? (ms.find((m) => isTextType(m.type)) ?? first) : first;
-    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders.
+    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders; a single text box
+    // becomes a callout when given one.
     const callouts = ms.filter((m) => m.type === 'callout');
     const callout = callouts.length === 1 ? callouts[0] : undefined;
+    const leaderTarget = callout ?? (one && first.type === 'text' ? first : undefined);
     const status = one ? first.status : null;
     const setStatus = (s: string) => {
       store.checkpoint();
@@ -6850,13 +7529,13 @@ export function App() {
         ? [
             SEP,
             {
-              label: 'Connector',
+              label: msg('Connector'),
               disabled: ro || !!connector.locked,
               items: [
-                { label: 'Right-Angle', checked: (connector.connect?.route ?? 'elbow') === 'elbow', onClick: () => c.tools.setRouteOf(connector.id, 'elbow') },
-                { label: 'Straight', checked: connector.connect?.route === 'straight', onClick: () => c.tools.setRouteOf(connector.id, 'straight') },
+                { label: msg('Right-Angle'), checked: (connector.connect?.route ?? 'elbow') === 'elbow', onClick: () => c.tools.setRouteOf(connector.id, 'elbow') },
+                { label: msg('Straight'), checked: connector.connect?.route === 'straight', onClick: () => c.tools.setRouteOf(connector.id, 'straight') },
                 SEP,
-                { label: 'Reset Route', disabled: !connector.connect?.bends, onClick: () => c.tools.setRouteOf(connector.id, 'reset') },
+                { label: msg('Reset Route'), disabled: !connector.connect?.bends, onClick: () => c.tools.setRouteOf(connector.id, 'reset') },
               ],
             },
           ]
@@ -6892,80 +7571,101 @@ export function App() {
       };
       return [
         SEP,
-        { label: 'Edit Cell Text', disabled: off, onClick: () => setEditingCell({ id: m.id, ...cell }) },
-        { label: 'Merge Cells', disabled: off || !c.tools.canMergeCells(), onClick: () => c.tools.mergeSelectedCells() },
-        { label: 'Split Cell', disabled: off || !c.tools.canSplitCells(), onClick: () => c.tools.splitSelectedCells() },
-        { label: 'Insert Row Above', disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row, cell.row)) },
-        { label: 'Insert Row Below', disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row + 1, cell.row)) },
-        { label: 'Insert Column Left', disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col, cell.col)) },
-        { label: 'Insert Column Right', disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col + 1, cell.col)) },
-        { label: `Delete Row ${cell.row + 1}`, danger: true, disabled: off || t.rows.length <= 1, onClick: () => apply(deleteTableRow(m, cell.row)) },
-        { label: `Delete Column ${cell.col + 1}`, danger: true, disabled: off || t.cols.length <= 1, onClick: () => apply(deleteTableColumn(m, cell.col)) },
+        { label: msg('Edit Cell Text'), disabled: off, onClick: () => setEditingCell({ id: m.id, ...cell }) },
+        { label: msg('Merge Cells'), disabled: off || !c.tools.canMergeCells(), onClick: () => c.tools.mergeSelectedCells() },
+        { label: msg('Split Cell'), disabled: off || !c.tools.canSplitCells(), onClick: () => c.tools.splitSelectedCells() },
+        { label: msg('Insert Row Above'), disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row, cell.row)) },
+        { label: msg('Insert Row Below'), disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row + 1, cell.row)) },
+        { label: msg('Insert Column Left'), disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col, cell.col)) },
+        { label: msg('Insert Column Right'), disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col + 1, cell.col)) },
+        { label: msg('Delete Row {number}', { number: cell.row + 1 }), danger: true, disabled: off || t.rows.length <= 1, onClick: () => apply(deleteTableRow(m, cell.row)) },
+        { label: msg('Delete Column {number}', { number: cell.col + 1 }), danger: true, disabled: off || t.cols.length <= 1, onClick: () => apply(deleteTableColumn(m, cell.col)) },
         SEP,
       ];
     };
     return [
-      { label: 'Cut', icon: MENU_ICONS.cut, shortcut: shortcutLabel('edit.cut'), disabled: ro || allLocked, onClick: () => cutMarkups(pane) },
-      { label: 'Copy', icon: MENU_ICONS.copy, shortcut: shortcutLabel('edit.copy'), onClick: () => copyMarkups(pane) },
-      { label: 'Paste', icon: MENU_ICONS.paste, shortcut: shortcutLabel('edit.paste'), disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, first.pageIndex, null) },
-      { label: 'Multiply…', icon: MENU_ICONS.multiply, shortcut: shortcutLabel('edit.multiply'), disabled: ro || allLocked, onClick: () => setMultiplyFor(pane) },
-      { label: 'Format Painter', icon: MENU_ICONS.painter, shortcut: shortcutLabel('edit.formatPainter'), disabled: ro || !one, onClick: () => c.tools.setTool('painter') },
-      { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
+      { label: msg('Cut'), icon: MENU_ICONS.cut, shortcut: shortcutLabel('edit.cut'), disabled: ro || allLocked, onClick: () => cutMarkups(pane) },
+      { label: msg('Copy'), icon: MENU_ICONS.copy, shortcut: shortcutLabel('edit.copy'), onClick: () => copyMarkups(pane) },
+      { label: msg('Paste'), icon: MENU_ICONS.paste, shortcut: shortcutLabel('edit.paste'), disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, first.pageIndex, null) },
+      { label: msg('Multiply…'), icon: MENU_ICONS.multiply, shortcut: shortcutLabel('edit.multiply'), disabled: ro || allLocked, onClick: () => setMultiplyFor(pane) },
+      { label: msg('Format Painter'), icon: MENU_ICONS.painter, shortcut: shortcutLabel('edit.formatPainter'), disabled: ro || !one, onClick: () => c.tools.setTool('painter') },
+      { label: msg('Delete'), icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
       SEP,
-      { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
+      { label: msg('Round All Corners'), checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
+      ...(ms.some((m) => m.type === 'image' && m.image)
+        ? [{ label: msg('Adjust Image…'), disabled: ro || allLocked, onClick: () => setAdjustImageFor({ pane, ids: ms.filter((m) => m.type === 'image' && m.image).map((m) => m.id) }) } as MenuEntry]
+        : []),
       // A picture's own colours are swapped, not the line and fill colours the other markups have.
-      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
-      { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
+      { label: msg('Change Colours…'), disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
+      { label: msg('Auto-size Text Box'), shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
       // What only some kinds of markup have.
       // Right-click on a measurement's segment: curve it, or straighten it.
       ...(() => {
         const seg = one && at ? c.tools.segmentAt(first.id, at) : null;
         return seg
-          ? [{ label: seg.curved ? 'Convert to Line' : 'Convert to Arc', disabled: ro || theirs || !!first.locked, onClick: () => c.tools.setSegmentCurve(first.id, seg.segment, !seg.curved) } as MenuEntry]
+          ? [{ label: seg.curved ? msg('Convert to Line') : msg('Convert to Arc'), disabled: ro || theirs || !!first.locked, onClick: () => c.tools.setSegmentCurve(first.id, seg.segment, !seg.curved) } as MenuEntry]
           : [];
       })(),
-      ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
+      ...(one && isTextType(first.type) ? [{ label: msg('Edit Text'), disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
       ...(one && first.type === 'table' ? tableItems(first) : []),
       // A count or an open line carries on from where it stopped (a line from the end nearest the click).
-      ...(one && c.tools.canResumeMarkup(first.id) ? [{ label: 'Resume', disabled: ro || theirs || !!first.locked, onClick: () => c.tools.resume(first.id, at) } as MenuEntry] : []),
-      ...(one && !isTextType(first.type) ? [{ label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || theirs, onClick: () => setCommentEdit({ pane, id: first.id }) }] : []),
+      ...(one && c.tools.canResumeMarkup(first.id) ? [{ label: msg('Resume'), disabled: ro || theirs || !!first.locked, onClick: () => c.tools.resume(first.id, at) } as MenuEntry] : []),
+      ...(one && !isTextType(first.type) ? [{ label: first.comment ? msg('Edit Comment…') : msg('Add Comment…'), disabled: ro || theirs, onClick: () => setCommentEdit({ pane, id: first.id }) }] : []),
       ...(ms.every((m) => ROTATABLE.has(m.type))
         ? [
             {
-              label: 'Rotate',
+              label: msg('Rotate'),
               disabled: ro || allLocked,
               items: [
-                { label: 'Rotate 90° Clockwise', onClick: () => turnMarkups(store, ms, 90) },
-                { label: 'Rotate 90° Counterclockwise', onClick: () => turnMarkups(store, ms, -90) },
+                { label: msg('Rotate 90° Clockwise'), onClick: () => turnMarkups(store, ms, 90) },
+                { label: msg('Rotate 90° Counterclockwise'), onClick: () => turnMarkups(store, ms, -90) },
                 {
-                  label: 'Rotate…',
+                  label: msg('Rotate…'),
                   onClick: () =>
-                    void askText('Rotate', String(first.rotation ?? 0), { label: 'Angle in degrees, clockwise (drag the round handle above a selected markup to turn it freely).', confirm: 'Rotate' }).then((t) => {
-                      const deg = Number(t);
-                      if (t !== null && Number.isFinite(deg)) turnMarkups(store, ms, deg, true);
-                    }),
+                    void (async () => {
+                      const help = msg('Angle in degrees, clockwise, or a grade such as 2% or 1:50 (negative falls to the right). Drag the round handle above a selected markup to turn it freely.');
+                      let initial = String(first.rotation ?? 0);
+                      let note = '';
+                      // Ask again, with the reason, until the input is understood or the dialog is cancelled.
+                      for (;;) {
+                        const t = await askText(msg('Rotate'), initial, { label: note ? `${note}\n${help}` : help, confirm: msg('Rotate') });
+                        if (t === null) return;
+                        const r = parseRotationInput(t);
+                        if (r.ok && (!r.warning || t === initial)) return turnMarkups(store, ms, r.degrees, true);
+                        initial = t;
+                        note = r.ok ? msg('{warning} Press Rotate again to apply it.', { warning: r.warning }) : r.error;
+                      }
+                    })(),
                 },
-                { label: 'Reset Rotation', disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
+                { label: msg('Reset Rotation'), disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
               ],
             },
           ]
         : []),
-      ...(callout
+      ...(leaderTarget
         ? [
-            { label: 'Add Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.addCalloutLeader(callout.id) } as MenuEntry,
-            ...(callout.points.length >= 6 ? [{ label: 'Remove Last Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.removeCalloutLeader(callout.id) } as MenuEntry] : []),
+            { label: msg('Add Leader'), disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.addCalloutLeader(leaderTarget.id) } as MenuEntry,
+            ...(leaderTarget.type === 'callout' && leaderTarget.points.length >= 6
+              ? [{ label: msg('Remove Last Leader'), disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.removeCalloutLeader(leaderTarget.id) } as MenuEntry]
+              : []),
           ]
         : []),
       ...(one && first.attachment
         ? [
-            { label: 'Open Attachment', onClick: () => openAttachment(first) },
-            { label: 'Save Attachment…', onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
+            { label: msg('Open Attachment'), onClick: () => openAttachment(first) },
+            { label: msg('Save Attachment…'), onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
+          ]
+        : []),
+      ...(one && first.type === 'image' && first.image
+        ? [
+            { label: msg('Crop Image'), disabled: ro || !!first.locked, onClick: () => c.tools.setTool('cropImage') } as MenuEntry,
+            { label: msg('Reset Crop'), disabled: ro || !!first.locked || !cropOf(first), onClick: () => c.tools.resetCropSelected() } as MenuEntry,
           ]
         : []),
       ...connectorItems(),
       SEP,
       {
-        label: 'Layer',
+        label: msg('Layer'),
         disabled: ro,
         items: [
           ...[...new Set([...store.all().flatMap((m) => (m.layer ? [m.layer] : [])), ...(o ? addedMarkupLayers(o.file.id) : [])])].sort().map((name) => ({
@@ -6973,74 +7673,74 @@ export function App() {
             checked: ms.every((m) => m.layer === name),
             onClick: () => setAll(() => ({ layer: name })),
           })),
-          { label: 'No Layer', checked: ms.every((m) => !m.layer), onClick: () => setAll(() => ({ layer: undefined })) },
+          { label: msg('No Layer'), checked: ms.every((m) => !m.layer), onClick: () => setAll(() => ({ layer: undefined })) },
           SEP,
           {
-            label: 'New Layer…',
+            label: msg('New Layer…'),
             onClick: () =>
-              void askText('New Markup Layer', '', { label: 'The selected markups move to it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => {
+              void askText(msg('New Markup Layer'), '', { label: msg('The selected markups move to it. Layers show and hide in the Layers panel, and are PDF layers in saved files.'), confirm: msg('Create') }).then((name) => {
                 if (name) setAll(() => ({ layer: name }));
               }),
           },
         ],
       },
       {
-        label: 'Order',
+        label: msg('Order'),
         disabled: ro,
         items: [
-          { label: 'Bring to Front', shortcut: shortcutLabel('edit.bringToFront'), onClick: () => c.tools.arrange(ids, 'front') },
-          { label: 'Bring Forward', shortcut: shortcutLabel('edit.bringForward'), onClick: () => c.tools.arrange(ids, 'forward') },
-          { label: 'Send Backward', shortcut: shortcutLabel('edit.sendBackward'), onClick: () => c.tools.arrange(ids, 'backward') },
-          { label: 'Send to Back', shortcut: shortcutLabel('edit.sendToBack'), onClick: () => c.tools.arrange(ids, 'back') },
+          { label: msg('Bring to Front'), shortcut: shortcutLabel('edit.bringToFront'), onClick: () => c.tools.arrange(ids, 'front') },
+          { label: msg('Bring Forward'), shortcut: shortcutLabel('edit.bringForward'), onClick: () => c.tools.arrange(ids, 'forward') },
+          { label: msg('Send Backward'), shortcut: shortcutLabel('edit.sendBackward'), onClick: () => c.tools.arrange(ids, 'backward') },
+          { label: msg('Send to Back'), shortcut: shortcutLabel('edit.sendToBack'), onClick: () => c.tools.arrange(ids, 'back') },
         ],
       },
       {
-        label: 'Alignment',
+        label: msg('Alignment'),
         disabled: ro || allLocked,
         items: [
-          { label: 'Align Left', shortcut: shortcutLabel('edit.alignLeft'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignLeft')?.run() },
-          { label: 'Align Center', shortcut: shortcutLabel('edit.alignCenter'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignCenter')?.run() },
-          { label: 'Align Right', shortcut: shortcutLabel('edit.alignRight'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignRight')?.run() },
-          { label: 'Align Top', shortcut: shortcutLabel('edit.alignTop'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignTop')?.run() },
-          { label: 'Align Middle', shortcut: shortcutLabel('edit.alignMiddle'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignMiddle')?.run() },
-          { label: 'Align Bottom', shortcut: shortcutLabel('edit.alignBottom'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignBottom')?.run() },
-          { label: 'Center in Document', disabled: anyLocked, onClick: () => commandsRef.current.get('edit.centerInDocument')?.run() },
+          { label: msg('Align Left'), shortcut: shortcutLabel('edit.alignLeft'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignLeft')?.run() },
+          { label: msg('Align Center'), shortcut: shortcutLabel('edit.alignCenter'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignCenter')?.run() },
+          { label: msg('Align Right'), shortcut: shortcutLabel('edit.alignRight'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignRight')?.run() },
+          { label: msg('Align Top'), shortcut: shortcutLabel('edit.alignTop'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignTop')?.run() },
+          { label: msg('Align Middle'), shortcut: shortcutLabel('edit.alignMiddle'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignMiddle')?.run() },
+          { label: msg('Align Bottom'), shortcut: shortcutLabel('edit.alignBottom'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignBottom')?.run() },
+          { label: msg('Center in Document'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.centerInDocument')?.run() },
           SEP,
-          { label: 'Distribute Horizontally', disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeHorizontal')?.run() },
-          { label: 'Distribute Vertically', disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeVertical')?.run() },
+          { label: msg('Distribute Horizontally'), disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeHorizontal')?.run() },
+          { label: msg('Distribute Vertically'), disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeVertical')?.run() },
           SEP,
-          { label: 'Same Width', disabled: one, onClick: () => commandsRef.current.get('edit.sameWidth')?.run() },
-          { label: 'Same Height', disabled: one, onClick: () => commandsRef.current.get('edit.sameHeight')?.run() },
-          { label: 'Same Size', disabled: one, onClick: () => commandsRef.current.get('edit.sameSize')?.run() },
+          { label: msg('Same Width'), disabled: one, onClick: () => commandsRef.current.get('edit.sameWidth')?.run() },
+          { label: msg('Same Height'), disabled: one, onClick: () => commandsRef.current.get('edit.sameHeight')?.run() },
+          { label: msg('Same Size'), disabled: one, onClick: () => commandsRef.current.get('edit.sameSize')?.run() },
           SEP,
-          { label: 'Flip Horizontal', shortcut: shortcutLabel('edit.flipHorizontal'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipHorizontal')?.run() },
-          { label: 'Flip Vertical', shortcut: shortcutLabel('edit.flipVertical'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipVertical')?.run() },
+          { label: msg('Flip Horizontal'), shortcut: shortcutLabel('edit.flipHorizontal'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipHorizontal')?.run() },
+          { label: msg('Flip Vertical'), shortcut: shortcutLabel('edit.flipVertical'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipVertical')?.run() },
           SEP,
-          { label: 'Scale to Length…', onClick: () => c.tools.setTool('scaleLength') },
+          { label: msg('Scale to Length…'), onClick: () => c.tools.setTool('scaleLength') },
         ],
       },
       // Any markup can carry an action (a flag that opens a detail, a cloud that opens an RFI page).
-      { label: 'Edit Action…', shortcut: shortcutLabel('edit.editAction'), disabled: ro || theirs || !one, onClick: () => setHyperlinkEdit({ pane, id: first.id }) },
+      { label: msg('Edit Action…'), shortcut: shortcutLabel('edit.editAction'), disabled: ro || theirs || !one, onClick: () => setHyperlinkEdit({ pane, id: first.id }) },
       {
-        label: 'Capture',
+        label: msg('Capture'),
         disabled: ro,
         items: [
           {
-            label: ms.some((m) => m.capture) ? 'Capture Again' : 'Capture',
+            label: ms.some((m) => m.capture) ? msg('Capture Again') : msg('Capture'),
             disabled: theirs,
-            onClick: () => void captureMarkups(o, ms).catch((err) => setError(`Capture failed: ${err instanceof Error ? err.message : String(err)}`)),
+            onClick: () => void captureMarkups(o, ms).catch((err) => setError(msg('Capture failed: {value}', { value: err instanceof Error ? err.message : String(err) }))),
           },
-          { label: 'View Capture', disabled: !one || !first.capture, onClick: () => setCaptureView(first.capture ?? null) },
-          { label: 'Remove Capture', disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
+          { label: msg('View Capture'), disabled: !one || !first.capture, onClick: () => setCaptureView(first.capture ?? null) },
+          { label: msg('Remove Capture'), disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
         ],
       },
-      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
+      { label: msg('Flatten'), icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
       // Fork: a selection of groups can be grouped again (groups inside a group); only one whole group has nothing to join.
-      ...(!grouped || !oneWholeGroup ? [{ label: 'Group', shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() }] : []),
-      ...(grouped ? [{ label: 'Ungroup', shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }] : []),
-      { label: anyLocked ? 'Unlock' : 'Lock', shortcut: shortcutLabel('edit.lock'), disabled: ro || theirs, onClick: () => c.tools.setLocked(!anyLocked) },
+      ...(!grouped || !oneWholeGroup ? [{ label: msg('Group'), shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() }] : []),
+      ...(grouped ? [{ label: msg('Ungroup'), shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }] : []),
+      { label: anyLocked ? msg('Unlock') : msg('Lock'), shortcut: shortcutLabel('edit.lock'), disabled: ro || theirs, onClick: () => c.tools.setLocked(!anyLocked) },
       {
-        label: ms.every((m) => m.hidden) ? 'Show' : 'Hide',
+        label: ms.every((m) => m.hidden) ? msg('Show') : msg('Hide'),
         icon: MENU_ICONS.hide,
         disabled: ro,
         onClick: () => {
@@ -7050,12 +7750,12 @@ export function App() {
         },
       },
       {
-        label: 'Legend',
+        label: msg('Legend'),
         icon: MENU_ICONS.legend,
         disabled: ro,
         items: [
           {
-            label: 'Show in Legends',
+            label: msg('Show in Legends'),
             checked: ms.every((m) => !m.legendHidden),
             disabled: theirs,
             onClick: () => {
@@ -7063,12 +7763,12 @@ export function App() {
               setAll(() => ({ legendHidden: show ? undefined : true }));
             },
           },
-          { label: 'New Legend', onClick: () => c.tools.setTool('legend') },
+          { label: msg('New Legend'), onClick: () => c.tools.setTool('legend') },
           ...(one && first.type === 'legend'
             ? [
                 SEP,
                 ...(['page', 'document'] as const).map((scope) => ({
-                  label: scope === 'page' ? 'Lists Markups on This Page' : 'Lists Markups in the Document',
+                  label: scope === 'page' ? msg('Lists Markups on This Page') : msg('Lists Markups in the Document'),
                   checked: (first.legend?.scope ?? 'page') === scope,
                   onClick: () => store.update(first.id, { legend: { scope } }),
                 })),
@@ -7077,18 +7777,18 @@ export function App() {
         ],
       },
       SEP,
-      { label: 'Reply', icon: MENU_ICONS.reply, disabled: ro || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
+      { label: msg('Reply'), icon: MENU_ICONS.reply, disabled: ro || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
       {
-        label: 'Set Status',
+        label: msg('Set Status'),
         disabled: ro,
         items: store.columnSet().statuses.map((s) => ({
-          label: s.id === 'none' ? 'None' : s.name,
+          label: s.id === 'none' ? msg('None') : s.name,
           checked: status === s.id,
           onClick: () => setStatus(s.id),
         })),
       },
       {
-        label: 'Check',
+        label: msg('Check'),
         checked: ms.every((m) => m.checked),
         disabled: ro,
         onClick: () => {
@@ -7097,7 +7797,7 @@ export function App() {
         },
       },
       {
-        label: ms.every((m) => m.flagged) ? 'Unflag' : 'Flag',
+        label: ms.every((m) => m.flagged) ? msg('Unflag') : msg('Flag'),
         disabled: ro,
         onClick: () => {
           const flag = !ms.every((m) => m.flagged);
@@ -7107,10 +7807,10 @@ export function App() {
       ...(session
         ? [
             {
-              label: 'Send Markup Alert…',
+              label: msg('Send Markup Alert…'),
               disabled: !one || sessionById(session.sessionId)?.meta.status !== 'active',
               onClick: () =>
-                void askText('Send Markup Alert', first.comment ?? '', { label: 'Everyone in the session is shown this markup, with your message.', confirm: 'Send' }).then((text) => {
+                void askText(msg('Send Markup Alert'), first.comment ?? '', { label: msg('Everyone in the session is shown this markup, with your message.'), confirm: msg('Send') }).then((text) => {
                   if (text) sessionById(session.sessionId)?.sendAlert(session.docId, first.id, first.pageIndex, text);
                 }),
             },
@@ -7118,7 +7818,7 @@ export function App() {
         : []),
       SEP,
       {
-        label: 'Add to Tool Library',
+        label: msg('Add to Tool Library'),
         items: [
           ...profiles
             .active()
@@ -7126,9 +7826,9 @@ export function App() {
             .map((t) => ({ label: t.name, onClick: () => toolChestItemsOf(ms, store).forEach((item) => addToToolSet(t.id, item)) })),
           SEP,
           {
-            label: 'New Tool Set…',
+            label: msg('New Tool Set…'),
             onClick: () =>
-              void askText('New Tool Set', 'My Tools', { confirm: 'Create' }).then((name) => {
+              void askText(msg('New Tool Set'), 'My Tools', { confirm: msg('Create') }).then((name) => {
                 if (name) {
                   const id = createToolSet(name);
                   toolChestItemsOf(ms, store).forEach((item) => addToToolSet(id, item));
@@ -7137,18 +7837,41 @@ export function App() {
           },
         ],
       },
+      ...(ms.some(canBeCountSymbol)
+        ? [
+            {
+              label: msg('Save as Count Symbol…'),
+              onClick: () =>
+                void askText(msg('Save as Count Symbol'), first.subject || MARKUP_LABELS[first.type], {
+                  label: msg('Name for this custom Count marker symbol (saved to your profile):'),
+                  confirm: msg('Save'),
+                }).then((name) => {
+                  if (!name?.trim()) return;
+                  const sym = symbolFromMarkups(ms, name.trim(), crypto.randomUUID());
+                  if (!sym) return;
+                  if (!addCountSymbol(sym)) {
+                    setNotice(msg('Could not save count symbol: browser storage is full.'));
+                    return;
+                  }
+                  c.tools.setDefaultStyle('count', { countShape: undefined, countSymbol: structuredClone(sym) });
+                  setNotice(msg('Saved count symbol “{name}”.', { name: sym.name }));
+                }),
+            },
+          ]
+        : []),
+      ...(one && templateable(first) ? [{ label: msg('Save as Template…'), disabled: ro, onClick: () => void saveAsTemplate(first) }] : []),
       SEP,
-      { label: 'Set as Default', disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
+      { label: msg('Set as Default'), disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
       {
-        label: 'Apply to Pages…',
+        label: msg('Apply to Pages…'),
         disabled: ro || allLocked || pageCount < 2,
         onClick: () =>
-          void askText('Apply to Pages', `1-${pageCount}`, { label: 'Pages to copy the selection onto, at the same place: for example 1-3, 5, 8- (each markup’s own page is skipped).', confirm: 'Apply' }).then((text) => {
+          void askText(msg('Apply to Pages'), `1-${pageCount}`, { label: msg('Pages to copy the selection onto, at the same place: for example 1-3, 5, 8- (each markup’s own page is skipped).'), confirm: msg('Apply') }).then((text) => {
             const pages = text === null ? [] : parsePageRange(text, pageCount);
             if (pages.length) c.tools.applyToPages(pages);
           }),
       },
-      { label: 'Properties', icon: MENU_ICONS.properties, onClick: () => showPanel('properties') },
+      { label: msg('Properties'), icon: MENU_ICONS.properties, onClick: () => showPanel('properties') },
     ];
   };
 
@@ -7156,7 +7879,7 @@ export function App() {
   const pageMenu = (pane: Pane, page: number, pt: PagePoint): MenuEntry[] => {
     const { c, o } = paneParts(pane);
     if (!c) return [];
-    if (!o) return [{ label: 'Open…', shortcut: 'Ctrl+O', onClick: () => openFromDisk() }];
+    if (!o) return [{ label: msg('Open…'), shortcut: 'Ctrl+O', onClick: () => openFromDisk() }];
     const ro = o.store.readOnly;
     const v = c.viewer;
     const mode = (pane === 'b' ? statsB : stats)?.mode;
@@ -7164,50 +7887,54 @@ export function App() {
     const shared = !!studioDocOf(o.file.id);
     const pageOps = shared || busyPages;
     const geo = geoAt(o.store.allGeoRegions(), page, pt);
+    // While a polylength or area is being drawn, its next segment can be made a 3-point arc.
+    const arcOn = c.tools.getState().arc !== 'off';
+    const arcEntry: MenuEntry[] = !ro && c.tools.getState().measuring && (arcOn || c.tools.canArc()) ? [{ label: msg('Arc (3-point)'), shortcut: shortcutLabel('draw.arc'), checked: arcOn, onClick: () => c.tools.toggleArc() }, SEP] : [];
     return [
+      ...arcEntry,
       ...toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool === 'select')),
-      { label: 'Markup', disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
-      { label: 'Measure', disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) },
+      { label: msg('Markup'), disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
+      { label: msg('Measure'), disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) },
       SEP,
-      { label: 'Paste', shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
-      { label: 'Select All Markups', shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
-      ...(geo ? [{ label: 'Copy Coordinates', onClick: () => void navigator.clipboard.writeText(formatLatLon(geo.lat, geo.lon, settings.get().geoFormat)).catch(() => {}) }] : []),
+      { label: msg('Paste'), shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
+      { label: msg('Select All Markups'), shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
+      ...(geo ? [{ label: msg('Copy Coordinates'), onClick: () => void navigator.clipboard.writeText(formatLatLon(geo.lat, geo.lon, settings.get().geoFormat)).catch(() => {}) }] : []),
       SEP,
-      { label: 'Previous View', shortcut: 'Alt+←', disabled: !canGoBack, onClick: goBack },
-      { label: 'Previous Page', shortcut: 'PgUp', disabled: page <= 0, onClick: () => v.prevPage() },
-      { label: 'Next Page', shortcut: 'PgDn', disabled: page >= count - 1, onClick: () => v.nextPage() },
+      { label: msg('Previous View'), shortcut: 'Alt+←', disabled: !canGoBack, onClick: goBack },
+      { label: msg('Previous Page'), shortcut: 'PgUp', disabled: page <= 0, onClick: () => v.prevPage() },
+      { label: msg('Next Page'), shortcut: 'PgDn', disabled: page >= count - 1, onClick: () => v.nextPage() },
       SEP,
-      { label: 'Zoom In', shortcut: '+', onClick: () => v.zoomSteps(settings.get().buttonZoomStep, 1) },
-      { label: 'Zoom Out', shortcut: '−', onClick: () => v.zoomSteps(settings.get().buttonZoomStep, -1) },
-      { label: 'Fit Page', shortcut: 'Ctrl+9', onClick: () => v.fit() },
-      { label: 'Fit Width', shortcut: 'Ctrl+0', onClick: () => v.fitToWidth() },
-      { label: 'Actual Size', shortcut: 'Ctrl+8', onClick: () => v.actualSize() },
-      { label: 'Single Page', shortcut: 'Ctrl+4', checked: mode === 'single', onClick: () => v.setPageMode('single') },
-      { label: 'Continuous', shortcut: 'Ctrl+5', checked: mode === 'continuous', onClick: () => v.setPageMode('continuous') },
+      { label: msg('Zoom In'), shortcut: '+', onClick: () => v.zoomSteps(settings.get().buttonZoomStep, 1) },
+      { label: msg('Zoom Out'), shortcut: '−', onClick: () => v.zoomSteps(settings.get().buttonZoomStep, -1) },
+      { label: msg('Fit Page'), shortcut: 'Ctrl+9', onClick: () => v.fit() },
+      { label: msg('Fit Width'), shortcut: 'Ctrl+0', onClick: () => v.fitToWidth() },
+      { label: msg('Actual Size'), shortcut: 'Ctrl+8', onClick: () => v.actualSize() },
+      { label: msg('Single Page'), shortcut: 'Ctrl+4', checked: mode === 'single', onClick: () => v.setPageMode('single') },
+      { label: msg('Continuous'), shortcut: 'Ctrl+5', checked: mode === 'continuous', onClick: () => v.setPageMode('continuous') },
       SEP,
       {
-        label: 'Rotate Page',
+        label: msg('Rotate Page'),
         disabled: pageOps,
         items: [
-          { label: 'Clockwise', onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 1 }]) },
-          { label: 'Counterclockwise', onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 3 }]) },
+          { label: msg('Clockwise'), onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 1 }]) },
+          { label: msg('Counterclockwise'), onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 3 }]) },
           { label: '180°', onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 2 }]) },
         ],
       },
-      { label: 'Insert Pages…', disabled: pageOps, onClick: () => insertFileRef.current?.click() },
-      { label: 'Extract Page…', disabled: busyPages, onClick: () => void extractPages([page]) },
+      { label: msg('Insert Pages…'), disabled: pageOps, onClick: () => insertFileRef.current?.click() },
+      { label: msg('Extract Page…'), disabled: busyPages, onClick: () => void extractPages([page]) },
       {
-        label: 'Delete Page…',
+        label: msg('Delete Page…'),
         disabled: pageOps || count < 2,
         onClick: () => {
-          if (confirm(`Delete page ${page + 1}? Markups on it are deleted too.`)) void applyPageOps([{ type: 'delete', pages: [page] }]);
+          if (confirm(msg('Delete page {page}? Markups on it are deleted too.', { page: page + 1 }))) void applyPageOps([{ type: 'delete', pages: [page] }]);
         },
       },
       SEP,
-      { label: 'Page Labels from Region…', disabled: ro, onClick: () => startLabelRegions(pane) },
-      { label: 'Bulk Apply Page Scale…', disabled: ro, onClick: () => startLabelRegions(pane, 'scale') },
-      { label: 'Thumbnails', onClick: () => showPanel('pages') },
-      { label: 'Properties', onClick: () => showPanel('properties') },
+      { label: msg('Page Labels from Region…'), disabled: ro, onClick: () => startLabelRegions(pane) },
+      { label: msg('Bulk Apply Page Scale…'), disabled: ro, onClick: () => startLabelRegions(pane, 'scale') },
+      { label: msg('Thumbnails'), onClick: () => showPanel('pages') },
+      { label: msg('Properties'), onClick: () => showPanel('properties') },
     ];
   };
 
@@ -7239,8 +7966,8 @@ export function App() {
     const text = tools?.selectedPdfText();
     if (text) {
       void navigator.clipboard?.writeText(text).then(
-        () => setNotice(`Copied ${text.length} character${text.length === 1 ? '' : 's'}.`),
-        () => setNotice('The browser did not allow copying to the clipboard.'),
+        () => setNotice(msg('Copied {count, plural, one {# character} other {# characters}}.', { count: text.length })),
+        () => setNotice(msg('The browser did not allow copying to the clipboard.')),
       );
       return true;
     }
@@ -7363,25 +8090,25 @@ export function App() {
   const detachTab = async (pane: Pane, t: OpenFile) => {
     const host = desktop();
     if (!host?.detachDocument) return;
-    if (studioDocOf(t.file.id)) return setError('A Live Session document stays in the window it was opened in.');
+    if (studioDocOf(t.file.id)) return setError(msg('A Live Session document stays in the window it was opened in.'));
     try {
       const token = fileLocationToken(t.file.id);
       const dirty = hasUnsavedChanges(t);
       const contents = dirty || !token ? await annotatedBytes(t, { keepSigned: true }) : null;
-      if (!(await host.detachDocument(token ?? '', t.file.name, contents, dirty))) return setError('Could not open a new window.');
+      if (!(await host.detachDocument(token ?? '', t.file.name, contents, dirty))) return setError(msg('Could not open a new window.'));
       // Its changes live on in the new window, so closing here must not ask about them or keep them for recovery.
       rememberUnsaved(new Map([[t.file.id, false]]));
       markSaved(t);
       closeTab(pane, t.file.id);
     } catch (err) {
-      setError(`Could not move the document: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Could not move the document: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   /** Fork (leojru/redcolumn): puts a document's full path on the clipboard (desktop app, files opened from disk). */
   const copyFilePath = async (id: string) => {
     const path = await fileLocationPath(id).catch(() => null);
-    if (!path) return setError('That file has no folder on this computer.');
+    if (!path) return setError(msg('That file has no folder on this computer.'));
     await navigator.clipboard?.writeText(path);
   };
 
@@ -7398,73 +8125,73 @@ export function App() {
     };
     const addable = sessions.filter((s) => s.canAddDocuments);
     return [
-      { label: 'Close', onClick: () => void requestCloseTab(pane, t.file.id) },
-      { label: 'Close All', onClick: () => closeMany(tabs) },
-      { label: 'Close All But This', disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
-      { label: 'Close Tabs to the Right', disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
+      { label: msg('Close'), onClick: () => void requestCloseTab(pane, t.file.id) },
+      { label: msg('Close All'), onClick: () => closeMany(tabs) },
+      { label: msg('Close All But This'), disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
+      { label: msg('Close Tabs to the Right'), disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
       SEP,
-      { label: 'Save', shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
-      { label: 'Save As…', shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
+      { label: msg('Save'), shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
+      { label: msg('Save As…'), shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
       ...(desktop()?.detachDocument
         ? [{
-            label: 'Move to New Window',
+            label: msg('Move to New Window'),
             onClick: () => void detachTab(pane, t),
           }]
         : []),
       ...(desktop()
         ? [{
-            label: 'Open File Location',
+            label: msg('Open File Location'),
             disabled: locationTick < 0 || !hasFileLocation(t.file.id),
             onClick: () => void revealFileLocation(t.file.id).then((ok) => {
-              if (!ok) setError('That file has no folder on this computer.');
+              if (!ok) setError(msg('That file is not in a folder on this computer. It may have been moved, renamed or deleted.'));
             }),
           }]
         : []),
       {
-        label: 'Save a Copy of the Original…',
+        label: msg('Save a Copy of the Original…'),
         onClick: () => void readFile(t.file.hash).then((bytes) => download(t.file.name, new Blob([bytes], { type: 'application/pdf' }))),
       },
       SEP,
       sessionDoc
-        ? { label: 'Show in Session', onClick: () => { showPanel('sessions'); setFocusedSession(sessionDoc.sessionId); } }
+        ? { label: msg('Show in Session'), onClick: () => { showPanel('sessions'); setFocusedSession(sessionDoc.sessionId); } }
         : !desktop()
-        ? { label: 'Add to Session (desktop app only)', disabled: true, onClick: () => {} }
+        ? { label: msg('Add to Session (desktop app only)'), disabled: true, onClick: () => {} }
         : {
-            label: 'Add to Session',
+            label: msg('Add to Session'),
             items: [
               ...addable.map((s) => ({
                 label: s.meta.name,
                 onClick: () => void runStudio(() => addToStudio(s.id, [{ kind: 'file', fileId: t.file.id, name: t.file.name }])),
               })),
               ...(addable.length ? [SEP] : []),
-              { label: 'Start New Session…', onClick: () => { showPanel('sessions'); setStartSession({ token: Date.now(), fileIds: [t.file.id] }); } },
+              { label: msg('Start New Session…'), onClick: () => { showPanel('sessions'); setStartSession({ token: Date.now(), fileIds: [t.file.id] }); } },
             ],
           },
       sessionDoc
         ? snap?.backend === 'folder'
-          ? { label: 'Show Session Folder', onClick: () => void desktop()?.folder.show(sessionDoc.sessionId) }
-          : { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
-        : { label: 'Show in File Access', onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
-      { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(t.file.name) },
+          ? { label: msg('Show Session Folder'), onClick: () => void desktop()?.folder.show(sessionDoc.sessionId) }
+          : { label: msg('Open in OneDrive'), disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
+        : { label: msg('Show in File Access'), onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
+      { label: msg('Copy File Name'), onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       // Fork (leojru/redcolumn): the full path, to paste into a chat or an email.
       ...(desktop()
         ? [{
-            label: 'Copy File Path',
+            label: msg('Copy File Path'),
             disabled: locationTick < 0 || !hasFileLocation(t.file.id),
             onClick: () => void copyFilePath(t.file.id),
           }]
         : []),
       SEP,
-      { label: pane === 'a' ? (split ? 'Move to Right Pane' : 'Open in Split View') : 'Move to Left Pane', onClick: () => moveTab(pane, t) },
+      { label: pane === 'a' ? (split ? msg('Move to Right Pane') : msg('Open in Split View')) : msg('Move to Left Pane'), onClick: () => moveTab(pane, t) },
     ];
   };
 
   /** The panel rail's panels in the profile's order (unlisted ones keep their default place at the end). */
   // The Markups list is a rail panel only while docked in a side panel (it starts in the bottom dock).
-  const orderedRail = RAIL.filter(({ id }) => id !== 'markups' || ws.markupsDocked).sort((a, b) => {
+  const orderedRail = RAIL().filter(({ id }) => id !== 'markups' || ws.markupsDocked).sort((a, b) => {
     const ia = ws.panelOrder.indexOf(a.id);
     const ib = ws.panelOrder.indexOf(b.id);
-    return (ia < 0 ? RAIL.length + RAIL.indexOf(a) : ia) - (ib < 0 ? RAIL.length + RAIL.indexOf(b) : ib);
+    return (ia < 0 ? RAIL().length + RAIL().indexOf(a) : ia) - (ib < 0 ? RAIL().length + RAIL().indexOf(b) : ib);
   });
 
   const visibleRail = orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id));
@@ -7580,19 +8307,19 @@ export function App() {
         return {
           label: `${g.label} (${on}/${g.tools.length})`,
           items: [
-            { label: 'Show All in Group', disabled: on === g.tools.length, onClick: () => setGroup(true) },
-            { label: 'Hide Group', disabled: on === 0, onClick: () => setGroup(false) },
+            { label: msg('Show All in Group'), disabled: on === g.tools.length, onClick: () => setGroup(true) },
+            { label: msg('Hide Group'), disabled: on === 0, onClick: () => setGroup(false) },
             SEP,
             ...list(g.tools),
           ],
         };
       });
     return [
-      ...(clicked ? [{ label: `Remove ${toolLabel(clicked)} from Toolbar`, onClick: () => toggle(clicked) } as MenuEntry, SEP] : []),
-      { label: 'Markup Tools', items: groups(MARKUP_GROUPS) },
-      { label: 'Measure Tools', items: groups(MEASURE_GROUPS) },
+      ...(clicked ? [{ label: msg('Remove {toolLabel} from Toolbar', { toolLabel: toolLabel(clicked) }), onClick: () => toggle(clicked) } as MenuEntry, SEP] : []),
+      { label: msg('Markup Tools'), items: groups(MARKUP_GROUPS) },
+      { label: msg('Measure Tools'), items: groups(MEASURE_GROUPS) },
       {
-        label: 'Reset Toolbar to Defaults',
+        label: msg('Reset Toolbar to Defaults'),
         disabled: ws.toolbarTools?.length === DEFAULT_TOOLBAR_TOOLS.length && DEFAULT_TOOLBAR_TOOLS.every((t) => ws.toolbarTools?.includes(t)),
         onClick: () => updateWorkspace((w) => ({ ...w, toolbarTools: [...DEFAULT_TOOLBAR_TOOLS] })),
       },
@@ -7606,8 +8333,8 @@ export function App() {
     ...(clicked && !narrowScreen()
       ? [
           panelSide(clicked) === 'left'
-            ? { label: `Dock ${LEFT_TITLES[clicked]} on the Right`, onClick: () => dockPanel(clicked, 'right') }
-            : { label: `Dock ${LEFT_TITLES[clicked]} on the Left`, onClick: () => dockPanel(clicked, 'left') },
+            ? { label: msg('Dock {panel} on the Right', { panel: leftTitles()[clicked]! }), onClick: () => dockPanel(clicked, 'right') }
+            : { label: msg('Dock {panel} on the Left', { panel: leftTitles()[clicked]! }), onClick: () => dockPanel(clicked, 'left') },
           SEP,
         ]
       : []),
@@ -7623,9 +8350,9 @@ export function App() {
       },
     })),
     SEP,
-    { label: 'Reset Panel Order', disabled: !ws.panelOrder.length, onClick: () => updateWorkspace((w) => ({ ...w, panelOrder: [] })) },
+    { label: msg('Reset Panel Order'), disabled: !ws.panelOrder.length, onClick: () => updateWorkspace((w) => ({ ...w, panelOrder: [] })) },
     {
-      label: 'Dock All Panels on the Left',
+      label: msg('Dock All Panels on the Left'),
       disabled: !ws.rightPanels.length,
       onClick: () => {
         updateWorkspace((w) => ({ ...w, rightPanels: [] }));
@@ -7636,13 +8363,13 @@ export function App() {
 
   /** Right-click on the menu bar, toolbars, panel rail or status bar: which parts of the window show. */
   const layoutMenu = (): MenuEntry[] => [
-    { label: 'Markup Toolbar', checked: showTools, onClick: toggleToolbar },
-    { label: 'Panels', checked: leftOpen, onClick: () => setLeftOpen((s) => !s) },
-    ...(rightRail.length ? [{ label: 'Right Panels', checked: rightShown, onClick: () => commandActions.toggleRight() } as MenuEntry] : []),
-    { label: 'Markups List', checked: bottomOpen, onClick: toggleBottom },
-    { label: split ? 'Unsplit' : 'Split View', shortcut: 'Ctrl+2', disabled: !split && !activeOpen, onClick: () => (split ? unsplit() : startSplit()) },
+    { label: msg('Markup Toolbar'), checked: showTools, onClick: toggleToolbar },
+    { label: msg('Panels'), checked: leftOpen, onClick: () => setLeftOpen((s) => !s) },
+    ...(rightRail.length ? [{ label: msg('Right Panels'), checked: rightShown, onClick: () => commandActions.toggleRight() } as MenuEntry] : []),
+    { label: msg('Markups List'), checked: bottomOpen, onClick: toggleBottom },
+    { label: split ? msg('Unsplit') : msg('Split View'), shortcut: 'Ctrl+2', disabled: !split && !activeOpen, onClick: () => (split ? unsplit() : startSplit()) },
     SEP,
-    { label: 'Keyboard Shortcuts', onClick: () => setShortcutsOpen(true) },
+    { label: msg('Keyboard Shortcuts'), onClick: () => setShortcutsOpen(true) },
   ];
 
   /** Copies pages of the active document, with their markups, to the page clipboard. */
@@ -7652,10 +8379,10 @@ export function App() {
     try {
       const clips = cur.store.copyPages(pages);
       pageClipboard.current = { bytes: await ctl.engine.extractPages(await readFile(cur.file.hash), pages), clips };
-      setNotice(`${pages.length === 1 ? 'Page' : `${pages.length} pages`} copied. Paste (${formatCombo('Ctrl+V')}) inserts ${pages.length === 1 ? 'it' : 'them'} after the selected page.`);
+      setNotice(msg('{value} copied. Paste ({combo}) inserts {value2} after the selected page.', { value: pages.length === 1 ? msg('Page') : msg('{count} pages', { count: pages.length }), combo: formatCombo('Ctrl+V'), value2: pages.length === 1 ? msg('it') : msg('them') }));
       return true;
     } catch (err) {
-      setError(`Copy failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Copy failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       return false;
     }
   };
@@ -7687,7 +8414,7 @@ export function App() {
     const these = pages.length > 1 ? `${pages.length} pages` : `page ${(pages[0] ?? 0) + 1}`;
     const hasMarkups = pages.some((p) => (activeOpen?.store.forPage(p).length ?? 0) > 0);
     const deletePages = (ask: boolean) => {
-      if (ask && !confirm(`Delete ${these}? Markups on ${pages.length > 1 ? 'them' : 'it'} are deleted too.`)) return false;
+      if (ask && !confirm(msg('Delete {these}? Markups on {value} are deleted too.', { these, value: pages.length > 1 ? msg('them') : msg('it') }))) return false;
       void applyPageOps([{ type: 'delete', pages }]);
       return true;
     };
@@ -7697,17 +8424,17 @@ export function App() {
       run('window.measurements', 'Set Scale…', MENU_ICONS.scale),
       SEP,
       {
-        label: 'Cut Pages',
+        label: msg('Cut Pages'),
         disabled: none || !editable || pages.length >= count,
         onClick: () =>
           void copyPages(pages).then((ok) => {
             if (ok) deletePages(hasMarkups);
           }),
       },
-      { label: 'Copy Pages', shortcut: 'Ctrl+C', disabled: none || !activeOpen, onClick: () => void copyPages(pages) },
-      run('document.copyPageSnapshot', 'Copy Page to Snapshot', undefined, true),
+      { label: msg('Copy Pages'), shortcut: 'Ctrl+C', disabled: none || !activeOpen, onClick: () => void copyPages(pages) },
+      run('document.copyPageSnapshot', msg('Copy Page to Snapshot'), undefined, true),
       {
-        label: 'Paste Pages',
+        label: msg('Paste Pages'),
         shortcut: 'Ctrl+V',
         disabled: !editable || !pageClipboard.current,
         onClick: () => pastePages(none ? count : pages.at(-1)! + 1),
@@ -7715,26 +8442,26 @@ export function App() {
       SEP,
       run('tools.stamps', 'Apply Stamp…', MENU_ICONS.stamp, true),
       SEP,
-      run('document.insertBlank', 'Insert Blank Page…', MENU_ICONS.pageBlank),
+      run('document.insertBlank', msg('Insert Blank Page…'), MENU_ICONS.pageBlank),
       run('document.insertPages', 'Insert Pages…', MENU_ICONS.pageInsert),
-      run('document.bulkInsertPages', 'Bulk Insert PDFs…', MENU_ICONS.pageInsert),
-      { label: 'Extract Pages…', icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
+      run('document.bulkInsertPages', msg('Bulk Insert PDFs…'), MENU_ICONS.pageInsert),
+      { label: msg('Extract Pages…'), icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
       run('document.replacePages', 'Replace Pages…', MENU_ICONS.pageReplace),
-      { label: 'Delete Pages…', icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: none || !editable || pages.length >= count, onClick: () => deletePages(true) },
+      { label: msg('Delete Pages…'), icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: none || !editable || pages.length >= count, onClick: () => deletePages(true) },
       {
-        label: 'Rotate Pages',
+        label: msg('Rotate Pages'),
         icon: MENU_ICONS.pageRotate,
         disabled: none || !editable,
         items: [
-          { label: 'Clockwise 90°', shortcut: shortcutLabel('document.rotatePages'), onClick: rotate(1) },
-          { label: 'Counterclockwise 90°', shortcut: shortcutLabel('document.rotateCounterclockwise'), onClick: rotate(-1) },
-          { label: 'Rotate 180°', onClick: rotate(2) },
+          { label: msg('Clockwise 90°'), shortcut: shortcutLabel('document.rotatePages'), onClick: rotate(1) },
+          { label: msg('Counterclockwise 90°'), shortcut: shortcutLabel('document.rotateCounterclockwise'), onClick: rotate(-1) },
+          { label: msg('Rotate 180°'), onClick: rotate(2) },
         ],
       },
       run('document.numberPages', 'Number Pages…', MENU_ICONS.pageNumber),
-      { label: 'Rename Page Label', disabled: !editable || pages.length !== 1, onClick: rename },
+      { label: msg('Rename Page Label'), disabled: !editable || pages.length !== 1, onClick: rename },
       {
-        label: 'Reset All Page Labels',
+        label: msg('Reset All Page Labels'),
         disabled: !editable,
         onClick: () => {
           const store = activeOpen?.store;
@@ -7743,8 +8470,8 @@ export function App() {
       },
       SEP,
       {
-        label: 'Export Pages',
-        items: [run('file.exportImages', 'Page Images…'), { label: 'PDF…', disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) }],
+        label: msg('Export Pages'),
+        items: [run('file.exportImages', 'Page Images…'), { label: msg('PDF…'), disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) }],
       },
       run('file.share', 'Email Pages…'),
       run('file.print', 'Print Pages…', MENU_ICONS.print),
@@ -7753,54 +8480,58 @@ export function App() {
       run('document.flatten', 'Flatten…', MENU_ICONS.flatten),
       SEP,
       {
-        label: 'Markup Summary',
+        label: msg('Markup Summary'),
         icon: MENU_ICONS.summary,
-        items: [run('file.exportSummary', 'Markup Summary…'), run('file.exportCsv', 'Export Markups CSV')],
+        items: [run('file.exportSummary', 'Markup Summary…'), run('file.exportCsv', msg('Export Markups CSV'))],
       },
     ];
   };
 
+  /** The recent files list (File › Open Recent, File Access › Recents); `locationTick` keeps it current as disk locations load. */
+  const recentList = (templates = true) => recentFiles(library, { count: prefs.recentCount, days: prefs.recentDays, locationOf: locationTick >= 0 ? fileLocationToken : undefined, templates });
+
   /** Right-click on a library file (File Access). */
   const libraryMenu = (f: StoredFile): MenuEntry[] => [
-    { label: 'Open', onClick: () => void openFromLibrary(f, 'a') },
-    { label: `Revisions (${f.revisions?.length ?? 0})…`, onClick: () => setRevisionsOf(f.id) },
-    { label: 'Open in Split View', onClick: () => void readFile(f.hash).then(async (bytes) => {
+    { label: msg('Open'), onClick: () => void openFromLibrary(f, 'a') },
+    { label: msg('Revisions ({count})…', { count: f.revisions?.length ?? 0 }), onClick: () => setRevisionsOf(f.id) },
+    { label: msg('Open in Split View'), onClick: () => void readFile(f.hash).then(async (bytes) => {
         if (!ctlB) {
           pendingSplitStored.current = { file: f, bytes };
           setSplit(true);
         } else await openStored(f, bytes, 'b');
       }) },
     {
-      label: 'Add to Session',
+      label: msg('Add to Session'),
       disabled: !desktop() || !sessions.some((s) => s.canAddDocuments),
       items: sessions
         .filter((s) => s.canAddDocuments)
         .map((s) => ({ label: s.meta.name, onClick: () => void runStudio(() => addToStudio(s.id, [{ kind: 'file', fileId: f.id, name: f.name }])) })),
     },
     SEP,
-    { label: 'Save a Copy…', onClick: () => void readFile(f.hash).then((bytes) => download(f.name, new Blob([bytes], { type: 'application/pdf' }))) },
-    { label: 'Use as Template', checked: !!f.template, onClick: () => void setTemplate(f.id, !f.template).then(refreshLibrary) },
-    { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(f.name) },
-    // Fork (leojru/redcolumn): the full path, to paste into a chat or an email.
+    { label: msg('Save a Copy…'), onClick: () => void readFile(f.hash).then((bytes) => download(f.name, new Blob([bytes], { type: 'application/pdf' }))) },
+    { label: msg('Use as Template'), checked: !!f.template, onClick: () => void setTemplate(f.id, !f.template).then(refreshLibrary) },
+    { label: msg('Copy File Name'), onClick: () => void navigator.clipboard?.writeText(f.name) },
+      // Fork (leojru/redcolumn): the full path, to paste into a chat or an email.
+      ...(desktop()
+        ? [{
+            label: msg('Copy File Path'),
+            disabled: locationTick < 0 || !hasFileLocation(f.id),
+            onClick: () => void copyFilePath(f.id),
+          }]
+        : []),
     ...(desktop()
       ? [{
-          label: 'Copy File Path',
-          disabled: locationTick < 0 || !hasFileLocation(f.id),
-          onClick: () => void copyFilePath(f.id),
-        }]
-      : []),
-    ...(desktop()
-      ? [{
-          label: 'Open File Location',
+          label: msg('Open File Location'),
           disabled: locationTick < 0 || !hasFileLocation(f.id),
           onClick: () => void revealFileLocation(f.id).then((ok) => {
-            if (!ok) setError('That file has no folder on this computer.');
+            if (!ok) setError(msg('That file is not in a folder on this computer. It may have been moved, renamed or deleted.'));
           }),
         }]
       : []),
     SEP,
+    { label: msg('Remove from Recents'), disabled: !!f.recentHidden, onClick: () => removeFromRecents([f.id]) },
     {
-      label: 'Remove from Device…',
+      label: msg('Remove from Device…'),
       danger: true,
       onClick: () => {
         if (confirm(REMOVE_FROM_DEVICE(f.name))) {
@@ -7826,7 +8557,7 @@ export function App() {
     setActivePane(pane);
     setSetup((cur) => (cur?.pane === pane && !step ? cur : { pane, inline: cur?.pane === pane ? cur.inline : false, step, n: (cur?.n ?? 0) + 1 }));
     setSetupTexts(null);
-    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
+    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES()[p.phase]), signal), { kind: 'index' })
       .then((texts) => {
         if ((pane === 'b' ? openBRef.current : openRef.current) === o) setSetupTexts(texts);
       })
@@ -7865,11 +8596,12 @@ export function App() {
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
   /** `erase` is Bulk Redact, which draws its boxes the same way. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
+  /** `bookmarks` opens Page Labels set to name each page's bookmark (Bookmarks panel → From regions). */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean; bookmarks?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     if (kind === 'erase' && studioDocOf(o.file.id)) {
-      setError('A Live Session document is shared with others, so its content cannot be changed here.');
+      setError(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
       return;
     }
     setActivePane(pane);
@@ -7877,13 +8609,13 @@ export function App() {
     // Erase boxes are not label boxes, so switching between them starts with none.
     const own = (k: string) => (k === 'erase' ? k : 'label');
     setLabelMode((m) =>
-      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
+      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed && !!opts.bookmarks === !!m.bookmarks
         ? m
         : { pane, regions: m?.pane === pane && own(m.kind) === own(kind) ? m.regions : [], kind, ...opts },
     );
     c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
-    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
+    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES()[p.phase]), signal), { kind: 'index' })
       .then((texts) => {
         if ((pane === 'b' ? openBRef.current : openRef.current) === o) setLabelTexts(texts);
       })
@@ -7921,7 +8653,7 @@ export function App() {
       const other = waiting[0]!;
       line.matchTo = other.id;
       lines.splice(lines.indexOf(other), 1, { ...other, matchTo: line.id });
-      setNotice(`${line.name} matched to ${other.name} on ${pageLabelFor(doc, other.pageIndex)}.`);
+      setNotice(msg('{name} matched to {name2} on {pageLabelFor}.', { name: line.name, name2: other.name, pageLabelFor: pageLabelFor(doc, other.pageIndex) }));
     }
     doc.store.setManualStitch({ ...s, lines });
     setStitchSelected(line.id);
@@ -7934,7 +8666,7 @@ export function App() {
     const zoom = (pane === 'b' ? ctlB : ctl)?.viewer.zoomFor(line?.pageIndex ?? 0) ?? 1;
     // Ends dragged onto each other fix no direction: keep the line as it was.
     if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * zoom < 2) {
-      setNotice('A match line needs two different ends: the line was left as it was.');
+      setNotice(msg('A match line needs two different ends: the line was left as it was.'));
       return false;
     }
     doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === id ? { ...l, p0, p1 } : l)) });
@@ -7955,7 +8687,7 @@ export function App() {
     if (!doc || !c || doc.store.readOnly) return;
     const m = stitchMover(doc, pane === 'b' ? stitchB : stitchA);
     if (!m) {
-      if (done) setNotice('Pick a matched line in the Stitching panel first: Move Sheet moves the sheet joined at it.');
+      if (done) setNotice(msg('Pick a matched line in the Stitching panel first: Move Sheet moves the sheet joined at it.'));
       return;
     }
     const ref = pairOf(m.lines, m.mover.id)!.ref;
@@ -7999,6 +8731,8 @@ export function App() {
     if (!pair) return;
     doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === pair.line.id || l.id === pair.partner.id ? (({ offset: _, ...rest }) => rest)(l) : l)) });
   };
+  portalDrawnRef.current = (pane, pageIndex, points) => setPortalDialog({ pane, draft: { pageIndex, points } });
+  usePortalGuides([[ctl, open?.store, open?.doc.pages.length], [ctlB, openB?.store, openB?.doc.pages.length]]);
   stitchRegionRef.current = (pane, pageIndex, points) => {
     const doc = pane === 'b' ? openB : open;
     if (!doc || doc.store.readOnly) return;
@@ -8043,11 +8777,11 @@ export function App() {
             onCustom={() => setCustomScalePane(which)}
           />
         }
-        onFirst={() => viewer?.goToPage(0)}
+        onFirst={() => viewer?.changePage(0)}
         onPrev={() => viewer?.prevPage()}
         onNext={() => viewer?.nextPage()}
-        onLast={() => viewer?.goToPage(Math.max(0, count - 1))}
-        onGoTo={(i) => viewer?.goToPage(i)}
+        onLast={() => viewer?.changePage(Math.max(0, count - 1))}
+        onGoTo={(i) => viewer?.changePage(i)}
         onZoomTo={(z) => viewer && viewer.zoomBy(z / viewer.currentZoom)}
         onBack={goBack}
         onForward={goForward}
@@ -8069,7 +8803,7 @@ export function App() {
   const startCutoutFromSelection = () => {
     const blocker = cutoutBlocker(selectedMarkups, mayEditMarkup);
     if (!blocker) activeTools?.startCutout(selectedMarkups[0]!.id);
-    else setNotice(selectedMarkups.length ? `${blocker}.` : 'Select an area first, then draw the cutout inside it.');
+    else setNotice(selectedMarkups.length ? `${blocker}.` : msg('Select an area first, then draw the cutout inside it.'));
   };
   /** Arms the Stamp tool with a library stamp, remembered as the one to use next time. */
   const placeStamp = (s: StampDef, filled = false) => {
@@ -8095,14 +8829,14 @@ export function App() {
             const out = await annotatedBytes(t);
             download(t.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf', new Blob([out as BlobPart], { type: 'application/pdf' }));
           } catch (err) {
-            setError(`Saving ${t.file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+            setError(msg('Saving {name} failed: {value}', { name: t.file.name, value: err instanceof Error ? err.message : String(err) }));
           }
         }
       })(),
     revert: () => {
       const store = activeOpen?.store;
       const n = store?.undoHistory().length ?? 0;
-      if (store && n && confirm(`Revert ${activeOpen!.file.name}? The ${n} change${n === 1 ? '' : 's'} made since it was opened are undone (Redo brings them back).`)) store.undoSteps(n);
+      if (store && n && confirm(msg('Revert {name}? The {n, plural, one {# change} other {# changes}} made since it was opened are undone (Redo brings them back).', { name: activeOpen!.file.name, n }))) store.undoSteps(n);
     },
     publish: (mode) => setPublishFor(mode),
     share: () => void shareDocument(),
@@ -8118,6 +8852,10 @@ export function App() {
       const only = prefs.excludeFilteredOnExport;
       downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext), visibleListColumns, true));
     },
+    exportXlsx: exportMarkupsXlsx,
+    exportRegister: () => setRegisterOpen(true),
+    registerTemplates: () => setRegisterTemplatesOpen({}),
+    importXlsx: () => void importMarkupsXlsx(),
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
     preferences: () => {
@@ -8125,14 +8863,15 @@ export function App() {
       setPrefsOpen(true);
     },
     manageProfiles: () => setProfilesOpen(true),
+    migrateRevu: () => setRevuMigrationOpen(true),
     shortcuts: () => setShortcutsOpen(true),
     about: () =>
       alert(
         [
-          `redcolumn ${APP_VERSION}: PDF markup and takeoff for construction drawings.`,
-          'Open source under the Apache License 2.0. Third-party notices: ' + `${PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md`,
-          `Your documents stay ${desktop() ? 'on this computer' : 'in this browser'}; there is no redcolumn server or account. Privacy policy: ` + `${PROJECT_URL}/blob/master/PRIVACY.md`,
-          'Measurements and quantities depend on the scale you set: check them before relying on them. redcolumn comes with no warranty.',
+          msg('redcolumn {aPP_VERSION}: PDF markup and takeoff for construction drawings.', { aPP_VERSION: APP_VERSION }),
+          msg('Open source under the Apache License 2.0. Third-party notices: ') + `${PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md`,
+          msg('Your documents stay {value}; there is no redcolumn server or account. Privacy policy: ', { value: desktop() ? msg('on this computer') : msg('in this browser') }) + `${PROJECT_URL}/blob/master/PRIVACY.md`,
+          msg('Measurements and quantities depend on the scale you set: check them before relying on them. redcolumn comes with no warranty.'),
           'redcolumn is not affiliated with or endorsed by Bluebeam, Inc. or Nemetschek. Bluebeam and Revu are their trademarks.',
         ].join('\n\n'),
       ),
@@ -8152,7 +8891,7 @@ export function App() {
     multiply: () => setMultiplyFor(pane),
     deleteSelection: () => {
       const n = toolsState.selected.size;
-      if (n && (!settings.get().confirmDelete || confirm(`Delete ${n} markup${n === 1 ? '' : 's'}?`))) activeTools?.deleteSelected();
+      if (n && (!settings.get().confirmDelete || confirm(msg('Delete {n, plural, one {# markup} other {# markups}}?', { n })))) activeTools?.deleteSelected();
     },
     selectAll: () => activeTools?.select(markups.map((m) => m.id)),
     sound: () => setSoundOpen('sound'),
@@ -8178,20 +8917,20 @@ export function App() {
           }
         }
         if (!specs.length) {
-          setNotice('No fill-in lines, boxes or check boxes were found that are not fields already.');
+          setNotice(msg('No fill-in lines, boxes or check boxes were found that are not fields already.'));
           return;
         }
-        if (!confirm(`Create ${specs.length} form field${specs.length === 1 ? '' : 's'} (${specs.filter((s) => s.type === 'checkbox').length} check boxes) where the page has fill-in lines and boxes? They can be renamed or deleted in the Forms panel.`)) return;
+        if (!confirm(msg('Create {count} form {count2, plural, one {field} other {fields}} ({count3} check boxes) where the page has fill-in lines and boxes? They can be renamed or deleted in the Forms panel.', { count: specs.length, count2: specs.length, count3: specs.filter((s) => s.type === 'checkbox').length }))) return;
         const ok = await editForm(cur.file.id, 'Creating fields', (bytes) => createFields(bytes, specs));
         if (ok) {
           showPanel('forms');
-          setNotice(`Created ${specs.length} field${specs.length === 1 ? '' : 's'}.`);
+          setNotice(msg('Created {count, plural, one {# field} other {# fields}}.', { count: specs.length }));
         }
-      })().catch((err) => setError(`Finding fields failed: ${err instanceof Error ? err.message : String(err)}`)),
+      })().catch((err) => setError(msg('Finding fields failed: {value}', { value: err instanceof Error ? err.message : String(err) }))),
     archivePdfA: () =>
       void (async () => {
         const cur = activeOpen;
-        if (!cur || !(await rewriteSigned(cur.doc, 'An archive copy (PDF/A)'))) return;
+        if (!cur || !(await rewriteSigned(cur.doc, msg('An archive copy (PDF/A)')))) return;
         const { archiveAsPdfA } = await import('./documents/pdfa');
         const { embedFontFile } = await import('./documents/archiveFonts');
         const base = cur.file.name.replace(/\.pdf$/i, '');
@@ -8202,14 +8941,14 @@ export function App() {
         const done = changes.length ? ` ${changes.join(' ')}` : '';
         if (!blocking.length) {
           download(`${base} (PDF-A).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
-          setNotice(`Saved ${base} (PDF-A).pdf as PDF/A-2b.${done}`);
+          setNotice(msg('Saved {base} (PDF-A).pdf as PDF/A-2b.{done}', { base, done }));
           return;
         }
         // It would not pass a validator, so it is not marked PDF/A; saving it is the user's choice.
-        if (!confirm(`${cur.file.name} cannot be made a valid PDF/A:\n\n${blocking.join('\n\n')}\n\nSave an archive copy anyway? It will not be marked as PDF/A.`)) return;
+        if (!confirm(msg('{name} cannot be made a valid PDF/A:\n\n{blocking}\n\nSave an archive copy anyway? It will not be marked as PDF/A.', { name: cur.file.name, blocking: blocking.join('\n\n') }))) return;
         download(`${base} (archive).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
-        setError(`Saved ${base} (archive).pdf, not marked as PDF/A: ${blocking.join(' ')}${done}`);
-      })().catch((err) => setError(`PDF/A failed: ${err instanceof Error ? err.message : String(err)}`)),
+        setError(msg('Saved {base} (archive).pdf, not marked as PDF/A: {blocking}{done}', { base, blocking: blocking.join(' '), done }));
+      })().catch((err) => setError(msg('PDF/A failed: {value}', { value: err instanceof Error ? err.message : String(err) }))),
     install: () => setInstallOpen(true),
     help: (what) => {
       const open = (path: string) => window.open(`${PROJECT_URL}${path}`, '_blank', 'noopener');
@@ -8217,6 +8956,7 @@ export function App() {
       else if (what === 'community') open('/discussions');
       else if (what === 'support') open('/issues/new?labels=bug&title=Problem%3A%20');
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
+      else if (what === 'sponsor') window.open('https://github.com/sponsors/ColbyGallagher', '_blank', 'noopener');
       else if (what === 'whatsNew') setWhatsNewOpen(true);
       else if (what === 'logs') download(`redcolumn log ${new Date().toISOString().slice(0, 10)}.txt`, logFile());
       else if (what === 'updates') {
@@ -8226,27 +8966,23 @@ export function App() {
         if (host) {
           void host.checkForUpdates().then((r) => {
             if (r.status === 'available' && r.url) {
-              if (confirm(`redcolumn ${r.latest} is available. You have ${r.current}.
-
-Open the download page? Run the new installer to update; your documents and markups are kept.`)) window.open(r.url, '_blank', 'noopener');
-            } else if (r.status === 'downloading') setNotice(`redcolumn ${r.latest} is downloading in the background (${r.percent ?? 0}%). It installs when you close redcolumn.`);
+              if (confirm(msg('redcolumn {latest} is available. You have {current}.\n\nOpen the download page? Run the new installer to update; your documents and markups are kept.', { latest: String(r.latest), current: r.current }))) window.open(r.url, '_blank', 'noopener');
+            } else if (r.status === 'downloading') setNotice(msg('redcolumn {latest} is downloading in the background ({value}%). It installs when you close redcolumn.', { latest: String(r.latest), value: r.percent ?? 0 }));
             else if (r.status === 'ready') {
-              if (confirm(`redcolumn ${r.latest} is ready to install. You have ${r.current}.
-
-Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate();
-            } else if (r.status === 'unavailable') setNotice('Could not check for updates (offline?).');
-            else setNotice(`You have the latest version (${r.current}).`);
-          }).catch(() => setNotice('Could not check for updates (offline?).'));
+              if (confirm(msg('redcolumn {latest} is ready to install. You have {current}.\n\nRestart now to update? Your documents and markups are kept.', { latest: String(r.latest), current: r.current }))) restartIntoUpdate();
+            } else if (r.status === 'unavailable') setNotice(msg('Could not check for updates (offline?).'));
+            else setNotice(msg('You have the latest version ({current}).', { current: r.current }));
+          }).catch(() => setNotice(msg('Could not check for updates (offline?).')));
           return;
         }
         void navigator.serviceWorker
           ?.getRegistration()
           .then(async (reg) => {
-            if (!reg) return setNotice('Updates are checked automatically when the app is installed.');
+            if (!reg) return setNotice(msg('Updates are checked automatically when the app is installed.'));
             await reg.update();
-            setNotice(reg.waiting || reg.installing ? 'A new version is downloading; it loads by itself when you are not in the middle of something.' : 'You have the latest version.');
+            setNotice(reg.waiting || reg.installing ? msg('A new version is downloading; it loads by itself when you are not in the middle of something.') : msg('You have the latest version.'));
           })
-          .catch(() => setNotice('Could not check for updates (offline?).'));
+          .catch(() => setNotice(msg('Could not check for updates (offline?).')));
       }
     },
     hideSelection: () => {
@@ -8266,7 +9002,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     offset: () => activeTools?.setTool('offset'),
     cadTool: (tool) => activeTools?.setTool(tool),
     join: () => {
-      if (!activeTools?.joinSelected()) setNotice('Nothing to join: select lines or polylines whose ends meet');
+      if (!activeTools?.joinSelected()) setNotice(msg('Nothing to join: select lines or polylines whose ends meet'));
     },
     explode: () => void activeTools?.explodeSelected(),
     selectSimilar: () => void activeTools?.selectSimilar(),
@@ -8311,6 +9047,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitchToPage: () => {
       if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
+    applyStitching: () => setApplyStitch(true),
     convertDrawingAgain: () => {
       if (activeOpen && activeCad) setCadAgain(activeOpen.file.id);
     },
@@ -8331,7 +9068,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       if (!v) return;
       if (which === 'next') v.nextPage();
       else if (which === 'prev') v.prevPage();
-      else v.goToPage(which === 'first' ? 0 : pageCount - 1);
+      else v.changePage(which === 'first' ? 0 : pageCount - 1);
     },
     documentProperties: () => setDocPropsOpen(true),
     rotatePages: (quarterTurns) => {
@@ -8366,7 +9103,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     process: (kind) => setProcessKind(kind),
     unflatten: () => {
       const cur = activeOpen;
-      if (cur) void runProcess(cur, { kind: 'unflatten' }, 'Before Unflatten').then((msg) => msg && setNotice(msg)).catch((err) => setError(`Unflatten failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (cur) void runProcess(cur, { kind: 'unflatten' }, 'Before Unflatten').then((msg) => msg && setNotice(msg)).catch((err) => setError(msg('Unflatten failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
     },
     compare: () => setCompareOpen('compare'),
     semanticCompare: () => showPanel('ai'),
@@ -8394,12 +9131,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       showPanel('bookmarks');
     },
     cycleDocument: (dir) => {
-      const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
-      const front = pane === 'b' ? openBRef.current : openRef.current;
+      const tp = tabPaneOf(pane);
+      const tabs = tp === 'b' ? tabsBRef.current : tabsARef.current;
+      const front = tp === 'b' ? openBRef.current : openRef.current;
       if (tabs.length < 2 || !front) return;
       const i = tabs.findIndex((t) => t.file.id === front.file.id);
       const next = tabs[(i + dir + tabs.length) % tabs.length];
-      if (next) activateTab(pane, next);
+      // From the mirrored right pane the left pane changes and focus stays where it is.
+      if (next) (tp === pane ? activateTab(tp, next) : showInPane(tp, next));
     },
     align: (how) => activeTools?.alignSelected(how),
     nudge: (dx, dy, large) => activeTools?.nudgeScreen(dx, dy, large),
@@ -8408,6 +9147,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     matchSize: (kind) => activeTools?.matchSizeSelected(kind),
     distribute: (axis) => activeTools?.distributeSelected(axis),
     scaleToLength: () => activeTools?.setTool('scaleLength'),
+    resetCrop: () => activeTools?.resetCropSelected(),
+    pictureDialog: (which) => {
+      const ms = selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked);
+      if (!ms.length) return;
+      if (which === 'adjust') setAdjustImageFor({ pane, ids: ms.map((m) => m.id) });
+      else setPictureColoursFor({ pane, id: ms[0]!.id });
+    },
     arrange: (where) => activeTools && activeTools.arrange(activeTools.getState().selected, where),
     sign: () => {
       showPanel('signatures');
@@ -8415,6 +9161,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     },
     digitalIds: () => setIdsOpen(true),
     slipSheet: () => setSlipSheetOpen(true),
+    closeOut: () => setCloseOutOpen(true),
     revisions: () => activeOpen && setRevisionsOf(activeOpen.file.id),
     overlay: () => setCompareOpen('overlay'),
     ocr: () => {
@@ -8427,18 +9174,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       if (!cur) return;
       const marks = cur.store.all().filter((m) => m.type === 'redaction');
       if (!marks.length) {
-        setNotice('Nothing is marked for redaction: use Tools › Redaction › Mark for Redaction, or Search › Mark for redaction.');
+        setNotice(msg('Nothing is marked for redaction: use Tools › Redaction › Mark for Redaction, or Search › Mark for redaction.'));
         return;
       }
       setRedactFor({ pane: paneB ? 'b' : 'a', count: marks.length });
     },
     repair: () => {
       const cur = activeOpen;
-      if (cur) void runProcess(cur, { kind: 'repair' }, 'Before Repair').then((msg) => msg && setNotice(msg)).catch((err) => setError(`Repair failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (cur) void runProcess(cur, { kind: 'repair' }, 'Before Repair').then((msg) => msg && setNotice(msg)).catch((err) => setError(msg('Repair failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
     },
     deletePages: () => {
       const pages = currentPageOps();
-      if (!confirm(`Delete page ${pages[0]! + 1}? Markups on it are deleted too.`)) return;
+      if (!confirm(msg('Delete page {page}? Markups on it are deleted too.', { page: pages[0]! + 1 }))) return;
       showPanel('pages');
       void applyPageOps([{ type: 'delete', pages }]);
     },
@@ -8453,14 +9200,35 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
     manageAssemblies: () => setAssembliesOpen(true),
+    browseLibrary: () => setLibraryOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
     scripts: () => setScriptsOpen(true),
     takeoffReview: () => setTakeoffReviewOpen(true),
     cutout: startCutoutFromSelection,
     syncExcel: () => setSyncOpen(true),
+    portals: () => setPortalDialog({ pane: paneB ? 'b' : 'a' }),
+    breakPortalLink: () => {
+      activeOpen?.store.breakPortalLinks(selectedMarkups.filter((m) => m.portalLink).map((m) => m.id));
+      setNotice(msg('The selected markups are no longer mirrored: they are ordinary markups on their page now.'));
+    },
+    takeoffReports: () => {
+      setReportsError(null);
+      setReportsOpen(true);
+    },
+    toggleArc: () => activeTools?.toggleArc(),
+    hipValley: (kind) => activeTools?.setTool('polylength', { subject: kind === 'hip' ? 'Hip' : 'Valley', slope: hipValleySlope(kind) }),
+    manualQuantity: () => setManualOpen(true),
+    manageItems: () => setItemsOpen(true),
+    manageProductLists: () => setProductListsOpen(true),
+    manageTemplates: () => setTemplatesOpen(true),
+    saveTemplate: () => {
+      const m = selectedMarkups.length === 1 ? selectedMarkups[0] : undefined;
+      if (m && templateable(m)) void saveAsTemplate(m);
+    },
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
+    resetLayout,
     toggleLeft: () => setLeftOpen((s) => !s),
     toggleRight: () => (rightShown ? setRightOpen(false) : showPanel(panelSide(rightTab) === 'right' ? rightTab : rightRail[0]!.id)),
     toggleBottom,
@@ -8473,7 +9241,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     flowShape: (kind) => activeTools?.setFlowShape(kind),
     addNextShape: (side) => activeTools?.addNextShape(side),
     connectShapes: () => {
-      if (activeTools && !activeTools.connectSelected()) setNotice('The selected shapes are already connected.');
+      if (activeTools && !activeTools.connectSelected()) setNotice(msg('The selected shapes are already connected.'));
     },
     connectorRoute: (route) => activeTools?.setConnectorRoute(route),
   };
@@ -8494,11 +9262,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       to.batch(() => from.all().forEach((m) => to.add({ ...m, id: crypto.randomUUID(), author: authorRef.current, createdAt: now, modifiedAt: now })));
       if (from.hasColumnSet()) to.setColumnSet(from.columnSet());
       if (from.assemblies().length) to.setAssemblies(from.assemblies());
+      to.setEstimating(from.estimating());
       await Promise.all([from.destroy(), to.destroy()]);
       await openStored(file, bytes, activePaneRef.current);
       void refreshLibrary();
     } catch (err) {
-      setError(`New from template failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('New from template failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
   /** File › New PDF from Template: picks a template document and a name for the copy. */
@@ -8507,7 +9276,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     if (!templates.length) return;
     const choice = templates.length === 1 ? templates[0]! : await pickTemplate(templates);
     if (!choice) return;
-    const name = await askText('New PDF from Template', choice.name.replace(/\.pdf$/i, '') + ' copy.pdf', { label: `A new document from the template "${choice.name}".`, confirm: 'Create' });
+    const name = await askText(msg('New PDF from Template'), choice.name.replace(/\.pdf$/i, '') + ' copy.pdf', { label: msg('A new document from the template "{name}".', { name: choice.name }), confirm: msg('Create') });
     if (name) await copyTemplate(choice, name);
   };
   /** File › New PDF › Start from: a built-in template, or a copy of one in the library. */
@@ -8523,7 +9292,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const { buildTemplate } = await import('./documents/pdfTemplates');
       await openCreated(`${t.name}.pdf`, (await buildTemplate(t.id, req.count)).slice().buffer);
     } catch (err) {
-      setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Creating the PDF failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
   /** File › New PDF › Import Template: a PDF from disk, added to the library as a template. */
@@ -8534,7 +9303,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       await refreshLibrary();
       return stored.id;
     } catch (err) {
-      setError(`Importing the template failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Importing the template failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       return null;
     }
   };
@@ -8548,14 +9317,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const name = cur.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf';
       const file = new File([out as BlobPart], name, { type: 'application/pdf' });
       if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: cur.file.name, text: `${cur.file.name}, with markups` });
+        await navigator.share({ files: [file], title: cur.file.name, text: msg('{name}, with markups', { name: cur.file.name }) });
         return;
       }
       download(name, file);
       window.location.href = `mailto:?subject=${encodeURIComponent(cur.file.name)}&body=${encodeURIComponent(`Attached: ${name}\n`)}`;
-      setNotice(`Saved ${name}; attach it to the new email.`);
+      setNotice(msg('Saved {name}; attach it to the new email.', { name }));
     } catch (err) {
-      if ((err as Error)?.name !== 'AbortError') setError(`Sharing failed: ${err instanceof Error ? err.message : String(err)}`);
+      if ((err as Error)?.name !== 'AbortError') setError(msg('Sharing failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -8583,7 +9352,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const found = markupsFromXfdf(await file.text(), (i) => (matrices[i] ? invertMatrix(matrices[i]) : null)).filter((m) => m.pageIndex < cur.doc.pages.length);
       addImported(cur, found, file.name);
     } catch (err) {
-      setError(`XFDF ${dir} failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('XFDF {dir} failed: {value}', { dir, value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -8612,9 +9381,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         },
       });
       addImported(cur, markups, file.name);
-      if (skipped.length) setError(`${skipped.length} annotation${skipped.length === 1 ? '' : 's'} in ${file.name} could not be imported: ${skipped.slice(0, 5).join('; ')}${skipped.length > 5 ? '; …' : ''}`);
+      if (skipped.length) setError(msg('{count, plural, one {# annotation} other {# annotations}} in {name} could not be imported: {slice}{value}', { count: skipped.length, name: file.name, slice: skipped.slice(0, 5).join('; '), value: skipped.length > 5 ? '; …' : '' }));
     } catch (err) {
-      setError(`FDF ${dir} failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('FDF {dir} failed: {value}', { dir, value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -8635,7 +9404,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       }
       addImported(cur, found, file.name);
     } catch (err) {
-      setError(`Importing markups failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Importing markups failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -8651,9 +9420,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       // The markups as saving writes them; links stay out, as Revu leaves them out of BAX.
       const xml = await exportBax(await annotatedBytes(cur, { links: false }), { pageLabels: baxLabels(cur) });
       download(`${cur.file.name.replace(/\.pdf$/i, '')}.bax`, new Blob([xml], { type: 'application/xml' }));
-      setNotice('Markups exported as a Bluebeam BAX file. In Revu: Markups › Import Markups.');
+      setNotice(msg('Markups exported as a Bluebeam BAX file. In Revu: Markups › Import Markups.'));
     } catch (err) {
-      setError(`Exporting markups failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Exporting markups failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -8676,7 +9445,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const found = await readPdfAnnotations(inj.bytes.slice().buffer, store);
       const mine = found.markups.filter((m) => m.pdfAnnot && inj.added[m.pageIndex]?.includes(m.pdfAnnot.index));
       if (!mine.length) {
-        setNotice(`${file.name} has no markups for this document${inj.offPage ? ` (${inj.offPage} are on pages it does not have)` : ''}.`);
+        setNotice(msg('{name} has no markups for this document{value}.', { name: file.name, value: inj.offPage ? ' ' + msg('({offPage} are on pages it does not have)', { offPage: inj.offPage }) : '' }));
         return;
       }
       // Column values by name, onto this document's columns (missing ones added as text columns).
@@ -8736,17 +9505,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         }
       });
       if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) store.setColumnSet({ columns, statuses });
-      const parts = [added && `${added} added`, updated && `${updated} updated`, same && `${same} already up to date`].filter(Boolean).join(', ');
-      setNotice(`Imported ${file.name}: ${parts}${inj.offPage ? `; ${inj.offPage} on pages this document does not have were left out` : ''}.`);
+      const parts = [added && `${added} added`, updated && `${updated} updated`, same && msg('{same} already up to date', { same })].filter(Boolean).join(', ');
+      setNotice(msg('Imported {name}: {parts}{value}.', { name: file.name, parts, value: inj.offPage ? msg('; {offPage} on pages this document does not have were left out', { offPage: inj.offPage }) : '' }));
     } catch (err) {
-      setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Importing {name} failed: {value}', { name: file.name, value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   /** Adds imported markups as one undo step: new ids, except where the same markup is already here (updated instead). */
   const addImported = (cur: OpenFile, found: readonly Markup[], from: string) => {
     if (!found.length) {
-      setNotice(`${from} has no markups to import.`);
+      setNotice(msg('{from} has no markups to import.', { from }));
       return;
     }
     const store = cur.store;
@@ -8760,7 +9529,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         updated++;
       } else store.add(m);
     }
-    setNotice(`Imported ${found.length} markup${found.length === 1 ? '' : 's'} from ${from}${updated ? ` (${updated} updated in place)` : ''}.`);
+    setNotice(msg('Imported {count, plural, one {# markup} other {# markups}} from {from}{value}.', { count: found.length, from, value: updated ? ' ' + msg('({updated} updated in place)', { updated }) : '' }));
   };
 
   /** File › Publish and Export › Page Images. */
@@ -8813,7 +9582,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       }
       setPublishFor(null);
     } catch (err) {
-      setError(`${req.kind === 'pdf' ? 'Publish' : 'Export'} failed: ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      setError(req.kind === 'pdf' ? msg('Publish failed: {error}', { error }) : msg('Export failed: {error}', { error }));
     } finally {
       job.end();
     }
@@ -8833,14 +9603,19 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       return !snap || snap.isHost || allows(snap.meta, 'saveCopy');
     })(),
     selectionCount: toolsState.selected.size,
+    textSelected: !!toolsState.textSelection,
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),
     selectionGrouped: selectedMarkups.some((m) => m.groupId),
+    selectionLinked: anyLinked(selectedMarkups),
     selectionJoinable: selectedMarkups.filter(canJoin).length > 1,
     selectionExplodable: selectedMarkups.some(canExplode),
     selectionCloudable: selectedMarkups.some(canCloud),
     selectionReversible: selectedMarkups.some(canReverse),
     selectionAutoSizable: selectedMarkups.some(canAutoSize),
+    selectionCroppable: selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked).length === 1,
+    selectionPictures: selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked).length,
+    selectionCropped: selectedMarkups.some((m) => m.type === 'image' && !m.locked && !!cropOf(m)),
     selectionFits: (tool) => (tool === 'offset' ? !selectedMarkups.length || selectedMarkups.some(canOffset) : cadToolFits(tool, selectedMarkups)),
     canPaste: clipboardCount > 0,
     canGoBack,
@@ -8848,6 +9623,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     canUndo: !!activeOpen && activeOpen.store.undoHistory().length > 0,
     split,
     splitHorizontal,
+    mirrored: mirrorRef.current,
     sync,
     columns: spread.columns,
     cover: spread.cover,
@@ -8857,6 +9633,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
+    canApplyStitching: !!activeOpen && stitchSourceSheets(paneB ? manualStitchB : manualStitchA).length >= 2,
     canConvertDrawingAgain: !!activeCad,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
@@ -8869,7 +9646,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     showBottom: bottomOpen,
     tool: toolsState.tool,
     settings: prefs,
-    openTabCount: (pane === 'b' ? tabsB : tabsA).length,
+    openTabCount: (tabPaneOf(pane) === 'b' ? tabsB : tabsA).length,
     leftTab,
     rightTab,
     bottomTab,
@@ -8878,13 +9655,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     canAddNextShape: !activeReadOnly && selectedMarkups.length === 1 && !selectedMarkups[0]!.locked && canConnect(selectedMarkups[0]!),
     canConnectShapes: !activeReadOnly && selectedMarkups.filter((m) => !m.locked && canConnect(m)).length > 1,
     cutoutReady: !activeReadOnly && !!cutoutTargetOf(selectedMarkups, mayEditMarkup),
+    canArc: !activeReadOnly && !!activeTools?.canArc(),
+    arcArmed: toolsState.arc !== 'off',
+    hipValley: toolsState.tool === 'polylength' && (toolsState.preset?.slope?.kind === 'hip' || toolsState.preset?.slope?.kind === 'valley') ? toolsState.preset.slope.kind : null,
+    canSaveTemplate: !activeReadOnly && selectedMarkups.length === 1 && templateable(selectedMarkups[0]!),
     cutoutHint: cutoutBlocker(selectedMarkups, mayEditMarkup) ?? undefined,
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
 
   /** A side's panel rail: click a panel to show it; drag it along the rail, or onto the other side, to move it. */
-  const panelRail = (side: DockSide, items: typeof RAIL) => {
+  const panelRail = (side: DockSide, items: ReturnType<typeof RAIL>) => {
     const shown = side === 'left' ? leftOpen : rightOpen;
     const open = shown ? (side === 'left' ? leftTab : rightTab) : null;
     const labelled = railLabels[side];
@@ -8893,7 +9674,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     return (
     <nav
       className={['rail', side, labelled ? 'labelled' : '', railDrag?.side === side && !railDrag.over ? 'drop-target' : ''].filter(Boolean).join(' ')}
-      aria-label={side === 'left' ? 'Panels' : 'Right panels'}
+      aria-label={side === 'left' ? msg('Panels') : msg('Right panels')}
       onDragOver={(e) => dragOverSide(e, side)}
       onDrop={(e) => dropOnSide(e, side)}
     >
@@ -8901,15 +9682,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <button
         type="button"
         className="rail-toggle"
-        title={labelled ? 'Collapse the panel names' : 'Show the panel names'}
-        aria-label={labelled ? 'Collapse the panel names' : 'Show the panel names'}
+        title={labelled ? msg('Collapse the panel names') : msg('Show the panel names')}
+        aria-label={labelled ? msg('Collapse the panel names') : msg('Show the panel names')}
         aria-pressed={labelled}
         onClick={() => toggleRailLabels(side)}
       >
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
           <path fill="none" stroke="currentColor" strokeWidth="1.6" d={pointsLeft ?'M10 3 5 8l5 5' : 'M6 3l5 5-5 5'} />
         </svg>
-        <span className="rail-label">Collapse</span>
+        <span className="rail-label">{msg('Collapse')}</span>
       </button>
       )}
       {items.map(({ id, title, icon, experimental }) => (
@@ -8922,7 +9703,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             railDrag?.over === id ? (railDrag.after ? 'drop-after' : 'drop-before') : '',
             experimental ? 'experimental' : '',
           ].filter(Boolean).join(' ')}
-          title={experimental ? `${title} (Experimental)` : title}
+          title={experimental ? msg('{title} (Experimental)', { title }) : title}
           aria-pressed={open === id}
           data-panel={id}
           draggable
@@ -8948,20 +9729,20 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         >
           {icon}
           <span className="rail-label">{title}</span>
-          {experimental && <span className="rail-exp">Exp</span>}
+          {experimental && <span className="rail-exp">{msg('Exp')}</span>}
         </button>
       ))}
-      {!items.length && railDrag && <div className="rail-drop-hint">Dock here</div>}
+      {!items.length && railDrag && <div className="rail-drop-hint">{msg('Dock here')}</div>}
       {/* Fork addition: the classic layout's Markups list toggle, at the foot of the left rail. */}
       {side === 'left' && ws.classicLayout && !ws.markupsDocked && (
-        <button type="button" className={`rail-markups-toggle${bottomOpen ? ' active' : ''}`} data-rail-markups title="Markups list" aria-label="Markups list" aria-pressed={bottomOpen} onClick={toggleBottom}>
+        <button type="button" className={`rail-markups-toggle${bottomOpen ? ' active' : ''}`} data-rail-markups title={msg('Markups list')} aria-label={msg('Markups list')} aria-pressed={bottomOpen} onClick={toggleBottom}>
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
             <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M5.5 3.5h9M5.5 8h9M5.5 12.5h9" />
             <circle cx="2.5" cy="3.5" r="1" fill="currentColor" />
             <circle cx="2.5" cy="8" r="1" fill="currentColor" />
             <circle cx="2.5" cy="12.5" r="1" fill="currentColor" />
           </svg>
-          <span className="rail-label">Markups list</span>
+          <span className="rail-label">{msg('Markups list')}</span>
         </button>
       )}
     </nav>
@@ -8972,31 +9753,31 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
-    const width = side === 'left' ? leftWidth : rightWidth;
+    const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
       <aside
         className={`panel side ${side}${tab === 'sessions' || tab === 'projects' ? ' rc-chrome' : ''}${railDrag?.side === side && !railDrag.over ? ' drop-target' : ''}`}
-        style={{ width: tab === 'layers' ? Math.max(width, 380) : width }}
+        style={{ width }}
         onDragOver={(e) => dragOverSide(e, side)}
         onDrop={(e) => dropOnSide(e, side)}
       >
         <h2
           style={tab === 'layers' ? { display: 'none' } : undefined}
           draggable
-          title="Drag to the left or right side of the window to dock this panel there"
+          title={msg('Drag to the left or right side of the window to dock this panel there')}
           onDragStart={(e) => startPanelDrag(e, tab)}
           onDragEnd={() => setRailDrag(null)}
         >
-          {LEFT_TITLES[tab]}
+          {leftTitles()[tab]}
           {tab === 'markups' && (
-            <button className="drawer-popout" aria-label="Dock the Markups list at the bottom" title="Dock at the bottom of the window" draggable={false} onClick={undockMarkups}>
+            <button className="drawer-popout" aria-label={msg('Dock the Markups list at the bottom')} title={msg('Dock at the bottom of the window')} draggable={false} onClick={undockMarkups}>
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                 <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 2.5h12v11H2zM2 10h12" />
               </svg>
             </button>
           )}
-          <button className="drawer-close" aria-label="Close the panel" title="Close" draggable={false} onClick={close}>
+          <button className="drawer-close" aria-label={msg('Close the panel')} title={msg('Close')} draggable={false} onClick={close}>
             ×
           </button>
         </h2>
@@ -9014,9 +9795,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               if (scope === 'document') return activeOpen ? [fromTab(activeOpen)] : [];
               if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
               if (scope === 'open') return tabs.map((o) => fromTab(o));
-              return library
-                .filter((f) => !f.template && (!prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000))
-                .slice(0, prefs.recentCount)
+              return recentList(false)
                 .map((f) => {
                   const tab = tabs.find((t) => t.file.id === f.id);
                   return tab ? fromTab(tab) : librarySource(f);
@@ -9032,7 +9811,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     for (const h of hits)
                       for (const r of h.rects)
                         store.add({ id: crypto.randomUUID(), type: 'redaction', pageIndex: h.pageIndex, points: [[r.x - 1, r.y - 1], [r.x + r.w + 1, r.y + r.h + 1]], style, subject: 'Search redaction', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now });
-                    setNotice(`Marked ${hits.length} match${hits.length === 1 ? '' : 'es'} for redaction. Tools › Redaction › Apply Redactions removes them.`);
+                    setNotice(msg('Marked {count, plural, one {# match} other {# matches}} for redaction. Tools › Redaction › Apply Redactions removes them.', { count: hits.length }));
                   }
                 : undefined
             }
@@ -9056,7 +9835,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     });
                     store.checkpoint();
                     store.batch(() => made.forEach((m) => store.add(m)));
-                    setNotice(`Counted ${found.length} match${found.length === 1 ? '' : 'es'}${tool ? ` with ${tool.name}` : ''}.`);
+                    setNotice(msg('Counted {count, plural, one {# match} other {# matches}}{value}.', { count: found.length, value: tool ? ' ' + msg('with {name}', { name: tool.name }) : '' }));
                   }
                 : undefined
             }
@@ -9069,9 +9848,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         ) : tab === 'markups' ? (
           markupsPopped ? (
             <div className="popout-note">
-              <p>The Markups list is open in its own window.</p>
+              <p>{msg('The Markups list is open in its own window.')}</p>
               <button type="button" className="btn small" onClick={() => setMarkupsPopped(false)}>
-                Bring it back
+                {msg('Bring it back')}
               </button>
             </div>
           ) : (
@@ -9086,7 +9865,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             sheets={sheets}
             scales={scales}
             busy={busyPages || indexing}
-            onGoTo={(i) => v?.goToPage(i)}
+            onGoTo={(i) => v?.changePage(i)}
             onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
             onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
             onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
@@ -9113,18 +9892,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onFill={(name, value) => activeOpen && void fillFields(activeOpen.file.id, { [name]: value })}
             onUpdate={async (name, changes: FieldChanges) => {
               if (!activeOpen) return;
-              await editForm(activeOpen.file.id, 'Changing the field', async (bytes) => (await import('./documents/forms')).updateField(bytes, name, changes));
+              await editForm(activeOpen.file.id, msg('Changing the field'), async (bytes) => (await import('./documents/forms')).updateField(bytes, name, changes));
               if (changes.name) setSelectedField(changes.name);
             }}
             onDelete={(name) => {
-              if (!activeOpen || !confirm(`Delete the field "${name}"?`)) return;
-              void editForm(activeOpen.file.id, 'Deleting the field', async (bytes) => (await import('./documents/forms')).removeFields(bytes, [name]));
+              if (!activeOpen || !confirm(msg('Delete the field "{name}"?', { name }))) return;
+              void editForm(activeOpen.file.id, msg('Deleting the field'), async (bytes) => (await import('./documents/forms')).removeFields(bytes, [name]));
               setSelectedField(null);
             }}
-            onReorder={(names) => activeOpen && void editForm(activeOpen.file.id, 'Changing the tab order', async (bytes) => (await import('./documents/forms')).setTabOrder(bytes, names))}
+            onReorder={(names) => activeOpen && void editForm(activeOpen.file.id, msg('Changing the tab order'), async (bytes) => (await import('./documents/forms')).setTabOrder(bytes, names))}
             onReset={() => {
-              if (!activeOpen || !confirm('Clear every field of this form?')) return;
-              void editForm(activeOpen.file.id, 'Resetting the form', async (bytes) => (await import('./documents/forms')).resetForm(bytes));
+              if (!activeOpen || !confirm(msg('Clear every field of this form?'))) return;
+              void editForm(activeOpen.file.id, msg('Resetting the form'), async (bytes) => (await import('./documents/forms')).resetForm(bytes));
             }}
             onExport={(format) => {
               const model = activeOpen && formModels[activeOpen.file.hash];
@@ -9145,18 +9924,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 try {
                   data = /\.csv$/i.test(file.name) ? fromCsv(text) : /\.json$/i.test(file.name) ? Object.fromEntries(Object.entries(JSON.parse(text) as Record<string, unknown>).map(([k, v]) => [k, Array.isArray(v) ? v.join('\n') : String(v ?? '')])) : fromXfdf(text);
                 } catch {
-                  setError(`${file.name} could not be read as form data.`);
+                  setError(msg('{name} could not be read as form data.', { name: file.name }));
                   return;
                 }
                 const known = new Set(model.fields.filter((f) => f.type !== 'button' && f.type !== 'signature').map((f) => f.name));
                 const values = Object.fromEntries(Object.entries(data).filter(([k]) => known.has(k)));
                 const n = Object.keys(values).length;
                 if (!n) {
-                  setNotice(`None of the fields in ${file.name} are in this form.`);
+                  setNotice(msg('None of the fields in {name} are in this form.', { name: file.name }));
                   return;
                 }
                 await fillFields(activeOpen.file.id, values);
-                setNotice(`Filled in ${n} field${n === 1 ? '' : 's'} from ${file.name}.`);
+                setNotice(msg('Filled in {n, plural, one {# field} other {# fields}} from {name}.', { n, name: file.name }));
               })();
             }}
           />
@@ -9193,6 +9972,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onPlaces={(list) => activeOpen?.store.setPlaces(list)}
             onGo={(t) => ('action' in t && t.action ? followAction(t.action as LinkAction) : goToTarget(t))}
             onEditAction={(id) => setBookmarkAction(id)}
+            onFromRegions={() => startLabelRegions(undefined, 'label', { bookmarks: true })}
             currentView={() => (v ? visibleView(v, paneB ? canvasBRef.current : canvasRef.current) : { pageIndex, rect: null })}
           />
         ) : tab === 'layers' ? (
@@ -9217,7 +9997,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               const was = hiddenPdfLayers[id] ?? [];
               if (was.length === pdf.length && was.every((x) => pdf.includes(x))) return;
               setHiddenPdfLayers((all) => ({ ...all, [id]: pdf }));
-              void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(`Showing layers failed: ${err instanceof Error ? err.message : String(err)}`));
+              void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(msg('Showing layers failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
             }}
             onFaded={(markup) => {
               const id = activeOpen?.file.id;
@@ -9280,7 +10060,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             store={activeOpen && !activeReadOnly ? activeOpen.store : null}
             defaults={measureDefaults}
             onDefaults={setMeasureDefaults}
-            takeoff={activeOpen ? { assemblies, totals: (ms) => rollup(ms, assemblies, cellContext, 'item'), onManage: () => setAssembliesOpen(true) } : null}
+            takeoff={activeOpen ? { assemblies, totals: (ms) => rollup(ms, takeoffAssemblies, cellContext, 'item'), onManage: () => setAssembliesOpen(true) } : null}
           />
         ) : tab === 'spaces' ? (
           <SpacesPanel
@@ -9371,7 +10151,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     const s = activeOpen.store.manualStitch();
                     const adopted = adoptDetected(currentStitch, s.lines);
                     activeOpen.store.setManualStitch({ ...s, lines: [...s.lines, ...adopted] });
-                    setNotice(`${adopted.length / 2} detected join${adopted.length === 2 ? '' : 's'} can now be edited.`);
+                    setNotice(msg('{count} detected join{value2} can now be edited.', { count: adopted.length / 2, value2: adopted.length === 2 ? '' : 's' }));
                   }
                 : null
             }
@@ -9485,31 +10265,31 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }}
             onCheckRevocation={async (c) => {
               const { buildChain, checkRevocation } = await import('./documents/pki');
-              if (!c.certificates.length) throw new Error('The signature carries no certificate');
+              if (!c.certificates.length) throw new Error(msg('The signature carries no certificate'));
               const chain = await buildChain(c.certificates[0]!, c.certificates);
               const r = await checkRevocation(chain, pkiFetch);
-              const when = r.at ? ` (as of ${r.at.toLocaleString()})` : '';
+              const when = r.at ? ' ' + msg('(as of {at})', { at: r.at.toLocaleString() }) : '';
               const trust = r.verified ? '' : ' The answer’s signature could not be checked.';
               return r.status === 'good'
-                ? `Not revoked, says the certificate authority’s ${r.via}${when}.${trust}`
+                ? msg('Not revoked, says the certificate authority’s {via}{when}.{trust}', { via: r.via, when, trust })
                 : r.status === 'revoked'
                   ? `Revoked${r.revokedAt ? ` on ${r.revokedAt.toLocaleString()}` : ''} (${r.via}).${c.signedAt && r.revokedAt && c.signedAt < r.revokedAt ? ' It was signed before that.' : ''}${trust}`
-                  : `The ${r.via} responder does not know this certificate.`;
+                  : msg('The {via} responder does not know this certificate.', { via: r.via });
             }}
             {...(desktop()?.pkiFetch
               ? {
                   onAddLtv: async (c: SignatureCheck) => {
-                    if (!activeOpen) throw new Error('No document is open');
+                    if (!activeOpen) throw new Error(msg('No document is open'));
                     let note: string | null = null;
                     const ok = await editForm(
                       activeOpen.file.id,
-                      'Adding long-term validation',
+                      msg('Adding long-term validation'),
                       async (bytes) => {
                         const out = await addLtv(new Uint8Array(bytes), { fields: [c.field] });
-                        note = out.problems.length ? `Added, but not for all of it: ${out.problems.join('; ')}` : null;
+                        note = out.problems.length ? msg('Added, but not for all of it: {problems}', { problems: out.problems.join('; ') }) : null;
                         return out.bytes;
                       },
-                      'Before adding long-term validation',
+                      `Before adding long-term validation`,
                       true,
                     );
                     return ok ? (note ?? 'Long-term validation added: the chain and revocation answers are kept in the PDF.') : 'LTV not added.';
@@ -9537,6 +10317,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         ) : (
           <Library
             files={library}
+            recents={recentList()}
+            onClearRecents={() => removeFromRecents(library.map((f) => f.id))}
             activeHash={activeOpen?.file.hash ?? null}
             onOpen={(f) => void openFromLibrary(f)}
             fileMenu={(f, groupEntries) => {
@@ -9549,7 +10331,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onRemove={removeFromDevice}
           />
         )}
-        <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize, click to collapse" onPointerDown={(e) => onSideResize(side, e)} />
+        <div className="panel-split" role="separator" aria-orientation="vertical" aria-label={msg('Resize side panel')} title={msg('Drag to resize, click to collapse')} onPointerDown={(e) => onSideResize(side, e)} />
       </aside>
     );
   };
@@ -9571,7 +10353,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       onExport={onExportList}
       onSync={() => setSyncOpen(true)}
       syncing={!!sheetSync.link}
-      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : null}
+      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : sheetSync.issues.length ? `${sheetSync.issues.length} cell${sheetSync.issues.length === 1 ? ' is' : 's are'} paused: changed here and in Excel. Click to choose.` : null}
       onFiltered={setListKept}
       allHidden={allMarkupsHidden}
       onToggleAllHidden={toggleAllMarkupsHidden}
@@ -9580,7 +10362,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
 
   // The Markups list sits beside the side panels, or spans the window below them.
   const bottomDock = !dockOpen ? (
-    <button type="button" className="dock-edge" aria-label="Open the Markups list" title="Open the Markups list" onClick={() => setDockOpen(true)} />
+    <button type="button" className="dock-edge" aria-label={msg('Open the Markups list')} title={msg('Open the Markups list')} onClick={() => setDockOpen(true)} />
   ) : (
     <aside
       className="bottom-dock"
@@ -9597,13 +10379,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         setRailDrag(null);
       }}
     >
-      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" title="Drag to resize, click to collapse" onPointerDown={onDockSplit} />
+      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label={msg('Resize markups panel')} title={msg('Drag to resize, click to collapse')} onPointerDown={onDockSplit} />
       <div className="tabs">
         <button
           type="button"
           className="dock-width-toggle"
-          title={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
-          aria-label={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
+          title={dockFull ? msg('Fit the panel between the side panels') : msg('Extend the panel across the full width')}
+          aria-label={dockFull ? msg('Fit the panel between the side panels') : msg('Extend the panel across the full width')}
           aria-pressed={dockFull}
           onClick={() => updateWorkspace((w) => ({ ...w, dockFullWidth: !w.dockFullWidth }))}
         >
@@ -9617,13 +10399,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               role="tab"
               aria-selected={bottomTab === 'markups'}
               className={bottomTab === 'markups' ? 'active' : ''}
-              title="Drag to a side of the window to dock the Markups list there"
+              title={msg('Drag to a side of the window to dock the Markups list there')}
               draggable
               onDragStart={(e) => startPanelDrag(e, 'markups')}
               onDragEnd={() => setRailDrag(null)}
               onClick={() => setBottomTab('markups')}
             >
-              Markups
+              {msg('Markups')}
             </button>
           )}
           <button
@@ -9632,17 +10414,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             className={bottomTab === 'links' ? 'active' : ''}
             onClick={() => setBottomTab('links')}
           >
-            Links{links.some((l) => l.status === 'review') ? ' •' : ''}
+            {msg('Links{value}', { value: links.some((l) => l.status === 'review') ? ' •' : '' })}
           </button>
         </div>
         {bottomTab === 'markups' && !markupsPopped && (
-          <button type="button" className="drawer-popout" aria-label="Open the Markups list in its own window" title="Open in its own window" onClick={() => setMarkupsPopped(true)}>
+          <button type="button" className="drawer-popout" aria-label={msg('Open the Markups list in its own window')} title={msg('Open in its own window')} onClick={() => setMarkupsPopped(true)}>
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M9 2h5v5M14 2 7.5 8.5M12 10v3.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5H6" />
             </svg>
           </button>
         )}
-        <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
+        <button className="drawer-close" aria-label={msg('Close the Markups list')} title={msg('Close')} onClick={() => setShowBottom(false)}>
           ×
         </button>
       </div>
@@ -9666,9 +10448,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           />
         ) : markupsPopped ? (
           <div className="popout-note">
-            <p>The Markups list is open in its own window.</p>
+            <p>{msg('The Markups list is open in its own window.')}</p>
             <button type="button" className="btn small" onClick={() => setMarkupsPopped(false)}>
-              Bring it back
+              {msg('Bring it back')}
             </button>
           </div>
         ) : (
@@ -9686,6 +10468,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         const target = e.target as HTMLElement;
         // Text fields keep the browser's own menu (spelling, copy and paste).
         if (target.closest('input, textarea, select, [contenteditable]')) return;
+        // The ribbon's tabs sit in the menu bar's row; the ribbon shows its own menu for them.
+        if (target.closest('.rb-tabs')) return;
         if (target.closest('.rail')) showMenu(e, panelsMenu(target.closest<HTMLElement>('[data-panel]')?.dataset.panel as LeftTab | undefined));
         else if (target.closest('.toolbar.tools')) showMenu(e, toolbarMenu(e));
         else if (target.closest('.menubar, .toolbar,.statusbar, .doc-tabs, .tabs, .panel.side > h2')) showMenu(e, layoutMenu());
@@ -9729,28 +10513,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (files.length && open) setBulkInsertFiles(files);
         }}
       />
-      <input
-        ref={splitFileRef}
-        type="file"
-        accept="application/pdf"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (!f) return;
-          pendingSplit.current = f;
-          setSplit(true);
-          setActivePane('b');
-        }}
-      />
       <MenuBar
         commands={commandMap}
         author={author}
         onAuthorChange={persistAuthor}
-        recents={library
-          .filter((f) => !prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000)
-          .slice(0, prefs.recentCount)
-          .map((f) => ({ id: f.id, name: f.name }))}
+        recents={recentList().map((f) => ({ id: f.id, name: f.name }))}
         profiles={profileList.map((p) => ({ id: p.id, name: p.name }))}
         activeProfileId={activeProfileId}
         hiddenPanels={ws.hiddenPanels}
@@ -9768,6 +10535,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             const f = library.find((x) => x.id === id);
             if (f) void openFromLibrary(f);
           },
+          clearRecents: () => removeFromRecents(library.map((f) => f.id)),
           switchProfile: (id) => profiles.switchTo(id),
           showLeft: showPanel,
           showBottom: showBottomPanel,
@@ -9791,10 +10559,27 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           selection: toolsState.tool === 'select' && activeOpen && toolsState.selected.size > 0 ? { markups: markups.filter((m) => toolsState.selected.has(m.id)), store: activeOpen.store } : null,
           layerNames: [...new Set([...markups.flatMap((m) => (m.layer ? [m.layer] : [])), ...(activeOpen ? addedMarkupLayers(activeOpen.file.id) : [])])],
           defaultLayer: activeOpen ? defaultMarkupLayer(activeOpen.file.id) : undefined,
-          askLayer: () => askText('New Markup Layer', '', { label: 'Markups go on it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => name?.trim() || null),
+          askLayer: () => askText(msg('New Markup Layer'), '', { label: msg('Markups go on it. Layers show and hide in the Layers panel, and are PDF layers in saved files.'), confirm: msg('Create') }).then((name) => name?.trim() || null),
           textType,
           textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,
           enabled: !!activeOpen && !activeReadOnly,
+          // Units & Scale shows while measuring: a measure tool is active, or measurements are selected.
+          unitsScale:
+            activeOpen && (MEASURE_TOOLS.some((t) => t.tool === toolsState.tool) || selectedMarkups.some((m) => isMeasureKind(m.type)))
+              ? {
+                  scale: scales[pageIndex] ?? null,
+                  disabled: activeReadOnly,
+                  onPreset: (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)),
+                  onCustom: () => {
+                    setCustomScalePage(pageIndex);
+                    setCustomScalePane(paneB ? 'b' : 'a');
+                  },
+                  onUnitsChanged: () => {
+                    const current = scales[pageIndex];
+                    if (current) activeOpen.store.setScale([pageIndex], scaleInDefaultUnits(current));
+                  },
+                }
+              : null,
           visibleTools: ws.toolbarTools,
           author,
           onPlaceStamp: (s) => placeStamp(s),
@@ -9808,6 +10593,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           },
           onUndo: () => activeOpen?.store.undo(),
           onRedo: () => activeOpen?.store.redo(),
+          takeoffTemplates: activeOpen ? { document: estimating.templates, onUse: armTemplate } : null,
+          takeoffAssembly: activeOpen ? { assemblies, defaults: measureDefaults, onDefaults: setMeasureDefaults, onManage: () => setAssembliesOpen(true) } : null,
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
@@ -9822,7 +10609,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <div className="body">
         {panelRail('left', leftRail)}
         {sidePanel('left')}
-        {!leftOpen && <button type="button" className="panel-edge" aria-label="Open the side panel" title="Open the side panel" onClick={() => setLeftOpen(true)} />}
+        {!leftOpen && <button type="button" className="panel-edge" aria-label={msg('Open the side panel')} title={msg('Open the side panel')} onClick={() => setLeftOpen(true)} />}
         <div className="workspace">
           <div id="rc-project-slot" className="rc-project-slot" />
           <div className={`panes${split ? ' split' : ''}${split && splitHorizontal ? ' horizontal' : ''}`}>
@@ -9911,7 +10698,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 {open && suggestion?.fileId === open.file.id && (
                   <div className="slow-drawing standard-suggestion" role="status">
                     <p>
-                      This looks like a <b>{suggestion.standard.name}</b> set: {Math.round(suggestion.fit * 100)}% of the sheets checked fit that drawing standard.
+                      {keyed(msgParts('This looks like a {b} set: {round}% of the sheets checked fit that drawing standard.', { b: <b>{suggestion.standard.name}</b>, round: Math.round(suggestion.fit * 100) }))}
                     </p>
                     <div className="slow-drawing-actions">
                       <button
@@ -9922,7 +10709,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                           setSuggestion(null);
                         }}
                       >
-                        Not this set
+                        {msg('Not this set')}
                       </button>
                       <button
                         type="button"
@@ -9930,10 +10717,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                         onClick={() => {
                           const { standard } = suggestion;
                           setSuggestion(null);
-                          void readWithStandard(open, standard).then(() => setNotice(`${open.file.name} is read with ${standard.name}.`));
+                          void readWithStandard(open, standard).then(() => setNotice(msg('{name} is read with {name2}.', { name: open.file.name, name2: standard.name })));
                         }}
                       >
-                        Use {suggestion.standard.name}
+                        {msg('Use {name}', { name: suggestion.standard.name })}
                       </button>
                     </div>
                   </div>
@@ -9947,7 +10734,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   className={splitHorizontal ? 'split-h' : 'split-v'}
                   role="separator"
                   aria-orientation={splitHorizontal ? 'horizontal' : 'vertical'}
-                  aria-label="Resize split"
+                  aria-label={msg('Resize split')}
                   onPointerDown={onSplitResize}
                 />
                 <div
@@ -9981,7 +10768,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     }}
                   >
                     <canvas ref={canvasBRef} />
-                    {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
+                    {!openB && <div className="hint">{msg('Drop a PDF here or File → Open Recent')}</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
                     {openB && recoveredOnOpen.has(openB.file.id) && !recoveredKept.has(openB.file.id) && hasUnsavedChanges(openB) && (
                       <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(openB.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(openB)} />
@@ -10018,7 +10805,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   done++;
                 }
                 const missed = scales.length - done;
-                setNotice(`Set the scale on ${done} page${done === 1 ? '' : 's'}${missed ? `; ${missed} had no readable scale in the boxes and were left as they were` : ''}.`);
+                setNotice(msg('Set the scale on {done, plural, one {# page} other {# pages}}{value}.', { done, value: missed ? msg('; {missed} had no readable scale in the boxes and were left as they were', { missed }) : '' }));
                 setLabelMode(null);
               }}
             />
@@ -10039,8 +10826,26 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onApply={(spec) => {
                 const o = labelPaneParts.o!;
                 setLabelMode(null);
-                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
+                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(msg('Bulk redact failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
               }}
+            />
+          )}
+          {applyStitch && activeOpen && (
+            <ApplyStitchingDialog
+              documents={[activeOpen, ...[...tabsA, ...tabsB].filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
+              onApply={(targetId, pairs, tol, options) => {
+                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId) ?? activeOpen;
+                return applyStitching(activeOpen, target, pairs, tol, options);
+              }}
+              onShow={(targetId, page) => {
+                setApplyStitch(false);
+                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId);
+                if (!target || target.file.id !== activeOpen.file.id) return setNotice(msg('Switch to {value} to see its stitched sheets.', { value: target?.file.name ?? msg('that document') }));
+                const group = mergeStitch(target.store.stitchGroups(), withViewportRegions(target.store.manualStitch(), target.store.allViewports())).find((g) => g.placements.some((p) => p.pageIndex === page));
+                if (group) openStitch(group, page);
+                else setNotice(msg('That sheet is not joined to another: check its match lines in the Stitching panel.'));
+              }}
+              onClose={() => setApplyStitch(false)}
             />
           )}
           {setup &&
@@ -10073,16 +10878,16 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       const known = new Set(o.store.allLinks().map((l) => l.id));
                       for (const [linkId, ok] of checks) if (known.has(linkId)) o.store.setLinkStatus(linkId, ok ? 'accepted' : 'rejected');
                       const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
-                      setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
+                      setNotice(standard ? msg('Read {name} with {name2}: {read} of {count} sheet numbers from its title block.', { name: o.file.name, name2: standard.name, read, count: o.doc.pages.length }) : msg('{name} is read from its text again.', { name: o.file.name }));
                     });
                   }}
                   onStitch={() => {
                     void restitch(o).then(() => {
                       const groups = o.store.stitchGroups();
-                      setNotice(groups.length ? `Stitched ${o.file.name}: ${groups.length} group${groups.length === 1 ? '' : 's'} of plans joined along their match lines. Open them from the Stitching panel.` : `No plans in ${o.file.name} could be stitched from their match lines.`);
+                      setNotice(groups.length ? msg('Stitched {name}: {count, plural, one {# group} other {# groups}} of plans joined along their match lines. Open them from the Stitching panel.', { name: o.file.name, count: groups.length }) : msg('No plans in {name} could be stitched from their match lines.', { name: o.file.name }));
                     });
                   }}
-                  onUseNone={() => void readWithStandard(o, null).then(() => setNotice(`${o.file.name} is read from its text again.`))}
+                  onUseNone={() => void readWithStandard(o, null).then(() => setNotice(msg('{name} is read from its text again.', { name: o.file.name })))}
                   onImport={(file) =>
                     void file
                       .text()
@@ -10090,7 +10895,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                         const standard = parseStandardFile(content);
                         const known = profiles.active().state.drawingStandards.some((s) => s.id === standard.id);
                         updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }));
-                        setNotice(`${known ? 'Updated' : 'Added'} the drawing standard "${standard.name}".`);
+                        setNotice(msg('{value} the drawing standard "{name}".', { value: known ? msg('Updated') : msg('Added'), name: standard.name }));
                       })
                       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
                   }
@@ -10119,7 +10924,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     if (!project) return;
                     void project
                       .setStandard(standard ? exportStandard(standard) : null, standard?.name)
-                      .then(() => setNotice(standard ? `Every file in ${project.getSnapshot().manifest.name} is now read with ${standard.name}.` : `${project.getSnapshot().manifest.name} no longer has a drawing standard.`))
+                      .then(() => setNotice(standard ? msg('Every file in {name} is now read with {name2}.', { name: project.getSnapshot().manifest.name, name2: standard.name }) : msg('{name} no longer has a drawing standard.', { name: project.getSnapshot().manifest.name })))
                       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
                   }}
                   onClose={() => setSetup(null)}
@@ -10129,7 +10934,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               return (
                 <PopOutWindow
                   name="redcolumn-standards"
-                  title="Set up drawing standard"
+                  title={msg('Set up drawing standard')}
                   width={Math.min(1500, Math.round(window.screen.availWidth * 0.9))}
                   height={Math.min(1000, Math.round(window.screen.availHeight * 0.9))}
                   onClose={(reason) => {
@@ -10144,10 +10949,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             })()}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
             <LabelRegionsPanel
-              key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}`}
+              key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}:${labelMode.bookmarks ? 'b' : ''}`}
               initialPages={labelMode.pages}
               initialSource={labelMode.typed ? 'typed' : 'regions'}
-              labelOf={(page, target) => (target === 'number' ? (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.number : (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.title) ?? ''}
+              initialTarget={labelMode.bookmarks ? 'bookmark' : 'number'}
+              labelOf={(page, target) => (target === 'bookmark' ? (flattenBookmarks(labelPaneParts.o?.store.bookmarks() ?? []).find((r) => r.bookmark.pageIndex === page && !r.bookmark.action && !r.bookmark.children.length && !r.bookmark.rect)?.bookmark.title ?? pageLabelFor(labelPaneParts.o, page)) : target === 'number' ? (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.number : (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.title) ?? ''}
               onSource={(source) => labelPaneParts.c?.tools.setTool(source === 'typed' ? 'select' : 'labelRegion')}
               regions={labelMode.regions}
               drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
@@ -10160,6 +10966,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onClose={() => setLabelMode(null)}
               onApply={(labels, target) => {
                 const store = labelPaneParts.o!.store;
+                if (target === 'bookmark') {
+                  const named = nameBookmarksByPage(
+                    store.bookmarks(),
+                    labels.map((l) => ({ pageIndex: l.page, title: l.label })),
+                    () => crypto.randomUUID(),
+                  );
+                  const n = named.renamed + named.added;
+                  if (n) store.setBookmarks(named.tree);
+                  setNotice(msg('Named {n, plural, one {# bookmark} other {# bookmarks}}{value}{value2}.', { n, value: named.added && named.renamed ? ' ' + msg('({added} new)', { added: named.added }) : '', value2: named.skipped.length ? msg('; {count, plural, one {# page} other {# pages}} had no text in the boxes and {value} left as {value2}', { count: named.skipped.length, value: named.skipped.length === 1 ? msg('was') : msg('were'), value2: named.skipped.length === 1 ? msg('it was') : msg('they were') }) : '' }));
+                  setLabelMode(null);
+                  return;
+                }
                 let done = 0;
                 store.checkpoint();
                 for (const { page, label } of labels) {
@@ -10168,7 +10986,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   done++;
                 }
                 const missed = labels.length - done;
-                setNotice(`Labelled ${done} page${done === 1 ? '' : 's'}${missed ? `; ${missed} had no text in the boxes and were left as they were` : ''}.`);
+                setNotice(msg('Labelled {done, plural, one {# page} other {# pages}}{value}.', { done, value: missed ? msg('; {missed} had no text in the boxes and were left as they were', { missed }) : '' }));
                 setLabelMode(null);
               }}
             />
@@ -10176,7 +10994,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           {showBottom && !dockFull && bottomDock}
         </div>
         {rightRail.length > 0 && !rightShown && (
-          <button type="button" className="panel-edge right" aria-label="Open the right side panel" title="Open the right side panel" onClick={() => commandActions.toggleRight()} />
+          <button type="button" className="panel-edge right" aria-label={msg('Open the right side panel')} title={msg('Open the right side panel')} onClick={() => commandActions.toggleRight()} />
         )}
         {sidePanel('right')}
         {(rightRail.length > 0 || (railDrag && !narrowScreen())) && panelRail('right', rightRail)}
@@ -10190,6 +11008,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         snapContent={toolsState.snap}
         onSnapContent={(on) => activeTools?.setSnap(on)}
         tool={toolsState.tool}
+        arc={toolsState.arc}
         onSelectTool={() => activeTools?.setTool('select')}
         onOpenSettings={(category, tab) => {
           setPrefsCategory({ category, tab });
@@ -10217,7 +11036,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             const cur = paneParts(pane).o;
             if (!cur) return;
             const marks = cur.store.all().filter((m) => m.type === 'redaction');
-            void runRedact(cur, pane === 'b', 'redact', marks.map((m) => ({ pageIndex: m.pageIndex, rect: boundsOf(m.points) })), options).catch((err) => setError(`Redaction failed: ${err instanceof Error ? err.message : String(err)}`));
+            void runRedact(cur, pane === 'b', 'redact', marks.map((m) => ({ pageIndex: m.pageIndex, rect: boundsOf(m.points) })), options).catch((err) => setError(msg('Redaction failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
         />
       )}
@@ -10238,8 +11057,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               }
               const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '-');
               await openCreated(`Scan ${stamp}.pdf`, (await pdf.save()).slice().buffer);
-              setNotice(`Created a ${pages.length}-page PDF from the camera. Document › OCR makes its text searchable.`);
-            })().catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
+              setNotice(msg('Created a {count}-page PDF from the camera. Document › OCR makes its text searchable.', { count: pages.length }));
+            })().catch((err) => setError(msg('Creating the PDF failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
         />
       )}
@@ -10283,7 +11102,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setSoundOpen(false);
             void fileToAttachment(file).then((attachment) => {
               activeTools?.setTool('attachment', { attachment, subject: kind === 'video' ? 'Video' : 'Sound', once: true });
-              setNotice(`Click where the ${kind === 'video' ? 'video' : 'sound'} note goes.`);
+              setNotice(msg('Click where the {value} note goes.', { value: kind === 'video' ? msg('video') : msg('sound') }));
             }, (err) => setError(err instanceof Error ? err.message : String(err)));
           }}
         />
@@ -10319,7 +11138,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               void ctl.engine
                 .createPdf(Array.from({ length: req.count }, () => ({ width: req.width, height: req.height })))
                 .then((bytes) => openCreated('Untitled.pdf', bytes))
-                .catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
+                .catch((err) => setError(msg('Creating the PDF failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
         />
       )}
@@ -10358,8 +11177,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setDocPropsOpen(false);
             void readFile(cur.file.hash)
               .then((bytes) => setDocumentInfo(bytes, info))
-              .then((bytes) => swapDocument(cur, paneB, bytes, undefined, undefined, 'Change document properties'))
-              .catch((err) => setError(`Saving document properties failed: ${err instanceof Error ? err.message : String(err)}`));
+              .then((bytes) => swapDocument(cur, paneB, bytes, undefined, undefined, msg('Change document properties')))
+              .catch((err) => setError(msg('Saving document properties failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
         />
       )}
@@ -10375,6 +11194,41 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onApply={(rows, columns, gapX, gapY, opts) => {
                 c.tools.multiply(rows, columns, gapX, gapY, opts);
                 setMultiplyFor(null);
+              }}
+            />
+          );
+        })()}
+      {adjustImageFor &&
+        (() => {
+          const store = paneParts(adjustImageFor.pane).o?.store;
+          const ms = store ? adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m)) : [];
+          if (!store || !ms.length) return null;
+          return (
+            <AdjustImageDialog
+              source={ms[0]!.image!}
+              count={ms.length}
+              onCancel={() => setAdjustImageFor(null)}
+              onChangeColours={ms.length === 1 ? () => {
+                setAdjustImageFor(null);
+                setPictureColoursFor({ pane: adjustImageFor.pane, id: ms[0]!.id });
+              } : undefined}
+              onApply={async (adjust) => {
+                // Bake every picture first, so a failure leaves them all as they were; then one undo step.
+                const baked: { id: string; from: string; image: string }[] = [];
+                // Re-resolved now, not when the dialog opened: a picture may have gone or been locked since.
+                const now = adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m));
+                for (const m of now) baked.push({ id: m.id, from: m.image!, image: await bakePicture(m.image!, (d) => adjustPixels(d, adjust)) });
+                // Pictures deleted, locked or given another image under the dialog meanwhile are skipped, so
+                // a collaborator's change is not overwritten.
+                const live = baked.filter((b) => {
+                  const m = store.get(b.id);
+                  return !!m?.image && !m.locked && store.mayEdit(m) && m.image === b.from;
+                });
+                if (live.length) {
+                  store.checkpoint();
+                  store.batch(() => live.forEach((b) => store.update(b.id, { image: b.image })));
+                }
+                setAdjustImageFor(null);
               }}
             />
           );
@@ -10412,22 +11266,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               source={source}
               onCancel={() => setPictureColoursFor(null)}
               onApply={async (mode) => {
-                const img = new Image();
-                img.src = source;
-                await img.decode();
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                const g = canvas.getContext('2d')!;
-                g.drawImage(img, 0, 0);
-                const pixels = g.getImageData(0, 0, canvas.width, canvas.height);
-                recolourPixels(pixels.data, mode);
-                g.putImageData(pixels, 0, 0);
-                const image = canvas.toDataURL('image/png');
+                const image = await bakePicture(source, (d) => recolourPixels(d, mode));
+                const now = store.get(m.id);
+                if (!now?.image || now.locked || !store.mayEdit(now) || now.image !== source) return setPictureColoursFor(null);
                 // A vector snapshot stays vector: its drawing is recoloured too (picture only when that cannot be done).
                 const vector = m.vector && m.vectorImage === markupDigest({ image: source } as Markup) ? await recolourVectorSnapshot(m.vector, mode) : null;
                 store.checkpoint();
-                store.update(m.id, vector ? { image, vector, vectorImage: markupDigest({ image } as Markup) } : { image });
+                store.batch(() => store.update(m.id, vector ? { image, vector, vectorImage: markupDigest({ image } as Markup) } : { image, vector: undefined, vectorImage: undefined }));
                 setPictureColoursFor(null);
               }}
             />
@@ -10436,11 +11281,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {captureView && (
         <div className="modal-backdrop" onMouseDown={() => setCaptureView(null)}>
           <div className="modal capture-view" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && setCaptureView(null)}>
-            <h3>Capture</h3>
-            <img src={captureView} alt="The markup as captured" />
+            <h3>{msg('Capture')}</h3>
+            <img src={captureView} alt={msg('The markup as captured')} />
             <div className="actions">
               <button type="button" className="btn primary" autoFocus onClick={() => setCaptureView(null)}>
-                Close
+                {msg('Close')}
               </button>
             </div>
           </div>
@@ -10454,7 +11299,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           const parent = replyTo.parentId ? m.replies?.find((r) => r.id === replyTo.parentId) : undefined;
           return (
             <CommentDialog
-              title={parent ? `Reply to ${parent.author || 'reply'}` : `Reply to ${m.subject || MARKUP_LABELS[m.type]}`}
+              title={parent ? msg('Reply to {value}', { value: parent.author || msg('reply') }) : msg('Reply to {value}', { value: m.subject || MARKUP_LABELS[m.type] })}
               initial=""
               onClose={() => setReplyTo(null)}
               onSave={(text) => {
@@ -10473,17 +11318,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onCancel={() => setHeaderFooter(null)}
           onApply={async (spec, pages) => {
             const cur = activeOpen;
-            if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its pages cannot be changed here.');
+            if (studioDocOf(cur.file.id)) throw new Error(msg('A Live Session document is shared with others, so its pages cannot be changed here.'));
             const { addHeaderFooter } = await import('./documents/headerFooter');
             const date = new Date().toLocaleDateString();
             const bytes = await addHeaderFooter(await readFile(cur.file.hash), pages, spec, (i) => ({ label: cur.store.allSheets()[i]?.number || String(i + 1), file: cur.file.name, date }));
-            await swapDocument(cur, paneB, bytes.slice().buffer, undefined, undefined, 'Add header and footer');
+            await swapDocument(cur, paneB, bytes.slice().buffer, undefined, undefined, msg('Add header and footer'));
             setHeaderFooter(null);
           }}
           onRemove={async () => {
             const cur = activeOpen;
             const { removeHeaderFooter } = await import('./documents/headerFooter');
-            await swapDocument(cur, paneB, (await removeHeaderFooter(await readFile(cur.file.hash))).slice().buffer, undefined, undefined, 'Remove header and footer');
+            await swapDocument(cur, paneB, (await removeHeaderFooter(await readFile(cur.file.hash))).slice().buffer, undefined, undefined, msg('Remove header and footer'));
             setHeaderFooter(null);
           }}
         />
@@ -10496,6 +11341,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           currentId={activeOpen?.file.id ?? null}
           currentPage={pageIndex}
           preview={previewPage}
+          openPage={openPickerPage}
+          onImportFile={importLibraryFile}
           onCancel={() => setCompareOpen(null)}
           onRun={(spec) => {
             setCompareOpen(null);
@@ -10508,13 +11355,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           name={activeOpen.file.name}
           onCancel={() => setSecurityOpen(false)}
           onSave={async (settings) => {
-            if (!(await rewriteSigned(activeOpen.doc, 'A protected copy'))) return;
+            if (!(await rewriteSigned(activeOpen.doc, msg('A protected copy')))) return;
             const { encryptPdf } = await import('./documents/security');
             // With its markups, as a saved copy always has them.
             const bytes = await encryptPdf(await annotatedBytes(activeOpen), settings);
             download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} (protected).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
             setSecurityOpen(false);
-            setNotice(`Saved a protected copy of ${activeOpen.file.name}${settings.openPassword ? ': it needs its password to open' : ''}.`);
+            setNotice(msg('Saved a protected copy of {name}{value}.', { name: activeOpen.file.name, value: settings.openPassword ? msg(': it needs its password to open') : '' }));
           }}
         />
       )}
@@ -10530,14 +11377,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onSign={async (c) => {
             // A .p12 password is checked before anything else happens; a card checks its PIN when it signs.
             const record = digitalIds.list().find((r) => r.id === c.idId);
-            if (!record) throw new Error('Choose a Digital ID');
+            if (!record) throw new Error(msg('Choose a Digital ID'));
             (await import('./documents/signers')).signerFor(record, c.password);
             if (!record.token) rememberPassword(record.id, c.password);
             if (!signFor.fieldName && c.where === 'draw') {
               pendingSign.current = c;
               activeTools?.setTool('formField');
               setSignFor(null);
-              setNotice('Drag a box on the page where the signature goes.');
+              setNotice(msg('Drag a box on the page where the signature goes.'));
               return;
             }
             await runSign(activeOpen.file.id, c, signFor.fieldName ? { fieldName: signFor.fieldName } : {});
@@ -10604,7 +11451,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 // OneDrive shares the session folder and emails the link.
                 await session.invite?.(emails);
                 setInviteSession(null);
-                setNotice(`Shared the session with ${emails.join(', ')}.`);
+                setNotice(msg('Shared the session with {emails}.', { emails: emails.join(', ') }));
               }}
             />
           );
@@ -10624,7 +11471,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               oneDriveAvailable={oneDriveSharingEnabled}
               sendBack={session.meta.documents.flatMap((d) => {
                 const src = sourceOf(endFor.sessionId, d.id);
-                return src ? [{ docId: d.id, name: d.name, target: `update ${src.name} in your library` }] : [];
+                return src ? [{ docId: d.id, name: d.name, target: msg('update {name} in your library', { name: src.name }) }] : [];
               })}
               busy={studioBusy}
               progress={endProgress}
@@ -10646,9 +11493,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           const docName = session?.meta.documents.find((d) => d.id === e.docId)?.name;
           return (
             <div className="markup-alert" role="alert">
-              <b>⚠ Markup Alert from {e.author}</b>
+              <b>{msg('⚠ Markup Alert from {author}', { author: e.author })}</b>
               <span>{e.text}</span>
-              {docName && <span className="hint">{docName}, page {(e.page ?? 0) + 1}</span>}
+              {docName && <span className="hint">{msg('{docName}, page {page}', { docName, page: (e.page ?? 0) + 1 })}</span>}
               <div className="row">
                 {e.docId && (
                   <button
@@ -10662,11 +11509,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       });
                     }}
                   >
-                    Show
+                    {msg('Show')}
                   </button>
                 )}
                 <button className="btn small" onClick={() => setMarkupAlert(null)}>
-                  Dismiss
+                  {msg('Dismiss')}
                 </button>
               </div>
             </div>
@@ -10690,6 +11537,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <SlipSheetDialog
           targetName={activeOpen.file.name}
           files={library.filter((f) => f.id !== activeOpen.file.id)}
+          closed={(() => {
+            const template = closeOutTemplateOf(activeOpen.store);
+            const ids = closedStatuses(template);
+            const names = columnSet.statuses.filter((s) => ids.has(s.id)).map((s) => s.name);
+            return { count: markups.filter((m) => isComment(m) && ids.has(m.status || 'none')).length, means: names.length ? names.join(', ').replace(/, ([^,]*)$/, ' or $1') : 'closed' };
+          })()}
           onCancel={() => setSlipSheetOpen(false)}
           onRun={(spec) => {
             setSlipSheetOpen(false);
@@ -10710,7 +11563,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 // The library keeps one entry per content: the same content is opened, not renamed.
                 const same = library.find((x) => x.hash === r.hash);
                 if (same) {
-                  if (same.id === f.id) setNotice('That revision is the same as the current version.');
+                  if (same.id === f.id) setNotice(msg('That revision is the same as the current version.'));
                   void openFromLibrary(same);
                   return;
                 }
@@ -10719,12 +11572,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   .catch((err) => setError(err instanceof Error ? err.message : String(err)));
               }}
               onRestore={(r) => {
-                if (!confirm(`Go back to the version of ${new Date(r.savedAt).toLocaleString()}? Markups stay on their page numbers; the current version is kept as a revision.`)) return;
+                if (!confirm(msg('Go back to the version of {date}? Markups stay on their page numbers; the current version is kept as a revision.', { date: new Date(r.savedAt).toLocaleString() }))) return;
                 setRevisionsOf(null);
                 void restoreRevision(f.id, r);
               }}
               onDelete={(r) => {
-                if (confirm('Delete this revision from the device?')) void removeRevision(f.id, r.hash).then(refreshLibrary);
+                if (confirm(msg('Delete this revision from the device?'))) void removeRevision(f.id, r.hash).then(refreshLibrary);
               }}
             />
           );
@@ -10783,9 +11636,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onCancel={() => setProcessKind(null)}
           onApply={async (spec) => {
             // The contents before are kept as a revision: these changes cannot be undone otherwise.
-            const msg = await runProcess(activeOpen, spec, `Before ${PROCESS_TITLES[spec.kind]}`);
+            const note = await runProcess(activeOpen, spec, `Before ${PROCESS_ENGLISH[spec.kind]}`);
             const changed = (await listFiles()).find((f) => f.id === activeOpen.file.id)?.hash !== activeOpen.file.hash;
-            if (msg) setNotice(changed ? `${msg} Document › Revisions brings back the version before.` : msg);
+            if (note) setNotice(changed ? msg('{note} Document › Revisions brings back the version before.', { note }) : note);
             setProcessKind(null);
           }}
         />
@@ -10909,7 +11762,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 }
                 o.store.checkpoint();
                 o.store.batch(() => made.forEach((m) => o.store.add(m)));
-                setNotice(`Added ${made.length} markup${made.length === 1 ? '' : 's'} from Symbol Search.`);
+                setNotice(msg('Added {count, plural, one {# markup} other {# markups}} from Symbol Search.', { count: made.length }));
                 close();
               }}
             />
@@ -10934,7 +11787,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   const r = h.match.rect;
                   o.store.add({ id: crypto.randomUUID(), type: 'hyperlink', pageIndex: h.pageIndex, points: [[r.x, r.y], [r.x + r.w, r.y + r.h]], style: { ...DEFAULT_STYLES.hyperlink }, link, subject: 'Symbol Search', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now });
                 }
-                setNotice(`Added ${vsLinks.hits.length} hyperlink${vsLinks.hits.length === 1 ? '' : 's'} from Symbol Search.`);
+                setNotice(msg('Added {count, plural, one {# hyperlink} other {# hyperlinks}} from Symbol Search.', { count: vsLinks.hits.length }));
                 setVsLinks(null);
               }}
               fileId={o.file.id}
@@ -10990,7 +11843,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           stamp={stampToFill}
           author={author}
           title={stampToFill.name}
-          applyLabel="Place"
+          applyLabel={msg('Place')}
           onCancel={() => setStampToFill(null)}
           onApply={(values) => {
             setStampToFill(null);
@@ -11006,11 +11859,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (!o || !m?.stamp || !form) return null;
           return (
             <FillStampDialog
-              stamp={{ name: m.subject ?? 'Stamp', lines: form.lines, frame: m.stamp.frame, color: form.color, fields: form.fields }}
+              stamp={{ name: m.subject ?? 'Stamp', ...formStamp(m.stamp)! }}
               author={form.placed.user}
               initial={form.values}
-              title={m.subject ?? 'Stamp'}
-              applyLabel="Update"
+              title={m.subject ?? msg('Stamp')}
+              applyLabel={msg('Update')}
               onCancel={() => setStampEdit(null)}
               onApply={(values) => {
                 setStampEdit(null);
@@ -11065,7 +11918,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (!store || !m) return null;
           return (
             <CommentDialog
-              title={`${MARKUP_LABELS[m.type]} comment`}
+              title={msg('{mARKUP_LABELS} comment', { mARKUP_LABELS: MARKUP_LABELS[m.type] })}
               initial={m.comment ?? ''}
               onClose={() => setCommentEdit(null)}
               onSave={(text) => {
@@ -11084,6 +11937,30 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {lineStylesOpen && <LineStylesDialog onClose={() => setLineStylesOpen(false)} />}
+      {countSymbolsOpen && (
+        <CountSymbolsDialog
+          author={author}
+          selectedMarkups={activeOpen ? activeOpen.store.all().filter((m) => (activeTools?.getState().selected ?? new Set()).has(m.id)) : []}
+          onUse={(sym) => {
+            if (!activeTools) return;
+            const st = activeTools.getState();
+            const chosen = activeOpen ? activeOpen.store.all().filter((m) => st.selected.has(m.id)) : [];
+            if (chosen.length && chosen.every((m) => m.type === 'count')) {
+              activeTools.applyStyle(chosen.map((m) => m.id), { countShape: undefined, countSymbol: structuredClone(sym) });
+            } else {
+              activeTools.setDefaultStyle('count', { countShape: undefined, countSymbol: structuredClone(sym) });
+              if (st.tool !== 'count') activeTools.setTool('count');
+            }
+          }}
+          onClose={() => setCountSymbolsOpen(false)}
+        />
+      )}
+      {revuMigrationOpen && (
+        <RevuMigrationDialog
+          onClose={() => setRevuMigrationOpen(false)}
+          onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#revu-migration`, '_blank', 'noopener')}
+        />
+      )}
       {stampsOpen && (
         <StampsDialog
           key={stampsCreating ? 'new' : 'library'}
@@ -11189,13 +12066,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           usage={Object.fromEntries(Object.entries(Object.groupBy(markups.filter((m) => m.assemblyId), (m) => m.assemblyId!)).map(([id, list]) => [id, list?.length ?? 0]))}
           // Examples in the units this page measures in, else the preferred ones.
           unitSystem={scales[pageIndex] ? systemOf(scales[pageIndex]!.unit) : prefs.unitSystem}
-          preview={takeoffSample ? (a) => itemQuantities(takeoffSample, a, cellsFor(takeoffSample, cellContext), columnSet.columns) : null}
+          preview={takeoffSample ? (a) => itemQuantities(takeoffSample, resolveAssemblies([a], estimating.items, estimating.productLists)[0]!, cellsFor(takeoffSample, cellContext), columnSet.columns) : null}
+          estimating={estimating}
+          onImportEstimating={(incoming) => activeOpen.store.setEstimating(mergeEstimating(activeOpen.store.estimating(), incoming))}
           previewLabel={takeoffSample ? `${takeoffSample.subject || MARKUP_LABELS[takeoffSample.type]} on page ${takeoffSample.pageIndex + 1}` : ''}
           onSave={(list) => {
             activeOpen.store.setAssemblies(list);
             setAssembliesOpen(false);
           }}
-          onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} assemblies.json`, new Blob([json], { type: 'application/json' }))}
+          onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} estimating.json`, new Blob([json], { type: 'application/json' }))}
           onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
           onClose={() => setAssembliesOpen(false)}
         />
@@ -11210,7 +12089,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             // One undo step for the whole script.
             store.checkpoint();
             store.batch(() => changes.forEach((c) => store.update(c.id, c.patch)));
-            setNotice(`Script applied: ${changes.length} markup${changes.length === 1 ? '' : 's'} changed. Undo takes it back.`);
+            setNotice(msg('Script applied: {count, plural, one {# markup} other {# markups}} changed. Undo takes it back.', { count: changes.length }));
           }}
           onClose={() => setScriptsOpen(false)}
         />
@@ -11238,8 +12117,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               for (const vp of viewports) store.setViewport(vp);
             });
             activeTools?.setRegions([]);
-            const parts = [scaled.length ? `set the scale on ${scaled.length} page${scaled.length === 1 ? '' : 's'}` : '', viewports.length ? `added ${viewports.length} viewport${viewports.length === 1 ? '' : 's'}` : ''].filter(Boolean);
-            setNotice(`From the title blocks: ${parts.join(' and ')}. Undo takes it back.`);
+            const parts = [scaled.length ? msg('set the scale on {count, plural, one {# page} other {# pages}}', { count: scaled.length }) : '', viewports.length ? `added ${viewports.length} viewport${viewports.length === 1 ? '' : 's'}` : ''].filter(Boolean);
+            setNotice(msg('From the title blocks: {parts}. Undo takes it back.', { parts: parts.join(' and ') }));
           }}
           onClose={() => {
             activeTools?.setRegions([]);
@@ -11254,6 +12133,16 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           ctx={cellContext}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           onShow={(m) => selectFromList(m)}
+          onShowRect={(pageIndex, r) => {
+            const viewer = activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer;
+            if (!viewer) return;
+            viewer.goToPage(pageIndex);
+            // A small symbol shows with its surroundings; a large source (a legend, a schedule) with a margin.
+            const pad = Math.max(24, Math.min(Math.max(r.w, r.h) * 3, 200));
+            viewer.zoomToRect({ x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 }, 1, pageIndex);
+          }}
+          onShowPage={(pageIndex) => (activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer)?.goToPage(pageIndex)}
+          documentName={activeOpen.file.name}
           onMessage={setNotice}
           onClose={() => setTakeoffReviewOpen(false)}
         />
@@ -11261,7 +12150,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {quantitiesOpen && activeOpen && (
         <QuantitiesDialog
           markups={markups}
-          assemblies={assemblies}
+          assemblies={takeoffAssemblies}
           ctx={cellContext}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           onManage={() => {
@@ -11271,6 +12160,66 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           // Byte-order mark so Excel reads the CSV as UTF-8.
           onExportCsv={(csv, by) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} quantities by ${by}.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
           onClose={() => setQuantitiesOpen(false)}
+        />
+      )}
+      {itemsOpen && activeOpen && (
+        <ItemsDialog
+          initial={estimating.items}
+          productLists={estimating.productLists}
+          readOnly={activeReadOnly}
+          usage={Object.fromEntries(Object.entries(Object.groupBy(assemblies.flatMap((a) => a.items.flatMap((i) => (i.itemId ? [i.itemId] : []))), (id) => id)).map(([id, l]) => [id, l?.length ?? 0]))}
+          onSave={(items, lists) => {
+            activeOpen.store.setEstimating({ items, ...(lists.length ? { productLists: [...estimating.productLists, ...lists] } : {}) });
+            setItemsOpen(false);
+          }}
+          onManageLists={() => {
+            setItemsOpen(false);
+            setProductListsOpen(true);
+          }}
+          onClose={() => setItemsOpen(false)}
+        />
+      )}
+      {productListsOpen && activeOpen && (
+        <ProductListsDialog
+          initial={estimating.productLists}
+          readOnly={activeReadOnly}
+          usage={Object.fromEntries(Object.entries(Object.groupBy(estimating.items.flatMap((i) => (i.listRef ? [i.listRef.listId] : [])), (id) => id)).map(([id, l]) => [id, l?.length ?? 0]))}
+          onSave={(productLists) => {
+            activeOpen.store.setEstimating({ productLists });
+            setProductListsOpen(false);
+          }}
+          onClose={() => setProductListsOpen(false)}
+        />
+      )}
+      {templatesOpen && activeOpen && (
+        <TemplatesDialog
+          initial={estimating.templates}
+          assemblies={assemblies}
+          readOnly={activeReadOnly}
+          onSave={(templates) => {
+            activeOpen.store.setEstimating({ templates });
+            setTemplatesOpen(false);
+          }}
+          onUse={(t) => {
+            setTemplatesOpen(false);
+            armTemplate(t);
+          }}
+          onImport={async (f) => {
+            const file = estimatingFromJson(await f.text());
+            const store = activeOpen.store;
+            store.checkpoint();
+            store.batch(() => {
+              if (file.assemblies.length) store.setAssemblies(mergeAssemblies(store.assemblies(), file.assemblies));
+              store.setEstimating(mergeEstimating(store.estimating(), file));
+            });
+            return msg('Imported {count, plural, one {# template} other {# templates}}, {count2, plural, one {# assembly} other {# assemblies}}, {count3, plural, one {# item} other {# items}} and {count4} product {count5, plural, one {list} other {lists}} from {name}.', { count: file.templates.length, count2: file.assemblies.length, count3: file.items.length, count4: file.productLists.length, count5: file.productLists.length, name: f.name });
+          }}
+          onExport={() => {
+            const doc = documentFile(activeOpen.store);
+            const used = referencedRecords(doc, estimating.templates.flatMap((t) => (t.assemblyId ? [t.assemblyId] : [])));
+            download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} takeoff templates.json`, new Blob([estimatingToJson({ ...used, templates: estimating.templates })], { type: 'application/json' }));
+          }}
+          onClose={() => setTemplatesOpen(false)}
         />
       )}
       {commentsTable && !commentsTable.hidden && (
@@ -11321,24 +12270,188 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setSummaryOpen(false)}
         />
       )}
+      {manualOpen && activeOpen && (
+        <ManualQuantityDialog
+          scale={activeOpen.store.scaleFor(pageIndex)}
+          assemblies={assemblies}
+          onCancel={() => setManualOpen(false)}
+          onOk={(request) => {
+            setManualOpen(false);
+            manualPendingRef.current = request;
+            activeTools?.setTool('manual');
+          }}
+        />
+      )}
+      {importExcel && importPlan && activeOpen && (
+        <ImportExcelDialog
+          fileName={importExcel.fileName}
+          result={importPlan}
+          rowLabel={(key) => {
+            const m = activeOpen.store.get(key);
+            return { itemNo: m?.seq ? String(m.seq) : '', sheet: m ? sheets[m.pageIndex]?.number || `Page ${m.pageIndex + 1}` : '' };
+          }}
+          blocked={(change) => {
+            const m = activeOpen.store.get(change.rowKey);
+            return !!m && !activeOpen.store.mayEdit(m) && !isOpenChange(change);
+          }}
+          replyAuthor={importExcel.book.lastModifiedBy ?? ''}
+          aliases={importExcel.aliases}
+          onAlias={(column, value, option) =>
+            setImportExcel((cur) => {
+              if (!cur) return cur;
+              const forColumn = { ...cur.aliases[column] };
+              if (option) forColumn[value.toLowerCase()] = option;
+              else delete forColumn[value.toLowerCase()];
+              return { ...cur, aliases: { ...cur.aliases, [column]: forColumn } };
+            })
+          }
+          onApply={(changes, replyAuthor) => {
+            const store = activeOpen.store;
+            // A register words its statuses the client's way.
+            const record = importPlan.register;
+            const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor, now: Date.now(), newId: () => crypto.randomUUID(), ...(record ? { statusId: wording(record, columnSet.statuses).statusId } : {}) });
+            // Words mapped to a status in this import are remembered in the register's template, so they are not asked again.
+            const mapped = Object.entries(importExcel.aliases.status ?? {});
+            const template = record ? registerTemplates.find((t) => t.id === record.templateId) : undefined;
+            if (template && mapped.length) {
+              saveRegisterTemplate({
+                ...template,
+                statuses: template.statuses.map((s) => {
+                  const more = mapped.filter(([typed, word]) => word === s.word && !s.also.some((a) => a.toLowerCase() === typed)).map(([typed]) => typed);
+                  return more.length ? { ...s, also: [...s.also, ...more] } : s;
+                }),
+                updatedAt: Date.now(),
+              });
+            }
+            // One undo step for the whole import.
+            store.checkpoint();
+            store.batch(() => {
+              for (const [id, patch] of patches) store.update(id, patch);
+            });
+            store.checkpoint();
+            setNotice(msg('Imported {fileName}: {count, plural, one {# change} other {# changes}} to {size, plural, one {# markup} other {# markups}}. Undo takes them back in one step.', { fileName: importExcel.fileName, count: changes.length, size: patches.size }));
+            setImportExcel(null);
+          }}
+          onClose={() => setImportExcel(null)}
+        />
+      )}
+      {closeOutOpen && activeOpen && (
+        <CloseOutDialog
+          docName={activeOpen.file.name}
+          sheets={closeOut(markups, sheets, closedStatuses(closeOutTemplateOf(activeOpen.store)), columnSet.statuses)}
+          templates={registerTemplates.map((t) => ({ id: t.id, name: t.name }))}
+          templateId={closeOutTemplateOf(activeOpen.store)?.id ?? ''}
+          onTemplate={setCloseOutTemplate}
+          onOpen={(id, pageIndex) => {
+            setCloseOutOpen(false);
+            navigate(pageIndex, null);
+            (paneB ? ctlB : ctl)?.tools.select([id]);
+          }}
+          onExportCsv={(csv) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} close-out.csv`, new Blob(['\uFEFF' + csv], { type: 'text/csv' }))}
+          onClose={() => setCloseOutOpen(false)}
+        />
+      )}
+      {registerOpen && activeOpen && (
+        <ExportRegisterDialog
+          docName={activeOpen.file.name}
+          templates={registerTemplates}
+          initialId={templateFor(registerTemplates, activeOpen.store.drawingStandard()?.id)?.id}
+          values={{ document: activeOpen.file.name.replace(/\.pdf$/i, ''), exportDate: new Date().toLocaleDateString('en-CA'), reviewer: author }}
+          counts={{ comments: registerMarkups('comments').length, all: registerMarkups('all').length }}
+          canFill={!!localExcel()?.fill}
+          onExport={exportRegister}
+          onTemplates={(id) => setRegisterTemplatesOpen({ id })}
+          onClose={() => setRegisterOpen(false)}
+        />
+      )}
+      {registerTemplatesOpen && (
+        <RegisterTemplatesDialog
+          templates={registerTemplates}
+          initialId={registerTemplatesOpen.id}
+          standards={ws.drawingStandards.map((s) => ({ id: s.id, name: s.name }))}
+          listColumns={listColumns(columnSet.columns).map((c) => ({ key: c.key, label: c.label }))}
+          statuses={columnSet.statuses}
+          onNew={() => starterTemplate(crypto.randomUUID(), columnSet.statuses, Date.now())}
+          onSave={saveRegisterTemplate}
+          onDelete={(id) => updateWorkspace((w) => ({ ...w, registerTemplates: (w.registerTemplates ?? []).filter((t) => t.id !== id) }))}
+          onImportFile={async () => {
+            const file = await pickFile('.rcregister,application/json');
+            if (!file) return null;
+            try {
+              // A shared template gets an id of its own here: it never replaces one of this person's.
+              return { ...parseTemplateFile(await file.text()), id: crypto.randomUUID() };
+            } catch (err) {
+              setError(err instanceof Error ? err.message : msg('{name} could not be read.', { name: file.name }));
+              return null;
+            }
+          }}
+          onExportFile={(t) => download(templateFileName(t), new Blob([exportTemplate(t)], { type: 'application/json' }))}
+          onPickClientFile={
+            localExcel()?.pickSource
+              ? async (draft) => {
+                  try {
+                    const picked = await localExcel()!.pickSource!();
+                    if (!picked) return null;
+                    return { id: picked.id, name: picked.name, problems: checkClientFile(await readWorkbook(picked.bytes), draft).problems };
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : msg('That file could not be read.'));
+                    return null;
+                  }
+                }
+              : undefined
+          }
+          onClose={() => setRegisterTemplatesOpen(null)}
+        />
+      )}
+      {portalDialog && (portalDialog.pane === 'b' ? openB : open) && (
+        <PortalDialogHost
+          state={portalDialog}
+          store={(portalDialog.pane === 'b' ? openB : open)!.store}
+          pageCount={(portalDialog.pane === 'b' ? openB : open)!.doc.pages.length}
+          pageLabel={(i) => (portalDialog.pane === 'b' ? sheetsB : sheetsA)[i]?.number || `Page ${i + 1}`}
+          onClose={() => setPortalDialog(null)}
+          onNotice={setNotice}
+        />
+      )}
       {syncOpen && activeOpen && syncTable && (
         <SheetSyncDialog
           docName={activeOpen.file.name}
           link={sheetSync.link}
           status={sheetSync.status}
-          rowCount={Math.max(0, syncTable.length - 1)}
+          rowCount={syncKeyed ? syncKeyed.rows.length : Math.max(0, syncTable.length - 1)}
+          twoWay={sheetSync.twoWay}
+          canTwoWay={!!localExcel()?.read}
+          issues={sheetSync.issues.map((i) => ({ ...i, itemNo: String(activeOpen.store.get(i.rowKey)?.seq ?? '') }))}
+          onResolve={sheetSync.resolve}
+          onUseListColumns={() => sheetSync.setColumns(visibleListColumns.map((c) => c.key))}
           localExcelAvailable={!!localExcel()}
           inDesktopApp={!!desktop()}
-          onConnectLocal={(title) => void sheetSync.connectLocal(title, syncTable)}
-          onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
+          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities, localExcel()?.read ? visibleListColumns.map((c) => c.key) : undefined))()}
+          onSetQuantities={sheetSync.setQuantities}
+          onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : msg('Could not open the workbook.')))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
           onClose={() => setSyncOpen(false)}
         />
       )}
+      {reportsOpen && activeOpen && (
+        <ReportsDialog counts={reportCounts} pageLabel={activeOpen.store.allSheets()[pageIndex]?.number || `Page ${pageIndex + 1}`} busy={reportsBusy} error={reportsError} onExport={(req) => void runReports(req)} onClose={() => setReportsOpen(false)} />
+      )}
       {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
+      {libraryOpen && (
+        <LibraryDialog
+          onInstall={(pack, source) => {
+            const { counts, saved } = installPack(pack, source);
+            const added = describeCounts(counts);
+            if (!saved) setError(msg('Added {name}, but this browser would not keep all of it (a private window, or storage is full).', { name: pack.name }));
+            return added;
+          }}
+          onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#community-library`, '_blank', 'noopener')}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={restartApp} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}
@@ -11352,10 +12465,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {markupsPopped && (
         <PopOutWindow
           name="redcolumn-markups"
-          title="Markups"
+          title={msg('Markups')}
           onClose={(reason) => {
             setMarkupsPopped(false);
-            if (reason === 'blocked') setNotice('The browser blocked the new window. Allow pop-ups for this site and try again.');
+            if (reason === 'blocked') setNotice(msg('The browser blocked the new window. Allow pop-ups for this site and try again.'));
           }}
         >
           <div className="app popout" onContextMenuCapture={() => setCtxInPopOut(true)}>
@@ -11363,10 +12476,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               <div className="tabs">
                 <div className="dock-tablist" role="tablist">
                   <button role="tab" aria-selected="true" className="active">
-                    Markups
+                    {msg('Markups')}
                   </button>
                 </div>
-                <button type="button" className="drawer-popout" title="Put the list back in the app" aria-label="Put the Markups list back in the app" onClick={() => setMarkupsPopped(false)}>
+                <button type="button" className="drawer-popout" title={msg('Put the list back in the app')} aria-label={msg('Put the Markups list back in the app')} onClick={() => setMarkupsPopped(false)}>
                   ⇲
                 </button>
               </div>
@@ -11415,10 +12528,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   );
 }
 
-const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean }[] = [
+const RAIL = lazy((): { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean }[] => [
   {
     id: 'markups',
-    title: 'Markups',
+    title: msg('Markups'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 3.5h12M2 8h12M2 12.5h12" />
@@ -11427,7 +12540,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'files',
-    title: 'File Access',
+    title: msg('File Access'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M3 2h6l2 2v10H3V2zm6 0v2h2" />
@@ -11436,7 +12549,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'pages',
-    title: 'Thumbnails',
+    title: msg('Thumbnails'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M2 2h5v6H2V2zm7 0h5v6H9V2zM2 9h5v5H2V9zm7 0h5v5H9V9z" />
@@ -11445,7 +12558,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'bookmarks',
-    title: 'Bookmarks',
+    title: msg('Bookmarks'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M4 2h8v12l-4-2-4 2V2z" />
@@ -11454,7 +12567,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'toolchest',
-    title: 'Tool Library',
+    title: msg('Tool Library'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M2 6h12v8H2V6zm3-3h6l1 3H4l1-3z" />
@@ -11463,7 +12576,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'properties',
-    title: 'Properties',
+    title: msg('Properties'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M3 3h10v2H3V3zm0 4h10v2H3V7zm0 4h7v2H3v-2z" />
@@ -11472,7 +12585,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'layers',
-    title: 'Layers',
+    title: msg('Layers'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M8 2l7 4-7 4-7-4 7-4zm0 9 7-4v2l-7 4-7-4V7l7 4z" />
@@ -11481,7 +12594,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'measurements',
-    title: 'Measurements',
+    title: msg('Measurements'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M2 7h12v2H2V7zm0-4h2v10H2V3zm10 0h2v10h-2V3z" />
@@ -11490,7 +12603,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'signatures',
-    title: 'Signatures',
+    title: msg('Signatures'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M2 12c2-4 4-6 6-6s2 3 4 3 2-2 2-2v5H2v0z" />
@@ -11499,7 +12612,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'spaces',
-    title: 'Spaces',
+    title: msg('Spaces'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 2h12v12H2zM2 8h6V2M8 8v6" />
@@ -11508,8 +12621,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'stitching',
-    title: 'Stitching',
-    experimental: true,
+    title: msg('Stitching'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M1.5 3.5h6v9h-6zM8.5 3.5h6v9h-6z" />
@@ -11519,8 +12631,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'ai',
-    title: 'Compare',
-    experimental: true,
+    title: msg('Compare'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M1.5 2.5h4.5v11H1.5zM10 2.5h4.5v11H10z" />
@@ -11530,7 +12641,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'geospatial',
-    title: 'Geospatial',
+    title: msg('Geospatial'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
@@ -11540,7 +12651,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'flags',
-    title: 'Flags',
+    title: msg('Flags'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M3 2h1v12H3V2zm2 0h8l-2 3 2 3H5V2z" />
@@ -11549,7 +12660,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'search',
-    title: 'Search',
+    title: msg('Search'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M7 2a5 5 0 0 1 3.9 8.1l2.5 2.5-1.4 1.4-2.5-2.5A5 5 0 1 1 7 2zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />
@@ -11558,7 +12669,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'forms',
-    title: 'Forms',
+    title: msg('Forms'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2.5 3.5h11v3h-11zM2.5 9.5h11v3h-11z" />
@@ -11568,7 +12679,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'sets',
-    title: 'Sets',
+    title: msg('Sets'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M5 2.5h8.5v10M3.5 4h8.5v10H3.5z" />
@@ -11577,7 +12688,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'projects',
-    title: 'Projects',
+    title: msg('Projects'),
     experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -11587,7 +12698,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'sessions',
-    title: 'Sessions',
+    title: msg('Sessions'),
     experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -11595,5 +12706,5 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
       </svg>
     ),
   },
-];
+]);
 

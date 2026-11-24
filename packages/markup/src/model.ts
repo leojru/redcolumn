@@ -1,12 +1,14 @@
 // Modified in the leojru/redcolumn fork (revu-layout): Markup.vector (vector snapshots); MarkupStyle.dimText and labelLift (dimension text); its bounds take in the text; text box border shapes (boxShape); cloud borders on text boxes, callouts and pictures.
 import { frameInner, type TextFrame } from './textFrames';
-import { expandArcs, isMeasureKind, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
+import { effectiveKind, expandArcs, isMeasureKind, type ManualQuantity, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
 import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
 import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
 import type { TableData } from './table';
 import type { CustomLine } from './lineStyle';
+import type { CountSymbol } from './countSymbol';
+import type { TextSpan } from './textSpans';
 import { lineEnds, type BlendMode, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
@@ -57,6 +59,8 @@ export { isMeasureKind };
 
 /** A markup's Label (Bluebeam's category field): a measurement keeps it in its `text`, any other markup in `label`. */
 export const markupLabel = (m: Pick<Markup, 'type' | 'text' | 'label'>): string => ((isMeasureKind(m.type) ? m.text : m.label) ?? '').trim();
+/** The measurement kind a markup counts as in totals and formulas: a manual quantity is the kind it was typed as. */
+export const measureKindOf = (m: Pick<Markup, 'type' | 'manual'>): MeasureKind => (isMeasureKind(m.type) ? effectiveKind(m.type, m) : 'length');
 /** The change that sets a markup's Label. */
 export const labelPatch = (m: Pick<Markup, 'type'>, value: string): Partial<Markup> => {
   const v = value.trim() || undefined;
@@ -102,6 +106,64 @@ export interface TakeoffApproval {
   reasoning?: string;
   /** The assembly or a quantity was changed before approving. */
   edited?: boolean;
+  /** The assembly the AI proposed, when the person approved another. */
+  proposedAssemblyId?: string;
+  /** How sure the AI said it was (0–1). */
+  confidence?: number;
+}
+
+/** What a piece of evidence is, for the person checking an AI result against it. */
+export type SourceKind = 'drawing' | 'legend' | 'schedule' | 'note' | 'specification' | 'layer' | 'symbol' | 'dimension' | 'other';
+
+/** How an AI result was found: line work, pixels, PDF layers, the page's text, or the model's own reading. */
+export type AiMethod = 'vector' | 'raster' | 'layer' | 'text' | 'llm';
+
+/** Where in the document an AI result came from, so a person can check it there. */
+export interface SourceRef {
+  /** 0-based page index. */
+  pageIndex: number;
+  /** The part of the page, in PDF points (top-left origin, y down). */
+  rect?: { x: number; y: number; w: number; h: number };
+  /** What the source says: a legend entry, a note, a schedule row, a layer name. */
+  text?: string;
+  kind?: SourceKind;
+}
+
+/** A quantity an AI client expects, to check against what redcolumn works out. */
+export interface ProposedQuantity {
+  item: string;
+  quantity: number;
+  unit?: string;
+}
+
+/** What an AI-made markup was when the AI made it, so a person's changes show against it. */
+export interface AiOriginal {
+  points: Point[];
+  subject?: string;
+  text?: string;
+  comment?: string;
+  assemblyId?: string;
+}
+
+/**
+ * A markup an AI client made through the assistant. While `status` is pending it is a draft: drawn
+ * dashed, left out of quantities and reports, and saved hidden so other PDF viewers do not show
+ * it. A person approves it (or rejects it, which takes it off the drawing) in Review AI Takeoff.
+ */
+export interface AiOrigin {
+  /** The AI client's name. */
+  source: string;
+  at: number;
+  status: 'pending' | 'approved';
+  reasoning?: string;
+  /** How sure the AI said it was (0–1). */
+  confidence?: number;
+  method?: AiMethod;
+  sources?: SourceRef[];
+  expected?: ProposedQuantity[];
+  original: AiOriginal;
+  /** Who approved it, and when. */
+  review?: { by: string; at: number };
 }
 
 /** What a connector joins; its points are routed between them again whenever either moves. */
@@ -140,6 +202,8 @@ export interface MarkupStyle {
   width: number;
   /** 0..1 */
   opacity: number;
+  /** Line (outer border) opacity (0..1) multiplied with `opacity`; unset means 1. */
+  strokeOpacity?: number;
   /** Font size in points (text markups). */
   fontSize?: number;
   /**
@@ -153,6 +217,8 @@ export interface MarkupStyle {
   cornerRadius?: number;
   /** Counts: the marker drawn at each item (circle when unset). */
   countShape?: CountShape;
+  /** Counts: a custom saved symbol (vector markups or picture) drawn instead of `countShape`. */
+  countSymbol?: CountSymbol;
   /** Fill opacity (0..1) multiplied with `opacity`; used for translucent area fills. */
   fillOpacity?: number;
   /** Line style; solid when unset. */
@@ -197,6 +263,8 @@ export interface MarkupStyle {
   /** Measurement label visibility (default shown) and background (default white; null for none). */
   showLabel?: boolean;
   labelBackground?: string | null;
+  /** Polylengths: label each segment's length as well as the total (default shown; false shows only the total). */
+  showSegmentLabels?: boolean;
   /** Length dimensions: offset of the dimension line from the measured points, with extension lines. */
   leader?: number;
   /**
@@ -327,6 +395,11 @@ export interface Markup {
   points: Point[];
   style: MarkupStyle;
   text?: string;
+  /**
+   * Text markups: parts of `text` styled apart from the markup (bold, italic, underline, strikethrough,
+   * colour). `text` stays the plain string, so /Contents and other tools read it unchanged.
+   */
+  spans?: TextSpan[];
   /** Free-form comment shown in the markup list. */
   comment?: string;
   /** Replies to the markup. A reply's `parentId` points at the reply it answers, when it answers one. */
@@ -350,10 +423,16 @@ export interface Markup {
   assemblyId?: string;
   /** Measurements: per assembly item id, a quantity (before waste) set by hand instead of the item's formula. */
   assemblyOverrides?: Record<string, number>;
+  /** Measurements: the assembly's inputs for this one (variable name to value), in place of the variables' defaults. */
+  assemblyInputs?: Record<string, number>;
   /** Measurements: who approved its takeoff from an AI proposal, and when (Takeoff Review). */
   takeoffApproval?: TakeoffApproval;
+  /** Made by an AI client through the assistant: its evidence, and whether a person has approved it yet. */
+  ai?: AiOrigin;
   /** Measurements: slope of the measured surface or run. */
   slope?: Slope;
+  /** Manual quantities: the typed quantity (SI base units), the unit it was typed in, and a note. */
+  manual?: ManualQuantity;
   /** Polylength, area, perimeter and volume: curved segments (per segment, its bulge; see @nb/measure's arcSegment). */
   bulges?: number[];
   /** Hyperlinks: where clicking the markup goes. */
@@ -386,6 +465,11 @@ export interface Markup {
   /** Image drawn in the markup's box (images, signatures, other tools' attachments): a PNG or JPEG data URL. */
   image?: string;
   /**
+   * The part of `image` shown in the box (Crop Image), as fractions of the picture, y down. The
+   * whole picture is kept, so a crop can be undone or widened later; unset shows all of it.
+   */
+  crop?: ImageCrop;
+  /**
    * Fork addition (leojru/redcolumn): a vector snapshot's PDF content, a one-page PDF data URL the size
    * of the box (vectorSnapshot.ts). Saved PDFs draw it instead of `image`, which stays the on-screen picture.
    */
@@ -399,6 +483,11 @@ export interface Markup {
   groupId?: string;
   /** Fork addition: groups nested inside `groupId`, outer to inner (Ungroup opens one level at a time). */
   innerGroups?: string[];
+  /**
+   * Portals (Experimental): this markup is one of the copies of a markup mirrored across a portal's
+   * linked pages (see portals.ts); copies share `linkId` and are kept in sync.
+   */
+  portalLink?: { portalId: string; linkId: string };
   /** The markup layer it is on (Layers panel); exported as a PDF layer of that name. */
   layer?: string;
   /** Flagged for follow-up (a linked flag, listed in the Flags panel). */
@@ -416,6 +505,12 @@ export interface Markup {
   rotation?: number;
   /** File Attachment markups: the embedded file. */
   attachment?: Attachment;
+  /**
+   * Comments: the revision of its sheet when the comment was raised. Set once, the first time the
+   * comment is exported to a register or its sheet is slip-sheeted, so a close-out can say what a
+   * comment still open on revision C was raised on.
+   */
+  raisedRev?: string;
   /** Imported from the PDF: the annotation it stands for, which saving replaces in place. */
   pdfAnnot?: PdfAnnotLink;
   status: MarkupStatus;
@@ -481,6 +576,28 @@ export const DEFAULT_STYLES = Object.fromEntries(MARKUP_TYPES.map((t) => [t, TYP
 
 /** Each type's name, as shown in menus and the markups list. */
 export const MARKUP_LABELS = Object.fromEntries(MARKUP_TYPES.map((t) => [t, TYPE_INFO[t].label])) as Record<MarkupType, string>;
+
+/** A Snapshot kept as vector content (`Markup.vector`). */
+export interface VectorPicture {
+  /** The area as a one-page PDF, base64. */
+  pdf: string;
+  /** Its page's size as shown (its /Rotate applied), in points: the area's size when taken. */
+  width: number;
+  height: number;
+  /** The markups that were over the area, as a see-through PNG data URL the size of the page, drawn over it. */
+  overlay?: string;
+  /** Turned over left to right (`flipX`) or top to bottom (`flipY`) since it was taken. */
+  flipX?: boolean;
+  flipY?: boolean;
+}
+
+/** A part of a picture, as fractions of its width and height from its top-left corner. */
+export interface ImageCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 export interface Rect {
   x: number;
@@ -595,8 +712,8 @@ export function mapGeometry(m: Geometry, f: (p: Point) => Point): Geometry {
 }
 
 /** What a markup's measurement depends on besides its points. */
-export function measureProps(m: Pick<Markup, 'holes' | 'depth' | 'slope' | 'bulges' | 'holeBulges'>): MeasureProps {
-  return { holes: m.holes, depth: m.depth, slope: m.slope, ...(m.bulges?.some(Boolean) ? { bulges: m.bulges } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges } : {}) };
+export function measureProps(m: Pick<Markup, 'holes' | 'depth' | 'slope' | 'bulges' | 'holeBulges' | 'manual'>): MeasureProps {
+  return { holes: m.holes, depth: m.depth, slope: m.slope, ...(m.manual ? { manual: m.manual } : {}), ...(m.bulges?.some(Boolean) ? { bulges: m.bulges } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges } : {}) };
 }
 
 /** Bounds including stroke width and decorations (arrowheads, cloud bulges). */
@@ -639,7 +756,25 @@ export function outlinePoints(m: Pick<Markup, 'type' | 'points' | 'bulges'>): Po
   return expandArcs(m.points, m.bulges, m.type !== 'polylength');
 }
 
+/**
+ * About where a manual quantity's tag sits: centred on its point, sized for its text (the real size
+ * depends on the page's display units, so this is an estimate for bounds and hit testing).
+ */
+export function manualBox(m: Pick<Markup, 'points' | 'style' | 'subject' | 'text'>): Rect {
+  const size = m.style.fontSize ?? 10;
+  const [x, y] = m.points[0] ?? [0, 0];
+  const chars = (m.subject?.trim() || 'Manual').length + 14;
+  const w = chars * size * 0.55 + size * 0.6;
+  const h = ((m.text ?? '').trim() ? 2 : 1) * size * 1.2 + size * 0.2;
+  return { x: x - w / 2, y: y - h / 2, w, h };
+}
+
 function unrotatedBounds(m: Markup): Rect {
+  if (m.type === 'manual' && m.points.length) {
+    const b = manualBox(m);
+    const pad = m.style.width / 2;
+    return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+  }
   const circle = circleOf(m);
   // An arc bulges past its three defining points; a circle past its diameter.
   const b = circle ? { x: circle.cx - circle.r, y: circle.cy - circle.r, w: circle.r * 2, h: circle.r * 2 } : boundsOf(m.type === 'arc' || m.type === 'arcLength' ? arcPoints(m.points) : outlinePoints(m));

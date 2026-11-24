@@ -1,15 +1,24 @@
 // Modified in the leojru/redcolumn fork (revu-layout): Classic Toolbars in the display menu.
+import { msg } from '@nb/i18n';
 import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { Command } from '../commands/appCommands';
-import { settings, useSettings } from '../settings/settings';
+import type { LengthUnit } from '@nb/measure';
+import { DEFAULT_UNIT_CHOICES, settings, switchUnitSystem, useSettings, type Settings, type UnitSystem } from '../settings/settings';
+import { ScaleControl } from './ScaleControl';
 import { shortcutLabel } from '../commands/shortcuts';
 import { isMarkupTool, toolLabel, type Tool } from '../markup/MarkupTools';
 import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
-import { FLOW_SHAPES, type FlowShapeKind } from '@nb/markup';
+import { pickedSlopePatch, pickedSpec, setSlopePick, useSlopePick, type SlopePick } from '../markup/slopePicker';
+import { FLOW_SHAPES, isMeasureKind, type FlowShapeKind, type TakeoffTemplate } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
-import { ContextMenu, type ContextMenuState } from './ContextMenu';
+import { SEARCH_SLOT_ID, useMenubarSlot } from './menubarSlot';
+import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './ContextMenu';
+import { loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
 import { StampMenu } from './StampsDialog';
-import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
+import { RibbonAssembly } from './RibbonAssembly';
+import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps, type UnitsScaleProps } from './ToolBar';
+import { flowShapeName, lengthUnitName } from '../i18n/names';
 
 /** A 16 × 16 line icon for a ribbon button, drawn in the text colour. */
 function ic(d: string, extra?: ReactNode): ReactNode {
@@ -51,6 +60,11 @@ const ICONS: Record<string, ReactNode> = {
   'edit.alignPoints': ic('M2 13l5-5M9 6l5-5', <><circle cx="2" cy="13" r="1.2" /><circle cx="14" cy="1" r="1.2" /></>),
   'edit.stretch': ic('M2 4h6v8H2zM8 8h6M12 6l2 2-2 2'),
   'edit.scaleToLength': MENU_ICONS.scale,
+  'edit.cropImage': ic('M4 1.5v10.5h10.5M1.5 4h10.5v10.5'),
+  'edit.adjustImage': ic('M2 2h12v12H2z', <path d="M8 2v12M8 4.5h4M8 8h4M8 11.5h4" />),
+  'edit.pictureColours': ic('M8 2c3 3.5 4.5 5.5 4.5 7.5a4.5 4.5 0 0 1-9 0C3.5 7.5 5 5.5 8 2z'),
+  'edit.resetCrop': ic('M2 2h12v12H2z', <path d="M5 5h6v6H5z" strokeDasharray="2 1.5" />),
+  'edit.createViewport': ic('M2 3h12v10H2z', <path d="M5 6h6v4H5z" strokeDasharray="2 1.5" />),
   'edit.offset': ic('M2 12.5 6 3.5h8M5 14.5l4-9h5'),
   'edit.trim': ic('M2 8h12M8 2v12', <path d="M10.5 6.5l2 2M12.5 6.5l-2 2" />),
   'edit.extend': ic('M2 8h8M10 8h3', <path d="M14 2v12M10 8h3.5" strokeDasharray="1.5 1.2" />),
@@ -130,9 +144,20 @@ const ICONS: Record<string, ReactNode> = {
   'tools.forms': ic('M3 1.5h10v13H3zM5 5h6M5 8h6M5 11h3'),
   'document.scaleRegions': MENU_ICONS.scale,
   'document.scaleReview': MENU_ICONS.scale,
+  'draw.arc': ic('M2 13.5C3 6 9 3 14 3.5', <><circle cx="2" cy="13.5" r="1.3" /><circle cx="6" cy="6.3" r="1.3" /><circle cx="14" cy="3.5" r="1.3" /></>),
   'tool.cutout': ic('M2 2.5h12v11H2z', <path d="M6 6h4v4H6z" strokeDasharray="1.6 1.2" />),
+  'takeoff.manual': ic('M2 3.5h12v9H2z', <path d="M4.5 8h7M8 4.8v6.4" />),
   'takeoff.syncExcel': ic('M2 3.5h12v9H2zM2 7h12M6.5 3.5v9M12 1.5l1.5 1.5L12 4.5'),
+  'takeoff.reports': ic('M3 1.5h8l2.5 2.5v10.5H3zM5.5 7h5M5.5 9.5h5M5.5 12h3'),
+  'takeoff.items': ic('M3 2.5h10v11H3zM5.5 5h5M5.5 8h5M5.5 11h3'),
+  'takeoff.productLists': ic('M2 3h12v10H2zM2 6h12M2 9.5h12M6 3v10'),
+  'takeoff.templates': ic('M2.5 2.5h7v4h-7zM2.5 9.5h7v4h-7zM12 4.5v7M10.5 10l1.5 1.5 1.5-1.5'),
+  'takeoff.saveTemplate': ic('M3 2.5h8l2 2v9H3zM5.5 2.5v3.5h4.5V2.5M5.5 13.5v-4h5v4'),
+  // Hip: two roof planes meeting along a ridge-to-corner line; Valley: the inside corner.
+  'takeoff.hip': ic('M1.5 13.5L8 4l6.5 9.5M8 4v9.5', <path d="M1.5 13.5h13" strokeDasharray="1.4 1.2" />),
+  'takeoff.valley': ic('M1.5 4L8 13.5 14.5 4M8 13.5V4', <path d="M1.5 4h13" strokeDasharray="1.4 1.2" />),
   'tools.assemblies': ic('M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z'),
+  'tools.library': ic('M2 3h3v10H2zM6 3h3v10H6zM10.2 3.6l2.8-.8 2.2 9.6-2.8.8z'),
   'tools.quantities': MENU_ICONS.summary,
   'tools.sketchToScale': ic('M2 14 14 2M2 14h4M2 14v-4M10 2h4v4'),
   'tools.columns': ic('M1.5 2.5h13v11h-13zM6 2.5v11M10.5 2.5v11'),
@@ -168,6 +193,7 @@ const ICONS: Record<string, ReactNode> = {
   'view.darkPages': ic('M12.5 10A5.5 5.5 0 0 1 6 3.5a5.5 5.5 0 1 0 6.5 6.5z'),
   'view.dimmer': ic('M8 4.5a3.5 3.5 0 1 0 0 7z', <circle cx="8" cy="8" r="3.5" />),
   'view.thinLines': ic('M2 4h12M2 8h12M2 12h12'),
+  'view.keepView': ic('M3 3h10v10H3zM6 6h4v4H6z'),
   'view.fullScreen': ic('M1.5 5.5v-4h4M10.5 1.5h4v4M14.5 10.5v4h-4M5.5 14.5h-4v-4'),
   'window.leftPanel': ic('M1.5 2.5h13v11h-13zM5.5 2.5v11'),
   'window.rightPanel': ic('M1.5 2.5h13v11h-13zM10.5 2.5v11'),
@@ -226,21 +252,22 @@ type TabId = 'home' | 'markup' | 'measure' | 'takeoff' | 'diagram' | 'modify' | 
  * The contextual tab, as Excel's Table Design: it appears at the end of the tabs while the tool or
  * the selection has style controls to show, and is where a markup's properties are edited.
  */
-const FORMAT_TAB: { id: TabId; label: string } = { id: 'format', label: 'Markup Format' };
+const FORMAT_TAB: { id: TabId; label: string } = { id: 'format', get label() { return msg('Markup Format'); } };
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'home', label: 'Home' },
-  { id: 'markup', label: 'Markup' },
-  { id: 'measure', label: 'Measure' },
-  { id: 'takeoff', label: 'Takeoff' },
-  { id: 'diagram', label: 'Diagram' },
-  { id: 'modify', label: 'Modify' },
-  { id: 'document', label: 'Document' },
-  { id: 'bulk', label: 'Bulk' },
-  { id: 'view', label: 'View' },
+  { id: 'home', get label() { return msg('Home'); } },
+  { id: 'markup', get label() { return msg('Markup'); } },
+  { id: 'measure', get label() { return msg('Measure'); } },
+  { id: 'takeoff', get label() { return msg('Takeoff'); } },
+  { id: 'diagram', get label() { return msg('Diagram'); } },
+  { id: 'modify', get label() { return msg('Modify'); } },
+  { id: 'document', get label() { return msg('Document'); } },
+  { id: 'bulk', get label() { return msg('Bulk'); } },
+  { id: 'view', get label() { return msg('View'); } },
 ];
 
 const TAB_KEY = 'rc.ribbonTab';
+const FORMAT_MODIFY_KEY = 'rc.formatModifyOpen';
 
 function savedTab(): TabId {
   try {
@@ -251,6 +278,147 @@ function savedTab(): TabId {
   }
   return 'home';
 }
+
+function savedFormatModify(): boolean {
+  try {
+    return localStorage.getItem(FORMAT_MODIFY_KEY) === '1';
+  } catch {
+    /* storage off limits: start collapsed */
+    return false;
+  }
+}
+
+interface FormatModifyItem {
+  id: string;
+  label?: string;
+  size?: Size;
+}
+
+interface FormatModifyGroup {
+  /** The English name: the key Customize Ribbon stores. */
+  id: string;
+  /** The name shown, in the interface language. */
+  readonly label: string;
+  items: readonly FormatModifyItem[];
+  /** Use the compact 3-row icon grid when more than 3 commands are available. */
+  iconGrid?: boolean;
+}
+
+/** Modify tab tools that operate on selected markups, shown (collapsible) on the Markup Format tab. */
+const FORMAT_MODIFY_GROUPS: readonly FormatModifyGroup[] = [
+  {
+    id: 'Transform',
+    get label() { return msg('Transform'); },
+    items: [
+      { id: 'edit.move', size: 'large' },
+      { id: 'edit.copyBase', get label() { return msg('Copy'); } },
+      { id: 'edit.rotate' },
+      { id: 'edit.scale' },
+      { id: 'edit.mirror' },
+      { id: 'edit.stretch' },
+      { id: 'edit.alignPoints' },
+      { id: 'edit.scaleToLength' },
+      { id: 'edit.flipHorizontal' },
+      { id: 'edit.flipVertical' },
+      { id: 'edit.cropImage' },
+      { id: 'edit.resetCrop' },
+    ],
+  },
+  {
+    id: 'Picture',
+    get label() { return msg('Picture'); },
+    items: [
+      { id: 'edit.adjustImage', get label() { return msg('Adjust Image'); }, size: 'large' },
+      { id: 'edit.pictureColours', get label() { return msg('Colours'); } },
+    ],
+  },
+  {
+    id: 'Edit Geometry',
+    get label() { return msg('Edit Geometry'); },
+    items: [
+      { id: 'edit.offset', size: 'large' },
+      { id: 'edit.trim' },
+      { id: 'edit.extend' },
+      { id: 'edit.break' },
+      { id: 'edit.lengthen' },
+      { id: 'edit.fillet' },
+      { id: 'edit.chamfer' },
+    ],
+  },
+  {
+    id: 'Convert',
+    get label() { return msg('Convert'); },
+    items: [
+      { id: 'edit.join' },
+      { id: 'edit.explode' },
+      { id: 'edit.reverse' },
+      { id: 'edit.toCloud' },
+      { id: 'edit.autoSize', get label() { return msg('Auto-size Text'); } },
+    ],
+  },
+  {
+    id: 'Pattern',
+    get label() { return msg('Pattern'); },
+    items: [
+      { id: 'edit.arrayPolar' },
+      { id: 'edit.arrayPath' },
+      { id: 'edit.divide' },
+      { id: 'edit.multiply' },
+    ],
+  },
+  {
+    id: 'Arrange',
+    get label() { return msg('Arrange'); },
+    items: [
+      { id: 'edit.bringToFront' },
+      { id: 'edit.bringForward' },
+      { id: 'edit.sendBackward' },
+      { id: 'edit.sendToBack' },
+    ],
+  },
+  {
+    id: 'Align',
+    get label() { return msg('Align'); },
+    iconGrid: true,
+    items: [
+      { id: 'edit.alignLeft' },
+      { id: 'edit.alignCenter' },
+      { id: 'edit.alignRight' },
+      { id: 'edit.alignTop' },
+      { id: 'edit.alignMiddle' },
+      { id: 'edit.alignBottom' },
+      { id: 'edit.distributeHorizontal' },
+      { id: 'edit.distributeVertical' },
+      { id: 'edit.centerInDocument' },
+      { id: 'edit.sameWidth' },
+      { id: 'edit.sameHeight' },
+      { id: 'edit.sameSize' },
+    ],
+  },
+  {
+    id: 'Group',
+    get label() { return msg('Group'); },
+    items: [
+      { id: 'edit.group' },
+      { id: 'edit.ungroup' },
+      { id: 'edit.lock' },
+    ],
+  },
+  {
+    id: 'Remove',
+    get label() { return msg('Remove'); },
+    items: [
+      { id: 'edit.delete', size: 'large' },
+      { id: 'edit.hide' },
+      { id: 'edit.editAction' },
+    ],
+  },
+];
+
+/** Commands that still make sense when every selected markup is locked. */
+const LOCKED_MODIFY_COMMANDS = new Set(['edit.lock', 'edit.copyBase', 'edit.hide', 'edit.editAction']);
+
+const MODIFY_TOGGLE_ICON = ic('M10.5 2a3 3 0 0 0-3.7 3.7L2 10.5 4.5 13l4.8-4.8A3 3 0 0 0 13 4.5l-2 2-1.5-1.5 2-2z');
 
 export interface RibbonProps {
   /** Every command by id: the ribbon's buttons run them and show their enabled and checked state. */
@@ -280,6 +448,8 @@ function Cmd({ id, size = 'small', label, icon }: { id: string; size?: Size; lab
   const c = commands.get(id);
   const name = label ?? c?.label ?? id;
   const key = shortcutLabel(id);
+  // Removed by the organisation's policy (desktop/policy.ts).
+  if (c?.managed) return null;
   return (
     <button
       type="button"
@@ -299,11 +469,85 @@ function Cmd({ id, size = 'small', label, icon }: { id: string; size?: Size; lab
   );
 }
 
+/** One ribbon button that drops down a menu of related commands (Flip, Array, Arrange). */
+function CmdMenu({ label, icon, ids, size = 'small', title }: { label: string; icon: ReactNode; ids: readonly string[]; size?: Size; title?: string }) {
+  const { commands, done } = useContext(Ctx);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const skipClick = useRef(false);
+
+  useEffect(() => {
+    if (!menu) return;
+    const down = (e: PointerEvent) => {
+      if (!btnRef.current?.contains(e.target as Node)) return;
+      skipClick.current = true;
+      const clear = () => window.setTimeout(() => { skipClick.current = false; }, 0);
+      window.addEventListener('pointerup', clear, { once: true, capture: true });
+      window.addEventListener('pointercancel', clear, { once: true, capture: true });
+    };
+    window.addEventListener('pointerdown', down, true);
+    return () => window.removeEventListener('pointerdown', down, true);
+  }, [menu]);
+
+  const visible = ids.map((id) => ({ id, cmd: commands.get(id) })).filter(({ cmd }) => !cmd?.managed);
+  if (!visible.length) return null;
+
+  const anyEnabled = visible.some(({ cmd }) => cmd?.enabled);
+  const active = visible.find(({ cmd }) => cmd?.checked);
+  const hint = !anyEnabled ? visible.find(({ cmd }) => cmd?.hint)?.cmd?.hint : undefined;
+
+  const open = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const items: MenuEntry[] = visible.map(({ id, cmd }) => ({
+      label: cmd?.label ?? id,
+      icon: ICONS[id],
+      shortcut: shortcutLabel(id),
+      disabled: !cmd?.enabled,
+      checked: cmd?.checked,
+      onClick: () => {
+        cmd?.run();
+        done();
+      },
+    }));
+    setMenu({ x: r.left, y: r.bottom, items });
+  };
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className={`btn tool rb-btn ${size}${active || menu ? ' active' : ''}`}
+        disabled={!anyEnabled}
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        title={hint ?? title ?? label}
+        onClick={(e) => {
+          if (skipClick.current) {
+            skipClick.current = false;
+            return;
+          }
+          if (menu) {
+            setMenu(null);
+            return;
+          }
+          open(e.currentTarget);
+        }}
+      >
+        <span className="rb-icon">{(active && ICONS[active.id]) ?? icon}</span>
+        <span className="rb-label">{`${label}\u00A0▾`}</span>
+      </button>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
 function ToolBtn({ tool, size = 'small' }: { tool: Tool; size?: Size }) {
   const { commands, toolbar, done } = useContext(Ctx);
   const { tools, state, author, enabled } = toolbar;
   const c = commands.get(`tool.${tool}`);
   const icon = TOOL_ICON.get(tool) ?? ICONS[`tool.${tool}`] ?? '•';
+  if (c?.managed) return null;
   const content = (
     <>
       <span className="rb-icon">{icon}</span>
@@ -349,31 +593,35 @@ function ToolBtn({ tool, size = 'small' }: { tool: Tool; size?: Size }) {
 /** The tab whose groups are being drawn: with a group's name it is the key Customize Ribbon stores. */
 const TabCtx = createContext<TabId>('home');
 
-const groupKey = (tab: TabId, label: string) => `${tab}/${label}`;
+/** `id` is the group's English name, so the stored choice survives a change of interface language. */
+const groupKey = (tab: TabId, id: string) => `${tab}/${id}`;
 
-function Group({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
+/** `id` is the English name (the key Customize Ribbon stores); `label` is shown. */
+function Group({ id, label, children, wide, hideLabel }: { id: string; label: string; children: ReactNode; wide?: boolean; hideLabel?: boolean }) {
   const tab = useContext(TabCtx);
   const { hiddenRibbonGroups } = useSettings();
-  if (hiddenRibbonGroups.includes(groupKey(tab, label))) return null;
+  if (hiddenRibbonGroups.includes(groupKey(tab, id))) return null;
   return (
-  <div className={`rb-group${wide ? ' wide' : ''}`} role="group" aria-label={label}>
+  <div className={`rb-group${wide ? ' wide' : ''}${hideLabel ? ' no-label' : ''}`} role="group" aria-label={label}>
     <div className="rb-items">{children}</div>
-    <div className="rb-group-label">{label}</div>
+    {!hideLabel && <div className="rb-group-label">{label}</div>}
   </div>
   );
 }
 
-/** The names of the groups in a tab's content (what the Customize Ribbon dialog lists). */
-function groupLabels(node: ReactNode): string[] {
+type GroupName = { id: string; label: string };
+
+/** The groups in a tab's content (what the Customize Ribbon dialog lists). */
+function groupNames(node: ReactNode): GroupName[] {
   return Children.toArray(node).flatMap((child) => {
-    if (!isValidElement<{ label?: string; children?: ReactNode }>(child)) return [];
-    if (child.type === Group) return child.props.label ? [child.props.label] : [];
-    return child.type === Fragment ? groupLabels(child.props.children) : [];
+    if (!isValidElement<{ id?: string; label?: string; children?: ReactNode }>(child)) return [];
+    if (child.type === Group) return child.props.id && child.props.label ? [{ id: child.props.id, label: child.props.label }] : [];
+    return child.type === Fragment ? groupNames(child.props.children) : [];
   });
 }
 
 /** Customize Ribbon: every tab's groups, each switched on or off. */
-function RibbonCustomizer({ tabs, onClose }: { tabs: { id: TabId; label: string; groups: string[] }[]; onClose: () => void }) {
+function RibbonCustomizer({ tabs, onClose }: { tabs: { id: TabId; label: string; groups: GroupName[] }[]; onClose: () => void }) {
   const { hiddenRibbonGroups } = useSettings();
   const toggle = (key: string, on: boolean) =>
     settings.set({ hiddenRibbonGroups: on ? hiddenRibbonGroups.filter((k) => k !== key) : [...hiddenRibbonGroups, key] });
@@ -382,23 +630,23 @@ function RibbonCustomizer({ tabs, onClose }: { tabs: { id: TabId; label: string;
       <div
         className="modal rb-customize"
         role="dialog"
-        aria-label="Customize Ribbon"
+        aria-label={msg('Customize Ribbon')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>Customize Ribbon</h3>
-        <p>Tick the groups to show on each tab.</p>
+        <h3>{msg('Customize Ribbon')}</h3>
+        <p>{msg('Tick the groups to show on each tab.')}</p>
         <div className="rb-customize-list">
           {tabs.map((t) => (
             <fieldset key={t.id}>
               <legend>{t.label}</legend>
               {t.groups.map((g) => (
-                <label key={g} className="field">
-                  <input type="checkbox" checked={!hiddenRibbonGroups.includes(groupKey(t.id, g))} onChange={(e) => toggle(groupKey(t.id, g), e.target.checked)} />
-                  {g}
+                <label key={g.id} className="field">
+                  <input type="checkbox" checked={!hiddenRibbonGroups.includes(groupKey(t.id, g.id))} onChange={(e) => toggle(groupKey(t.id, g.id), e.target.checked)} />
+                  {g.label}
                 </label>
               ))}
             </fieldset>
@@ -406,10 +654,10 @@ function RibbonCustomizer({ tabs, onClose }: { tabs: { id: TabId; label: string;
         </div>
         <div className="actions">
           <button type="button" className="btn" disabled={!hiddenRibbonGroups.length} onClick={() => settings.set({ hiddenRibbonGroups: [] })}>
-            Reset
+            {msg('Reset')}
           </button>
           <button type="button" className="btn primary" onClick={onClose} autoFocus>
-            Done
+            {msg('Done')}
           </button>
         </div>
       </div>
@@ -424,13 +672,13 @@ function ChangeShape() {
   const kinds = new Set(selected.map((m) => m.flowShape ?? 'process'));
   const value = kinds.size === 1 ? [...kinds][0]! : '';
   return (
-    <label className="rb-select" title="Change the selected flowchart shapes into another shape">
-      <span className="rb-label">Change to</span>
-      <select value={value} disabled={!toolbar.enabled || !selected.length} aria-label="Change Shape" onChange={(e) => e.target.value && toolbar.tools.changeFlowShape(e.target.value as FlowShapeKind)}>
-        {!value && <option value="">{selected.length ? 'Mixed' : 'Select a shape'}</option>}
+    <label className="rb-select" title={msg('Change the selected flowchart shapes into another shape')}>
+      <span className="rb-label">{msg('Change to')}</span>
+      <select value={value} disabled={!toolbar.enabled || !selected.length} aria-label={msg('Change Shape')} onChange={(e) => e.target.value && toolbar.tools.changeFlowShape(e.target.value as FlowShapeKind)}>
+        {!value && <option value="">{selected.length ? msg('Mixed') : msg('Select a shape')}</option>}
         {FLOW_SHAPES.map((f) => (
           <option key={f.kind} value={f.kind}>
-            {f.label}
+            {flowShapeName(f.kind)}
           </option>
         ))}
       </select>
@@ -443,6 +691,203 @@ function Stack({ children }: { children: ReactNode }) {
   return <div className="rb-stack">{children}</div>;
 }
 
+const PICK_KINDS: { value: SlopePick['kind']; label: string; unit: string }[] = [
+  { value: 'none', get label() { return msg('No slope'); }, unit: '' },
+  { value: 'pitch', get label() { return msg('Pitch'); }, unit: ':12' },
+  { value: 'degrees', get label() { return msg('Degrees'); }, unit: '°' },
+  { value: 'percent', get label() { return msg('Grade %'); }, unit: '%' },
+  { value: 'ratio', get label() { return msg('Rise:Run'); }, unit: '' },
+];
+
+/**
+ * Takeoff › Slope: a slope that goes on the selected measurements and on the next ones the running
+ * measure tool places (as the Markup Format tab's Subject, Label and Layer do), and the pitch Hip
+ * and Valley arm Polylength with.
+ */
+/**
+ * Takeoff › Templates: a drop-down of the document's takeoff templates and the library's; picking
+ * one arms its tool. Manage Templates… (the `takeoff.templates` command) renames, deletes,
+ * imports and exports them.
+ */
+function TemplatesMenu() {
+  const { commands, toolbar, done } = useContext(Ctx);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const c = commands.get('takeoff.templates');
+  const t = toolbar.takeoffTemplates;
+  const armed = toolbar.state.preset?.takeoffTemplateId;
+  if (c?.managed) return null;
+  const open = (el: HTMLElement) => {
+    if (!t) return;
+    const r = el.getBoundingClientRect();
+    const lib = loadEstimatingLibrary().templates.filter((x) => !t.document.some((d) => d.id === x.id));
+    const entry = (x: TakeoffTemplate, library = false): MenuEntry => ({
+      label: library ? msg('{name} (library)', { name: x.name }) : x.name,
+      checked: armed === x.id,
+      disabled: !toolbar.enabled,
+      onClick: () => {
+        t.onUse(x);
+        done();
+      },
+    });
+    const items: MenuEntry[] = [
+      ...t.document.map((x) => entry(x)),
+      ...(lib.length ? [SEP, ...lib.map((x) => entry(x, true))] : []),
+      ...(!t.document.length && !lib.length ? [{ label: msg('No templates yet: right-click a measurement › Save as Template'), disabled: true }] : []),
+      SEP,
+      {
+        label: msg('Manage Templates…'),
+        onClick: () => {
+          c?.run();
+          done();
+        },
+      },
+    ];
+    setMenu({ x: r.left, y: r.bottom, items });
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className={`btn tool rb-btn small${armed ? ' active' : ''}`}
+        data-ribbon-command="takeoff.templates"
+        disabled={!c?.enabled}
+        aria-haspopup="menu"
+        title={msg('Takeoff templates: pick one to arm its tool with its settings and assembly')}
+        onClick={(e) => open(e.currentTarget)}
+      >
+        <span className="rb-icon">{ICONS['takeoff.templates']}</span>
+        <span className="rb-label">{msg('Templates ▾')}</span>
+      </button>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
+/** Takeoff › Assembly: the assembly picker and its Variables drop-down (see RibbonAssembly). */
+function TakeoffAssembly() {
+  const { toolbar } = useContext(Ctx);
+  return <RibbonAssembly info={toolbar.takeoffAssembly} selection={toolbar.selection} enabled={toolbar.enabled} />;
+}
+
+function SlopePicker() {
+  const { toolbar } = useContext(Ctx);
+  const { tools, state, selection, enabled } = toolbar;
+  const p = useSlopePick();
+  const apply = (next: SlopePick) => {
+    setSlopePick(next);
+    if (!enabled) return;
+    const spec = pickedSpec(next);
+    if (selection?.markups.length) {
+      const { store } = selection;
+      const targets = selection.markups.map((m) => store.get(m.id) ?? m).filter((m) => !m.locked && store.mayEdit(m));
+      const patches = targets.map((m) => [m.id, pickedSlopePatch(m, spec)] as const).filter(([, patch]) => Object.keys(patch).length);
+      if (patches.length) {
+        store.checkpoint();
+        store.batch(() => {
+          for (const [id, patch] of patches) store.update(id, patch);
+        });
+      }
+    }
+    // The running measure tool: a Hip or Valley stays one, with the new pitch. A typed (manual) quantity never takes a slope.
+    if (isMeasureKind(state.tool) && state.tool !== 'manual') {
+      const armed = state.toolFields?.slope ?? state.preset?.slope;
+      tools.setToolFields({ slope: spec && (armed?.kind === 'hip' || armed?.kind === 'valley') ? { ...armed, a: spec } : spec });
+    }
+  };
+  const num = (key: 'value' | 'rise' | 'run', label: string, width = 46) => (
+    <input
+      key={`${key}:${p[key]}`}
+      type="number"
+      step="any"
+      min={0}
+      aria-label={label}
+      title={label}
+      defaultValue={p[key]}
+      disabled={!enabled}
+      style={{ width }}
+      onBlur={(e) => {
+        const v = Number(e.currentTarget.value);
+        if (Number.isFinite(v) && v >= 0 && v !== p[key]) apply({ ...p, [key]: v });
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+    />
+  );
+  const unit = PICK_KINDS.find((k) => k.value === p.kind)?.unit;
+  return (
+    <div className="rb-stack rb-slope">
+      <select aria-label={msg('Takeoff slope kind')} title={msg('Slope for the selected measurements and the next ones drawn')} value={p.kind} disabled={!enabled} onChange={(e) => apply({ ...p, kind: e.target.value as SlopePick['kind'] })}>
+        {PICK_KINDS.map((k) => (
+          <option key={k.value} value={k.value}>
+            {k.label}
+          </option>
+        ))}
+      </select>
+      {p.kind !== 'none' && (
+        <span className="field">
+          {p.kind === 'ratio' ? (
+            <>
+              {num('rise', 'Rise', 38)}:{num('run', 'Run', 38)}
+            </>
+          ) : (
+            num('value', 'Takeoff slope')
+          )}
+          {unit && <span className="unit">{unit}</span>}
+        </span>
+      )}
+    </div>
+  );
+}
+
+
+
+/**
+ * Markup Format › Units & Scale: the measuring units (the Preferences › Units settings, so there is one
+ * source of truth) and the current page's scale, close at hand while measuring. Changing the units
+ * rewords the page's scale, and with it every measurement on the page.
+ */
+function UnitsScale({ scale, disabled, onPreset, onCustom, onUnitsChanged }: UnitsScaleProps) {
+  const prefs = useSettings();
+  const change = (patch: Partial<Settings>) => {
+    settings.set(patch);
+    onUnitsChanged();
+  };
+  return (
+    <div className="rb-props">
+      <div className="prop-cluster">
+        <div className="prop-cluster-items">
+          <div className="prop-line">
+            <label className="field">
+              {msg('Units')}
+              <select aria-label={msg('Units')} value={prefs.unitSystem} disabled={disabled} onChange={(e) => change(switchUnitSystem(prefs, e.target.value as UnitSystem))}>
+                <option value="metric">{msg('Metric')}</option>
+                <option value="imperial">{msg('Imperial')}</option>
+              </select>
+            </label>
+          </div>
+          <div className="prop-line">
+            <label className="field">
+              {msg('Length')}
+              <select aria-label={msg('Length unit')} value={prefs.lengthUnit} disabled={disabled} onChange={(e) => change({ lengthUnit: e.target.value as LengthUnit })}>
+                {DEFAULT_UNIT_CHOICES[prefs.unitSystem].length.map((u) => (
+                  <option key={u} value={u}>
+                    {lengthUnitName(u)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div className="prop-cluster">
+        <div className="prop-cluster-items">
+          <div className="prop-line">
+            <ScaleControl scale={scale} disabled={disabled} onPreset={onPreset} onCustom={onCustom} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * The top toolbar as a ribbon, as in Word, Excel and AutoCAD: tabs of commands in labelled groups.
@@ -458,9 +903,13 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const [pressed, setPressed] = useState(false);
   // With the ribbon collapsed, the tab whose commands are dropped down (none: just the tabs).
   const [dropped, setDropped] = useState(false);
+  const [formatModifyOpen, setFormatModifyOpen] = useState<boolean>(savedFormatModify);
   const [customizing, setCustomizing] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const root = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  // The tabs sit in the menu bar's row, beside the redcolumn menu; without one they head the ribbon.
+  const slot = useMenubarSlot();
 
   // The contextual tab is there while there is anything to format: a styled tool, or a selection of one markup type.
   const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry || toolbar.selection);
@@ -490,6 +939,13 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   useEffect(() => {
     dispatch({ type: 'selection', key: selectionKey, contextual, busy });
   }, [selectionKey, contextual, busy]);
+  // Picking a tool brings the Markup Format tab forward, and putting it down returns to the tab before.
+  const lastTool = useRef(tool);
+  useEffect(() => {
+    if (tool === lastTool.current) return;
+    lastTool.current = tool;
+    dispatch({ type: 'tool', active: tool !== 'select', contextual });
+  }, [tool, contextual]);
   useEffect(() => {
     const down = () => setPressed(true);
     const up = () => setPressed(false);
@@ -513,8 +969,8 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     if (!dropped) return;
     const close = (e: MouseEvent) => {
       const t = e.target as Element;
-      // Stamp, hatch and combo menus pop out of the ribbon; clicks in them keep it open.
-      if (root.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list')) return;
+      // Stamp, hatch, style and combo menus pop out of the ribbon; clicks in them keep it open.
+      if (root.current?.contains(t) || tabsRef.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list, .ls-list, .font-picker-pop, .rb-asm-pop')) return;
       setDropped(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -533,8 +989,87 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     if (collapsed) setDropped(false);
   };
 
+  const toggleFormatModify = () => {
+    setFormatModifyOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(FORMAT_MODIFY_KEY, next ? '1' : '0');
+      } catch {
+        /* storage off limits: lasts for this session */
+      }
+      return next;
+    });
+  };
+
+  /**
+   * Applicable Modify tools for the currently selected markup(s) on the Markup Format tab.
+   * Collapsed by default (remembered in localStorage), and only commands enabled for the selection appear.
+   */
+  const formatModify = (() => {
+    const sel = toolbar.selection?.markups;
+    if (!sel?.length) return null;
+    const allLocked = sel.every((m) => m.locked);
+    const groups = FORMAT_MODIFY_GROUPS.map((g) => ({
+      ...g,
+      items: g.items.filter((item) => {
+        if (allLocked && !LOCKED_MODIFY_COMMANDS.has(item.id)) return false;
+        const c = commands.get(item.id);
+        return !!c && !c.managed && c.enabled;
+      }),
+    })).filter((g) => g.items.length > 0);
+    if (!groups.length) return null;
+    return (
+      <div className={`rb-format-modify${formatModifyOpen ? ' open' : ''}`}>
+        <div className="rb-group rb-modify-toggle-group" role="group" aria-label={msg('Modify tools')}>
+          <div className="rb-items">
+            <button
+              type="button"
+              className={`btn tool rb-btn large rb-modify-toggle${formatModifyOpen ? ' active' : ''}`}
+              aria-expanded={formatModifyOpen}
+              title={formatModifyOpen ? msg('Collapse Modify tools') : msg('Expand Modify tools for the selected markup')}
+              onClick={toggleFormatModify}
+            >
+              <span className="rb-icon">{MODIFY_TOGGLE_ICON}</span>
+              <span className="rb-label">{formatModifyOpen ? msg('◂ Modify') : msg('Modify ▸')}</span>
+            </button>
+          </div>
+          <div className="rb-group-label">{msg('Modify')}</div>
+        </div>
+        {formatModifyOpen &&
+          groups.map((g) => {
+            if (g.iconGrid && g.items.length > 3) {
+              return (
+                <Group key={g.id} id={g.id} label={g.label}>
+                  <div className="rb-icon-grid">
+                    {g.items.map((item) => (
+                      <Cmd key={item.id} id={item.id} label={item.label} />
+                    ))}
+                  </div>
+                </Group>
+              );
+            }
+            const first = g.items[0];
+            const hasLarge = first?.size === 'large';
+            const rest = hasLarge ? g.items.slice(1) : g.items;
+            return (
+              <Group key={g.id} id={g.id} label={g.label}>
+                {hasLarge && <Cmd id={first.id} size="large" label={first.label} />}
+                {Array.from({ length: Math.ceil(rest.length / 3) }, (_, i) => (
+                  <Stack key={i}>
+                    {rest.slice(i * 3, i * 3 + 3).map((item) => (
+                      <Cmd key={item.id} id={item.id} label={item.label} />
+                    ))}
+                  </Stack>
+                ))}
+              </Group>
+            );
+          })}
+      </div>
+    );
+  })();
+
   const properties = (
-    <Group label="Properties" wide>
+    <Group id="Properties" label={msg('Properties')} wide hideLabel>
       <div className="rb-props">
         <StyleControls {...toolbar} />
       </div>
@@ -543,7 +1078,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
 
   const toolGroups = (groups: typeof MARKUP_GROUPS) =>
     groups.map((g) => (
-      <Group key={g.label} label={g.label}>
+      <Group key={g.id} id={g.id} label={g.label}>
         {Array.from({ length: Math.ceil(g.tools.length / 3) }, (_, i) => (
           <Stack key={i}>
             {g.tools.slice(i * 3, i * 3 + 3).map(({ tool }) => (
@@ -559,23 +1094,23 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'home':
         return (
           <>
-            <Group label="Clipboard">
+            <Group id="Clipboard" label={msg('Clipboard')}>
               <Cmd id="edit.paste" size="large" />
               <Stack>
                 <Cmd id="edit.cut" />
                 <Cmd id="edit.copy" />
                 <Cmd id="edit.pasteInPlace" />
               </Stack>
-              <Cmd id="edit.formatPainter" size="large" label="Format Painter" />
+              <Cmd id="edit.formatPainter" size="large" label={msg('Format Painter')} />
             </Group>
-            <Group label="History">
+            <Group id="History" label={msg('History')}>
               <Stack>
                 <Cmd id="edit.undo" />
                 <Cmd id="edit.redo" />
-                <Cmd id="edit.undoHistory" label="History" />
+                <Cmd id="edit.undoHistory" label={msg('History')} />
               </Stack>
             </Group>
-            <Group label="Select">
+            <Group id="Select" label={msg('Select')}>
               <ToolBtn tool="select" size="large" />
               <Stack>
                 <ToolBtn tool="lasso" />
@@ -588,7 +1123,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.selectText" />
               </Stack>
             </Group>
-            <Group label="Quick Tools">
+            <Group id="Quick Tools" label={msg('Quick Tools')}>
               <Stack>
                 <ToolBtn tool="pen" />
                 <ToolBtn tool="highlighter" />
@@ -600,60 +1135,67 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <ToolBtn tool="stamp" />
               </Stack>
             </Group>
-            <Group label="Edit">
+            <Group id="Edit" label={msg('Edit')}>
               <Cmd id="edit.delete" size="large" />
               <Stack>
                 <Cmd id="edit.hide" />
                 <Cmd id="edit.find" />
-                <Cmd id="edit.checkSpelling" label="Spelling" />
+                <Cmd id="edit.checkSpelling" label={msg('Spelling')} />
               </Stack>
             </Group>
           </>
         );
       case 'markup':
-        return <>{toolGroups(MARKUP_GROUPS.filter((g) => g.label !== 'Select'))}</>;
+        return <>{toolGroups(MARKUP_GROUPS.filter((g) => g.id !== 'Select'))}</>;
       case 'format':
         return (
           <>
             {(toolbar.selection?.markups.length || isMarkupTool(toolbar.state.tool) || toolbar.state.tool === 'cloudPlus') && (
-              <Group label="Markup" wide>
+              <Group id="Markup" label={msg('Markup')} wide>
                 <div className="rb-props">
                   <MarkupFields {...toolbar} />
                 </div>
               </Group>
             )}
+            {toolbar.unitsScale && (
+              <Group id="Units & Scale" label={msg('Units & Scale')} wide>
+                <UnitsScale {...toolbar.unitsScale} />
+              </Group>
+            )}
             {properties}
+            {formatModify}
           </>
         );
       case 'measure':
         return (
           <>
-            <Group label="Scale">
+            <Group id="Scale" label={msg('Scale')}>
               <ToolBtn tool="calibrate" size="large" />
+              <Cmd id="edit.createViewport" size="large" />
               <Stack>
-                <Cmd id="document.scaleRegions" label="Bulk Page Scale" />
-                <Cmd id="document.scaleReview" label="Review Scales" />
+                <Cmd id="document.scaleRegions" label={msg('Bulk Page Scale')} />
+                <Cmd id="document.scaleReview" label={msg('Review Scales')} />
                 <Cmd id="tools.sketchToScale" />
               </Stack>
             </Group>
-            {toolGroups(MEASURE_GROUPS.filter((g) => g.label !== 'Scale'))}
+            {toolGroups(MEASURE_GROUPS.filter((g) => g.id !== 'Scale'))}
           </>
         );
       case 'takeoff':
         return (
           <>
-            <Group label="Setup">
+            <Group id="Setup" label={msg('Setup')}>
               <ToolBtn tool="calibrate" size="large" />
               <Stack>
-                <Cmd id="document.scaleRegions" label="Bulk Page Scale" />
-                <Cmd id="document.scaleReview" label="Review Scales" />
+                <Cmd id="document.scaleRegions" label={msg('Bulk Page Scale')} />
+                <Cmd id="document.scaleReview" label={msg('Review Scales')} />
               </Stack>
               <Stack>
-                <Cmd id="document.labelRegions" label="Page Labels" />
-                <Cmd id="batch.pageLabels" label="Bulk Page Labels" />
+                <Cmd id="document.labelRegions" label={msg('Page Labels')} />
+                <Cmd id="batch.pageLabels" label={msg('Bulk Page Labels')} />
               </Stack>
             </Group>
-            <Group label="Measure">
+            <Group id="Measure" label={msg('Measure')}>
               <ToolBtn tool="length" size="large" />
               <ToolBtn tool="polylength" size="large" />
               <ToolBtn tool="area" size="large" />
@@ -661,22 +1203,44 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Stack>
                 <Cmd id="tool.cutout" />
                 <Cmd id="tools.nextMeasure" />
+                <Cmd id="draw.arc" />
               </Stack>
             </Group>
-            <Group label="Estimating">
+            <Group id="Assembly" label={msg('Assembly')}>
+              <TakeoffAssembly />
+            </Group>
+            <Group id="Manual" label={msg('Manual')}>
+              <Cmd id="takeoff.manual" size="large" />
+            </Group>
+            <Group id="Slope" label={msg('Slope')}>
+              <SlopePicker />
+              <Stack>
+                <Cmd id="takeoff.hip" label={msg('Hip')} />
+                <Cmd id="takeoff.valley" label={msg('Valley')} />
+              </Stack>
+            </Group>
+            <Group id="Estimating" label={msg('Estimating')}>
               <Cmd id="tools.assemblies" size="large" />
               <Stack>
                 <Cmd id="tools.quantities" />
-                <Cmd id="tools.takeoffReview" label="Takeoff Review" />
+                <Cmd id="tools.takeoffReview" label={msg('Review AI Takeoff')} />
+                <Cmd id="takeoff.items" label={msg('Items')} />
               </Stack>
+              <Stack>
+                <Cmd id="takeoff.productLists" label={msg('Product Lists')} />
+                <TemplatesMenu />
+                <Cmd id="takeoff.saveTemplate" label={msg('Save as Template')} />
+              </Stack>
+              <Cmd id="tools.library" label={msg('Library')} size="large" />
             </Group>
-            <Group label="Auto Count">
+            <Group id="Auto Count" label={msg('Auto Count')}>
               <ToolBtn tool="visualSearch" size="large" />
             </Group>
-            <Group label="Output">
+            <Group id="Output" label={msg('Output')}>
               <Cmd id="takeoff.syncExcel" size="large" />
               <Stack>
-                <Cmd id="tools.columns" label="Columns & Statuses" />
+                <Cmd id="takeoff.reports" label={msg('Reports')} />
+                <Cmd id="tools.columns" label={msg('Columns & Statuses')} />
               </Stack>
             </Group>
           </>
@@ -684,7 +1248,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'diagram':
         return (
           <>
-            <Group label="Shapes">
+            <Group id="Shapes" label={msg('Shapes')}>
               <Cmd id="diagram.process" size="large" />
               <Stack>
                 <Cmd id="diagram.decision" />
@@ -699,29 +1263,29 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Stack>
                 <Cmd id="diagram.manualInput" />
                 <Cmd id="diagram.database" />
-                <Cmd id="diagram.circle" label="Reference" />
+                <Cmd id="diagram.circle" label={msg('Reference')} />
               </Stack>
               <Stack>
                 <ChangeShape />
               </Stack>
             </Group>
-            <Group label="Connect">
+            <Group id="Connect" label={msg('Connect')}>
               <Cmd id="tool.connector" size="large" />
               <Stack>
                 <Cmd id="diagram.connect" />
-                <Cmd id="diagram.elbow" label="Elbow" />
-                <Cmd id="diagram.straight" label="Straight" />
+                <Cmd id="diagram.elbow" label={msg('Elbow')} />
+                <Cmd id="diagram.straight" label={msg('Straight')} />
               </Stack>
             </Group>
-            <Group label="Add Step">
-              <Cmd id="diagram.addBelow" size="large" label="Below" />
+            <Group id="Add Step" label={msg('Add Step')}>
+              <Cmd id="diagram.addBelow" size="large" label={msg('Below')} />
               <Stack>
-                <Cmd id="diagram.addRight" label="Right" />
-                <Cmd id="diagram.addAbove" label="Above" />
-                <Cmd id="diagram.addLeft" label="Left" />
+                <Cmd id="diagram.addRight" label={msg('Right')} />
+                <Cmd id="diagram.addAbove" label={msg('Above')} />
+                <Cmd id="diagram.addLeft" label={msg('Left')} />
               </Stack>
             </Group>
-            <Group label="Arrange">
+            <Group id="Arrange" label={msg('Arrange')}>
               <div className="rb-icon-grid">
                 <Cmd id="edit.alignLeft" />
                 <Cmd id="edit.alignCenter" />
@@ -736,10 +1300,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.group" />
               </Stack>
             </Group>
-            <Group label="Page">
+            <Group id="Page" label={msg('Page')}>
               <Stack>
-                <Cmd id="document.insertBlank" label="Insert Blank Page" />
-                <Cmd id="file.newPdf" label="New Blank PDF" />
+                <Cmd id="document.insertBlank" label={msg('Insert Blank Page')} />
+                <Cmd id="file.newPdf" label={msg('New Blank PDF')} />
               </Stack>
             </Group>
           </>
@@ -747,10 +1311,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'modify':
         return (
           <>
-            <Group label="Transform">
+            <Group id="Transform" label={msg('Transform')}>
               <Cmd id="edit.move" size="large" />
               <Stack>
-                <Cmd id="edit.copyBase" label="Copy" />
+                <Cmd id="edit.copyBase" label={msg('Copy')} />
                 <Cmd id="edit.rotate" />
                 <Cmd id="edit.scale" />
               </Stack>
@@ -761,11 +1325,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
               <Stack>
                 <Cmd id="edit.scaleToLength" />
-                <Cmd id="edit.flipHorizontal" />
-                <Cmd id="edit.flipVertical" />
+                <CmdMenu label={msg('Flip')} icon={ICONS['edit.flipHorizontal']} ids={['edit.flipHorizontal', 'edit.flipVertical']} />
               </Stack>
             </Group>
-            <Group label="Edit Geometry">
+            <Group id="Edit Geometry" label={msg('Edit Geometry')}>
               <Cmd id="edit.offset" size="large" />
               <Stack>
                 <Cmd id="edit.trim" />
@@ -778,7 +1341,17 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.chamfer" />
               </Stack>
             </Group>
-            <Group label="Convert">
+            <Group id="Picture" label={msg('Picture')}>
+              <Stack>
+                <Cmd id="edit.adjustImage" label={msg('Adjust Image')} />
+                <Cmd id="edit.pictureColours" label={msg('Colours')} />
+              </Stack>
+              <Stack>
+                <Cmd id="edit.cropImage" />
+                <Cmd id="edit.resetCrop" />
+              </Stack>
+            </Group>
+            <Group id="Convert" label={msg('Convert')}>
               <Stack>
                 <Cmd id="edit.join" />
                 <Cmd id="edit.explode" />
@@ -786,30 +1359,25 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
               <Stack>
                 <Cmd id="edit.toCloud" />
-                <Cmd id="edit.autoSize" label="Auto-size Text" />
+                <Cmd id="edit.autoSize" label={msg('Auto-size Text')} />
               </Stack>
             </Group>
-            <Group label="Pattern">
+            <Group id="Pattern" label={msg('Pattern')}>
               <Stack>
-                <Cmd id="edit.arrayPolar" />
-                <Cmd id="edit.arrayPath" />
+                <CmdMenu label={msg('Array')} icon={ICONS['edit.arrayPolar']} ids={['edit.arrayPolar', 'edit.arrayPath']} />
                 <Cmd id="edit.divide" />
-              </Stack>
-              <Stack>
                 <Cmd id="edit.multiply" />
               </Stack>
             </Group>
-            <Group label="Arrange">
-              <Stack>
-                <Cmd id="edit.bringToFront" />
-                <Cmd id="edit.bringForward" />
-              </Stack>
-              <Stack>
-                <Cmd id="edit.sendBackward" />
-                <Cmd id="edit.sendToBack" />
-              </Stack>
+            <Group id="Arrange" label={msg('Arrange')}>
+              <CmdMenu
+                label={msg('Arrange')}
+                size="large"
+                icon={ICONS['edit.bringToFront']}
+                ids={['edit.bringToFront', 'edit.bringForward', 'edit.sendBackward', 'edit.sendToBack']}
+              />
             </Group>
-            <Group label="Align">
+            <Group id="Align" label={msg('Align')}>
               <div className="rb-icon-grid">
                 <Cmd id="edit.alignLeft" />
                 <Cmd id="edit.alignCenter" />
@@ -825,14 +1393,14 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.sameSize" />
               </div>
             </Group>
-            <Group label="Group">
+            <Group id="Group" label={msg('Group')}>
               <Stack>
                 <Cmd id="edit.group" />
                 <Cmd id="edit.ungroup" />
                 <Cmd id="edit.lock" />
               </Stack>
             </Group>
-            <Group label="PDF Content">
+            <Group id="PDF Content" label={msg('PDF Content')}>
               <Cmd id="edit.editText" size="large" />
               <Stack>
                 <Cmd id="edit.selectText" />
@@ -840,8 +1408,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.cutContent" />
               </Stack>
             </Group>
-            <Group label="Remove">
-              <Cmd id="edit.delete" size="large" />
+            <Group id="Remove" label={msg('Remove')}>
               <Stack>
                 <Cmd id="edit.hide" />
                 <Cmd id="edit.showHidden" />
@@ -853,78 +1420,78 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'document':
         return (
           <>
-            <Group label="Pages">
-              <Cmd id="document.insertPages" size="large" label="Insert Pages" />
+            <Group id="Pages" label={msg('Pages')}>
+              <Cmd id="document.insertPages" size="large" label={msg('Insert Pages')} />
               <Stack>
-                <Cmd id="document.insertBlank" label="Insert Blank" />
-                <Cmd id="document.extractPages" label="Extract" />
-                <Cmd id="document.replacePages" label="Replace" />
+                <Cmd id="document.insertBlank" label={msg('Insert Blank')} />
+                <Cmd id="document.extractPages" label={msg('Extract')} />
+                <Cmd id="document.replacePages" label={msg('Replace')} />
               </Stack>
               <Stack>
-                <Cmd id="document.deletePages" label="Delete" />
-                <Cmd id="document.rotatePages" label="Rotate" />
-                <Cmd id="document.cropPages" label="Crop" />
+                <Cmd id="document.deletePages" label={msg('Delete')} />
+                <Cmd id="document.rotatePages" label={msg('Rotate')} />
+                <Cmd id="document.cropPages" label={msg('Crop')} />
               </Stack>
               <Stack>
                 <Cmd id="document.pageSetup" />
-                <Cmd id="document.splitDocument" label="Split" />
+                <Cmd id="document.splitDocument" label={msg('Split')} />
               </Stack>
             </Group>
-            <Group label="Labels">
+            <Group id="Labels" label={msg('Labels')}>
               <Stack>
                 <Cmd id="document.numberPages" />
                 <Cmd id="document.headerFooter" />
-                <Cmd id="document.labelRegions" label="Page Labels" />
+                <Cmd id="document.labelRegions" label={msg('Page Labels')} />
               </Stack>
               <Stack>
                 <Cmd id="document.addBookmark" />
               </Stack>
             </Group>
-            <Group label="Standards">
-              <Cmd id="document.setUpDrawingStandard" size="large" label="Set Up Standard" />
+            <Group id="Standards" label={msg('Standards')}>
+              <Cmd id="document.setUpDrawingStandard" size="large" label={msg('Set Up Standard')} />
               <Stack>
-                <Cmd id="document.drawingStandards" label="Drawing Standards" />
+                <Cmd id="document.drawingStandards" label={msg('Drawing Standards')} />
               </Stack>
             </Group>
-            <Group label="Process">
-              <Cmd id="document.ocr" size="large" label="OCR" />
+            <Group id="Process" label={msg('Process')}>
+              <Cmd id="document.ocr" size="large" label={msg('OCR')} />
               <Stack>
                 <Cmd id="document.flatten" />
                 <Cmd id="document.unflatten" />
-                <Cmd id="document.colour" label="Colour" />
+                <Cmd id="document.colour" label={msg('Colour')} />
               </Stack>
               <Stack>
-                <Cmd id="document.reduceSize" label="Reduce Size" />
+                <Cmd id="document.reduceSize" label={msg('Reduce Size')} />
                 <Cmd id="document.repair" />
               </Stack>
             </Group>
-            <Group label="Compare">
-              <Cmd id="document.compare" size="large" label="Compare" />
+            <Group id="Compare" label={msg('Compare')}>
+              <Cmd id="document.compare" size="large" label={msg('Compare')} />
               <Stack>
-                <Cmd id="document.semanticCompare" label="AI Compare" />
-                <Cmd id="document.overlay" label="Overlay" />
+                <Cmd id="document.semanticCompare" label={msg('AI Compare')} />
+                <Cmd id="document.overlay" label={msg('Overlay')} />
               </Stack>
               <Stack>
-                <Cmd id="document.slipSheet" label="Slip Sheet" />
-                <Cmd id="document.revisions" label="Revisions" />
+                <Cmd id="document.slipSheet" label={msg('Slip Sheet')} />
+                <Cmd id="document.revisions" label={msg('Revisions')} />
               </Stack>
             </Group>
-            <Group label="Protect">
+            <Group id="Protect" label={msg('Protect')}>
               <Stack>
                 <Cmd id="document.security" />
-                <Cmd id="tools.sign" label="Sign" />
+                <Cmd id="tools.sign" label={msg('Sign')} />
                 <Cmd id="tools.digitalIds" />
               </Stack>
               <Stack>
                 <ToolBtn tool="redaction" />
-                <Cmd id="tools.applyRedactions" label="Apply Redactions" />
-                <Cmd id="document.pdfa" label="PDF/A" />
+                <Cmd id="tools.applyRedactions" label={msg('Apply Redactions')} />
+                <Cmd id="document.pdfa" label={msg('PDF/A')} />
               </Stack>
             </Group>
-            <Group label="Forms">
+            <Group id="Forms" label={msg('Forms')}>
               <Stack>
                 <Cmd id="tools.formField" />
-                <Cmd id="tools.autoFields" label="Auto-Create Fields" />
+                <Cmd id="tools.autoFields" label={msg('Auto-Create Fields')} />
                 <Cmd id="tools.forms" />
               </Stack>
             </Group>
@@ -933,19 +1500,19 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'bulk':
         return (
           <>
-            <Group label="Combine & Compare">
-              <Cmd id="file.combine" size="large" label="Combine PDFs" />
-              <Cmd id="document.bulkInsertPages" size="large" label="Bulk Insert" />
+            <Group id="Combine & Compare" label={msg('Combine & Compare')}>
+              <Cmd id="file.combine" size="large" label={msg('Combine PDFs')} />
+              <Cmd id="document.bulkInsertPages" size="large" label={msg('Bulk Insert')} />
               <Stack>
                 <Cmd id="batch.link" />
-                <Cmd id="document.slipSheet" label="Slip Sheet" />
+                <Cmd id="document.slipSheet" label={msg('Slip Sheet')} />
               </Stack>
               <Stack>
-                <Cmd id="document.compare" label="Compare" />
-                <Cmd id="document.overlay" label="Overlay" />
+                <Cmd id="document.compare" label={msg('Compare')} />
+                <Cmd id="document.overlay" label={msg('Overlay')} />
               </Stack>
             </Group>
-            <Group label="Process">
+            <Group id="Process" label={msg('Process')}>
               <Stack>
                 <Cmd id="batch.flatten" />
                 <Cmd id="batch.unflatten" />
@@ -957,14 +1524,14 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="batch.colour" />
               </Stack>
             </Group>
-            <Group label="Headers & Stamps">
+            <Group id="Headers & Stamps" label={msg('Headers & Stamps')}>
               <Stack>
                 <Cmd id="batch.headerFooter" />
                 <Cmd id="batch.removeHeaderFooter" />
                 <Cmd id="batch.stamp" />
               </Stack>
             </Group>
-            <Group label="Pages">
+            <Group id="Pages" label={msg('Pages')}>
               <Stack>
                 <Cmd id="batch.crop" />
                 <Cmd id="batch.pageSetup" />
@@ -974,13 +1541,13 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="batch.pageLabels" />
               </Stack>
             </Group>
-            <Group label="Redact">
+            <Group id="Redact" label={msg('Redact')}>
               <Cmd id="tools.bulkRedact" size="large" />
             </Group>
-            <Group label="Sign">
+            <Group id="Sign" label={msg('Sign')}>
               <Cmd id="batch.sign" size="large" />
             </Group>
-            <Group label="Output">
+            <Group id="Output" label={msg('Output')}>
               <Stack>
                 <Cmd id="batch.summary" />
                 <Cmd id="batch.print" />
@@ -991,7 +1558,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'view':
         return (
           <>
-            <Group label="Zoom">
+            <Group id="Zoom" label={msg('Zoom')}>
               <Cmd id="view.fitPage" size="large" />
               <Stack>
                 <Cmd id="view.fitWidth" />
@@ -1003,38 +1570,38 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="view.zoomOut" />
               </Stack>
             </Group>
-            <Group label="Page Layout">
+            <Group id="Page Layout" label={msg('Page Layout')}>
               <Stack>
                 <Cmd id="view.singlePage" />
-                <Cmd id="view.continuous" label="Continuous" />
-                <Cmd id="view.coverPage" label="Cover Page" />
+                <Cmd id="view.continuous" label={msg('Continuous')} />
+                <Cmd id="view.coverPage" label={msg('Cover Page')} />
               </Stack>
               <Stack>
                 <Cmd id="view.sideBySide" />
-                <Cmd id="view.continuousSideBySide" label="Continuous Side-by-Side" />
+                <Cmd id="view.continuousSideBySide" label={msg('Continuous Side-by-Side')} />
                 <Cmd id="view.stitched" />
               </Stack>
               <Stack>
-                <Cmd id="view.rotateClockwise" label="Rotate Clockwise" />
-                <Cmd id="view.rotateCounterclockwise" label="Rotate Counterclockwise" />
+                <Cmd id="view.rotateClockwise" label={msg('Rotate Clockwise')} />
+                <Cmd id="view.rotateCounterclockwise" label={msg('Rotate Counterclockwise')} />
               </Stack>
             </Group>
-            <Group label="Split">
+            <Group id="Split" label={msg('Split')}>
               <Stack>
                 <Cmd id="view.split" />
                 <Cmd id="view.splitHorizontal" />
                 <Cmd id="view.unsplit" />
               </Stack>
               <Stack>
-                <Cmd id="view.syncDocument" label="Sync Document" />
-                <Cmd id="view.syncPage" label="Sync Page" />
+                <Cmd id="view.syncDocument" label={msg('Sync Document')} />
+                <Cmd id="view.syncPage" label={msg('Sync Page')} />
               </Stack>
             </Group>
-            <Group label="Snap & Grid">
+            <Group id="Snap & Grid" label={msg('Snap & Grid')}>
               <Stack>
                 <Cmd id="view.rulers" />
                 <Cmd id="view.grid" />
-                <Cmd id="view.crosshair" label="Crosshair" />
+                <Cmd id="view.crosshair" label={msg('Crosshair')} />
               </Stack>
               <Stack>
                 <Cmd id="view.snapGrid" />
@@ -1046,18 +1613,19 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="view.objectSnapTracking" />
               </Stack>
             </Group>
-            <Group label="Display">
+            <Group id="Display" label={msg('Display')}>
               <Stack>
-                <Cmd id="view.darkPages" label="Dark Pages" />
+                <Cmd id="view.darkPages" label={msg('Dark Pages')} />
                 <Cmd id="view.dimmer" />
-                <Cmd id="view.thinLines" label="Thin Lines" />
+                <Cmd id="view.thinLines" label={msg('Thin Lines')} />
               </Stack>
               <Stack>
                 <Cmd id="view.showLinks" />
                 <Cmd id="view.fullScreen" />
+                <Cmd id="view.keepView" />
               </Stack>
             </Group>
-            <Group label="Panels">
+            <Group id="Panels" label={msg('Panels')}>
               <Stack>
                 <Cmd id="window.leftPanel" />
                 <Cmd id="window.rightPanel" />
@@ -1078,15 +1646,47 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     const i = tabs.findIndex((t) => t.id === tab);
     const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]!;
     pick(next.id);
-    root.current?.querySelector<HTMLButtonElement>(`[data-ribbon-tab="${next.id}"]`)?.focus();
+    tabsRef.current?.querySelector<HTMLButtonElement>(`[data-ribbon-tab="${next.id}"]`)?.focus();
   };
 
   const showBody = !collapsed || dropped;
+  const tabStrip = (
+    <div className="rb-tabs" ref={tabsRef} role="tablist" aria-label={msg('Ribbon')} onKeyDown={onTabKey}>
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          className={`rb-tab${t.id === 'modify' ? ' modify' : ''}${t.id === 'format' ? ' contextual' : ''}`}
+          data-ribbon-tab={t.id}
+          aria-selected={tab === t.id && showBody}
+          tabIndex={tab === t.id ? 0 : -1}
+          // The full name first: a tab squeezed to "…" shows it on hover.
+          title={`${t.label}\n${collapsed ? msg('Double-click to pin the ribbon open') : msg('Double-click to collapse the ribbon')}`}
+          onClick={() => {
+            if (collapsed) setDropped(!(dropped && tab === t.id));
+            pick(t.id);
+          }}
+          onDoubleClick={() => onCollapsedChange(!collapsed)}
+        >
+          {t.label}
+        </button>
+      ))}
+      <span className="grow" />
+      {slot && <div id={SEARCH_SLOT_ID} className="rb-search-slot" />}
+      <div className="rb-display">
+        <button type="button" className="btn rb-display-btn" title={msg('Customize Ribbon: show or hide groups')} aria-label={msg('Customize Ribbon')} onClick={() => setCustomizing(true)}>
+          {ic('M2 4h12M2 8h12M2 12h12', <><circle cx="5" cy="4" r="1.6" fill="var(--panel)" /><circle cx="11" cy="8" r="1.6" fill="var(--panel)" /><circle cx="7" cy="12" r="1.6" fill="var(--panel)" /></>)}
+        </button>
+      </div>
+      {displayMenu}
+    </div>
+  );
   return (
     <Ctx.Provider value={{ commands, toolbar, done }}>
     <TabCtx.Provider value={tab}>
     <div
-      className={`ribbon${collapsed ? ' collapsed' : ''}`}
+      className={`ribbon${collapsed ? ' collapsed' : ''}${slot ? ' tabs-up' : ''}`}
       ref={root}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -1094,59 +1694,32 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
           x: e.clientX,
           y: e.clientY,
           items: [
-            { label: 'Customize Ribbon…', onClick: () => setCustomizing(true) },
+            { label: msg('Customize Ribbon…'), onClick: () => setCustomizing(true) },
             { sep: true },
-            { label: collapsed ? 'Keep the Ribbon Open' : 'Collapse the Ribbon', onClick: () => onCollapsedChange(!collapsed) },
+            { label: collapsed ? msg('Keep the Ribbon Open') : msg('Collapse the Ribbon'), onClick: () => onCollapsedChange(!collapsed) },
           ],
         });
       }}
     >
-      <div className="rb-tabs" role="tablist" aria-label="Ribbon" onKeyDown={onTabKey}>
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            className={`rb-tab${t.id === 'modify' ? ' modify' : ''}${t.id === 'format' ? ' contextual' : ''}`}
-            data-ribbon-tab={t.id}
-            aria-selected={tab === t.id && showBody}
-            tabIndex={tab === t.id ? 0 : -1}
-            title={collapsed ? 'Double-click to pin the ribbon open' : 'Double-click to collapse the ribbon'}
-            onClick={() => {
-              if (collapsed) setDropped(!(dropped && tab === t.id));
-              pick(t.id);
-            }}
-            onDoubleClick={() => onCollapsedChange(!collapsed)}
-          >
-            {t.label}
-          </button>
-        ))}
-        <span className="grow" />
-        <div className="rb-display">
-          <button type="button" className="btn rb-display-btn" title="Customize Ribbon: show or hide groups" aria-label="Customize Ribbon" onClick={() => setCustomizing(true)}>
-            {ic('M2 4h12M2 8h12M2 12h12', <><circle cx="5" cy="4" r="1.6" fill="var(--panel)" /><circle cx="11" cy="8" r="1.6" fill="var(--panel)" /><circle cx="7" cy="12" r="1.6" fill="var(--panel)" /></>)}
-          </button>
-        </div>
-        {displayMenu}
-      </div>
+      {slot ? createPortal(tabStrip, slot) : tabStrip}
       {showBody && (
         <div className="rb-body" role="tabpanel" aria-label={tabs.find((t) => t.id === tab)!.label}>
           {body(tab)}
           <span className="grow" />
           {!collapsed && (
-            <button type="button" className="rb-collapse" title={`Collapse the ribbon to its tabs${shortcutLabel('window.collapseRibbon') ? ` (${shortcutLabel('window.collapseRibbon')})` : ''}`} aria-label="Collapse the ribbon" onClick={() => onCollapsedChange(true)}>
+            <button type="button" className="rb-collapse" title={`${msg('Collapse the ribbon to its tabs')}${shortcutLabel('window.collapseRibbon') ? ` (${shortcutLabel('window.collapseRibbon')})` : ''}`} aria-label={msg('Collapse the ribbon')} onClick={() => onCollapsedChange(true)}>
               ︿
             </button>
           )}
           {collapsed && dropped && (
-            <button type="button" className="rb-collapse" title="Keep the ribbon open" aria-label="Pin the ribbon open" onClick={() => onCollapsedChange(false)}>
+            <button type="button" className="rb-collapse" title={msg('Keep the ribbon open')} aria-label={msg('Pin the ribbon open')} onClick={() => onCollapsedChange(false)}>
               📌
             </button>
           )}
         </div>
       )}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
-      {customizing && <RibbonCustomizer tabs={TABS.map((t) => ({ id: t.id, label: t.label, groups: groupLabels(body(t.id)) }))} onClose={() => setCustomizing(false)} />}
+      {customizing && <RibbonCustomizer tabs={TABS.map((t) => ({ id: t.id, label: t.label, groups: groupNames(body(t.id)) }))} onClose={() => setCustomizing(false)} />}
     </div>
     </TabCtx.Provider>
     </Ctx.Provider>
@@ -1176,20 +1749,20 @@ export function ToolbarDisplayMenu({ commands }: { commands: ReadonlyMap<string,
     };
   }, [open]);
   const items: { id: string; label: string; hint: string }[] = [
-    { id: 'window.ribbon', label: 'Show Tabs and Commands', hint: 'The full ribbon, always open' },
-    { id: 'window.ribbonTabs', label: 'Show Tabs Only', hint: 'Click a tab to show its commands' },
-    { id: 'window.simplifiedToolbar', label: 'Simplified Toolbar', hint: 'Tools and style in one row' },
+    { id: 'window.ribbon', label: msg('Show Tabs and Commands'), hint: msg('The full ribbon, always open') },
+    { id: 'window.ribbonTabs', label: msg('Show Tabs Only'), hint: msg('Click a tab to show its commands') },
+    { id: 'window.simplifiedToolbar', label: msg('Simplified Toolbar'), hint: msg('Tools and style in one row') },
     // Fork addition.
-    { id: 'window.classicToolbars', label: 'Classic Toolbars', hint: 'A row of tools, and a row for the style below it' },
+    { id: 'window.classicToolbars', label: msg('Classic Toolbars'), hint: msg('A row of tools, and a row for the style below it') },
   ];
   return (
     <div className="rb-display" ref={root}>
-      <button type="button" className="btn rb-display-btn" title="Toolbar display options" aria-label="Toolbar display options" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+      <button type="button" className="btn rb-display-btn" title={msg('Toolbar display options')} aria-label={msg('Toolbar display options')} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         {ic('M1.5 2.5h13v4h-13zM1.5 9h13M1.5 12h8')}
         <span aria-hidden="true">▾</span>
       </button>
       {open && (
-        <div className="rb-display-menu" role="menu" aria-label="Toolbar display options">
+        <div className="rb-display-menu" role="menu" aria-label={msg('Toolbar display options')}>
           {items.map(({ id, label, hint }) => {
             const c = commands.get(id);
             return (
@@ -1224,7 +1797,7 @@ export function ToolbarDisplayMenu({ commands }: { commands: ReadonlyMap<string,
             }}
           >
             <span className="check" />
-            <span className="label">Hide Toolbar</span>
+            <span className="label">{msg('Hide Toolbar')}</span>
           </button>
         </div>
       )}

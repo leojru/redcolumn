@@ -1,4 +1,5 @@
-import { isMeasureKind, type Assembly, type AssemblyItem, type CustomColumn, type Markup } from '@nb/markup';
+import { msg } from '@nb/i18n';
+import { isMeasureKind, reviewedOnly, type Assembly, type AssemblyItem, type CustomColumn, type Markup } from '@nb/markup';
 import { evalFormula, formulaRefs, FormulaError, type Value } from '../columns/formula';
 import { BUILT_IN_COLUMNS, cellsFor, customKey, formatNumber, type Cell, type CellContext } from '../columns/listColumns';
 
@@ -11,24 +12,34 @@ import { BUILT_IN_COLUMNS, cellsFor, customKey, formatNumber, type Cell, type Ce
 
 /** Names a formula can use besides the list's columns and the assembly's variables. */
 export const MEASURED_NAMES: { name: string; hint: string }[] = [
-  { name: 'Quantity', hint: 'The measurement itself: its length, area, volume or count' },
-  { name: 'Length', hint: 'Length of a line or run; the perimeter of an area' },
-  { name: 'Perimeter', hint: 'Same as Length' },
-  { name: 'Area', hint: 'Area of an area or volume, cutouts taken off' },
-  { name: 'Volume', hint: 'Volume (an area with a depth)' },
-  { name: 'Wall Area', hint: 'Length × depth (a run with a height)' },
-  { name: 'Depth', hint: 'The measurement’s depth or height' },
-  { name: 'Count', hint: 'Items in a count; 1 for any other measurement' },
+  { name: 'Quantity', get hint() { return msg('The measurement itself: its length, area, volume or count'); } },
+  { name: 'Length', get hint() { return msg('Length of a line or run; the perimeter of an area'); } },
+  { name: 'Perimeter', get hint() { return msg('Same as Length'); } },
+  { name: 'Area', get hint() { return msg('Area of an area or volume, cutouts taken off'); } },
+  { name: 'Volume', get hint() { return msg('Volume (an area with a depth)'); } },
+  { name: 'Wall Area', get hint() { return msg('Length × depth (a run with a height)'); } },
+  { name: 'Depth', get hint() { return msg('The measurement’s depth or height'); } },
+  { name: 'Count', get hint() { return msg('Items in a count (or a typed count); 1 for any other measurement'); } },
+  { name: 'Plan Length', get hint() { return msg('Length on plan, before the slope'); } },
+  { name: 'Plan Area', get hint() { return msg('Area on plan, before the slope'); } },
+  { name: 'Slope Factor', get hint() { return msg('True over plan: 1 when flat'); } },
+  { name: 'Pitch', get hint() { return msg('The slope as rise per 12 of run'); } },
+  { name: 'Slope Angle', get hint() { return msg('The slope in degrees'); } },
+  { name: 'Slope %', get hint() { return msg('The slope as a percent grade'); } },
 ];
 
-/** Every name a formula may refer to: measured values, list columns, then the assembly's variables. */
+/**
+ * Every name a formula may refer to: measured values, list columns, then the assembly's variables
+ * (the measurement's own `assemblyInputs` in place of their defaults; a Yes/No switch is 1 or 0).
+ */
 function lookupFor(m: Markup, cells: Readonly<Record<string, Cell>>, columns: readonly CustomColumn[], assembly: Assembly) {
   const byName = new Map<string, string>();
   for (const b of BUILT_IN_COLUMNS) byName.set(b.label.toLowerCase(), b.key);
   for (const c of columns) byName.set(c.name.trim().toLowerCase(), customKey(c.id));
+  const inputs = new Map(Object.entries(m.assemblyInputs ?? {}).flatMap(([k, v]) => (typeof v === 'number' && Number.isFinite(v) ? [[k.trim().toLowerCase(), v] as const] : [])));
   const special: Record<string, number | null> = {
     quantity: cells.measurement?.num ?? null,
-    count: m.type === 'count' ? m.points.length : 1,
+    count: m.type === 'count' ? m.points.length : m.manual?.kind === 'count' ? m.manual.value : 1,
     perimeter: cells.length?.num ?? null,
   };
   return (name: string): Value | undefined => {
@@ -41,7 +52,11 @@ function lookupFor(m: Markup, cells: Readonly<Record<string, Cell>>, columns: re
       return c?.num ?? c?.text ?? 0;
     }
     const v = assembly.variables.find((x) => x.name.trim().toLowerCase() === key);
-    return v?.value;
+    if (!v) return undefined;
+    // This measurement's own input, else the variable's default.
+    const own = inputs.get(key);
+    const value = own ?? v.value;
+    return v.type === 'boolean' ? (value ? 1 : 0) : value;
   };
 }
 
@@ -88,7 +103,7 @@ export function itemQuantities(m: Markup, assembly: Assembly, cells: Readonly<Re
     const res = byHand ?? (item.formula.trim() ? evalFormula(item.formula, lookup) : { error: 'No formula' });
     if ('error' in res) return { item, base: null, quantity: null, rounded: null, cost: null, error: res.error };
     const base = typeof res.value === 'number' ? res.value : Number(res.value);
-    if (!Number.isFinite(base)) return { item, base: null, quantity: null, rounded: null, cost: null, error: 'Not a number' };
+    if (!Number.isFinite(base)) return { item, base: null, quantity: null, rounded: null, cost: null, error: msg('Not a number') };
     const { quantity, rounded } = withWaste(item, base);
     return { item, base, quantity, rounded, cost: item.unitCost !== undefined ? rounded * item.unitCost : null, ...(byHand ? { set: true } : {}) };
   });
@@ -133,7 +148,8 @@ export interface RollupRow {
  */
 export function rollup(markups: readonly Markup[], assemblies: readonly Assembly[], ctx: CellContext, by: RollupBy, pageLabel: (pageIndex: number) => string = (i) => `Page ${i + 1}`): RollupRow[] {
   const rows = new Map<string, RollupRow & { step: number; costs: Set<number>; costSum: number }>();
-  for (const m of markups) {
+  // AI drafts wait for a person before they count.
+  for (const m of reviewedOnly(markups)) {
     const q = markupQuantities(m, assemblies, ctx);
     if (!q) continue;
     for (const r of q.items) {
@@ -200,7 +216,7 @@ export function assemblyProblems(a: Assembly, others: readonly Assembly[], colum
   });
   for (const item of a.items) {
     const key = `item:${item.id}`;
-    if (!item.name.trim()) {
+    if (!item.name.trim() && !item.itemId) {
       out.set(key, 'Name the item');
       continue;
     }
@@ -211,6 +227,12 @@ export function assemblyProblems(a: Assembly, others: readonly Assembly[], colum
     try {
       const unknown = formulaRefs(item.formula).filter((r) => !measured.has(r.trim().toLowerCase()) && !seen.has(r.trim().toLowerCase()));
       if (unknown.length) out.set(key, `No measured value, column or variable named ${unknown.map((u) => `[${u}]`).join(', ')}`);
+      else {
+        // Tried with every measured value and column at 1 and the variables at their defaults: a quantity must be a number.
+        const vars = new Map(a.variables.map((v) => [v.name.trim().toLowerCase(), v.value]));
+        const res = evalFormula(item.formula, (name) => vars.get(name.trim().toLowerCase()) ?? 1);
+        if ('value' in res && typeof res.value === 'string' && (res.value.trim() === '' || !Number.isFinite(Number(res.value.replace(/[,$\s]/g, ''))))) out.set(key, 'This formula gives text, not a number: a quantity must be a number');
+      }
     } catch (err) {
       out.set(key, err instanceof Error ? err.message : String(err));
     }

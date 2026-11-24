@@ -3,6 +3,8 @@ import type { Dropped } from './diagnostics';
 import type { HatchSet } from './hatchSet';
 import type { LineSet } from './lineSet';
 import type { Markup, MarkupStyle, MarkupType } from './model';
+import { COUNT_STYLE_TO_PDF } from './countSymbol';
+import { countMarkerOutline } from './geometry';
 import { daFontName, isNamedFont } from './fonts';
 import type { LineEnding } from './style';
 import { parsePdfObject, type PdfDict, type PdfName, type PdfValue, type RevuToolSource, type ToolChestItem, type ToolSet } from './toolchest';
@@ -305,6 +307,13 @@ function applyStyle(d: PdfDict, type: MarkupType, s: MarkupStyle) {
   }
   // A text box drawn without its box has no border (see `toolStyle`).
   if (type === 'text' && s.noBox) bs.W = 0;
+  if (type === 'count') {
+    const shape = s.countShape ?? 'circle';
+    d.CountStyle = name(COUNT_STYLE_TO_PDF[shape]);
+    d.Rect = [0, 0, 20, 20];
+    // Page space is y down; /Rect space is y up, so mirror Y into [0, 20].
+    d.Vertices = countMarkerOutline(shape, 10, 10, 8).flatMap(([x, y]) => [Math.round(x * 1000) / 1000, Math.round((20 - y) * 1000) / 1000]);
+  }
 }
 
 /** A fresh dictionary for a tool with no Revu original: its class keys and a small default shape. */
@@ -518,6 +527,14 @@ async function contentOf(it: Pick<ToolChestItem, 'type' | 'template' | 'subject'
   return null;
 }
 
+/** Sets (or clears) a tool's Label and Comment columns in its annotation dictionary. */
+function labelAndComment(d: PdfDict, it: Pick<ToolChestItem, 'markupLabel' | 'comment'>, hadComment = false) {
+  if (it.markupLabel) d.Label = it.markupLabel;
+  else delete d.Label;
+  if (it.comment) d.Contents = it.comment;
+  else if (hadComment) delete d.Contents;
+}
+
 /**
  * A tool set as a .btx file. A tool imported from Revu and not restyled is written back as Revu
  * stored it (its dictionary, children and embedded pictures); any other tool is built from its type
@@ -530,7 +547,7 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
   for (const [n, it] of set.items.entries()) {
     const item = `${n + 1}. ${it.name}`;
     const src: RevuToolSource | undefined = it.source;
-    const verbatim = !!src && it.type === src.type && sameStyle(it.style, src.style) && (it.subject || it.name) === src.subject;
+    const verbatim = !!src && it.type === src.type && sameStyle(it.style, src.style) && (it.subject || it.name) === src.subject && (it.markupLabel ?? '') === (src.label ?? '') && (it.comment ?? '') === (src.comment ?? '');
     let parts: Written[] | null = null;
     let resources = '';
     if (src && verbatim) {
@@ -541,7 +558,12 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
       const parsed = parsePdfObject(src.raw);
       const d = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !isName(parsed) ? (parsed as PdfDict) : {};
       applyStyle(d, it.type, it.style);
+      if (it.type === 'count' && it.style.countSymbol) {
+        const fallback = COUNT_STYLE_TO_PDF[it.style.countShape ?? 'circle'];
+        dropped.push({ item, reason: `custom count symbols have no Revu .btx equivalent, so ${fallback} is written` });
+      }
       d.Subj = it.subject || it.name;
+      labelAndComment(d, it, !!src.comment);
       parts = [{ type: src.revuType, raw: pdfText(d), x: src.x, y: src.y }];
       resources = src.resources ?? '';
     } else if (it.type === 'stamp' || it.type === 'image' || it.type === 'attachment') {
@@ -567,6 +589,11 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
       const k = KINDS[it.type]!;
       const d = baseDict(it.type, k, it.subject || it.name);
       if (it.tool === 'cloudPlus') d.ITEx = name('PolyText');
+      if (it.type === 'count' && it.style.countSymbol) {
+        const fallback = COUNT_STYLE_TO_PDF[it.style.countShape ?? 'circle'];
+        dropped.push({ item, reason: `custom count symbols have no Revu .btx equivalent, so ${fallback} is written` });
+      }
+      labelAndComment(d, it);
       applyStyle(d, it.type, it.style);
       parts = [{ type: `Bluebeam.PDF.Annotations.${k.cls}`, raw: pdfText(d), x: 5, y: 5 }];
     }
@@ -579,7 +606,9 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
     else
       for (const c of children)
         out.push('    <Child>', `      <Type>${esc(c.type)}</Type>`, `      <Raw>${await packText(c.raw)}</Raw>`, `      <X>${fmt(c.x)}</X>`, `      <Y>${fmt(c.y)}</Y>`, `      <Index>${index++}</Index>`, '    </Child>');
-    out.push(`    <Mode>${src?.mode ?? (children.length || it.template ? 'drawing' : 'properties')}</Mode>`);
+    // The tool's own choice wins over how Revu stored it (Drawing places a copy, Properties draws in its look).
+    const mode = it.mode === 'copy' ? 'drawing' : it.mode === 'style' ? 'properties' : (src?.mode ?? (children.length || it.template ? 'drawing' : 'properties'));
+    out.push(`    <Mode>${mode}</Mode>`);
     if (it.sequence) out.push('    <Sequence>', '      <Enabled>True</Enabled>', '      <Style>Number</Style>', `      <Start>${it.sequence.start}</Start>`, `      <Increment>${it.sequence.increment}</Increment>`, '    </Sequence>');
     out.push('  </ToolChestItem>');
   }

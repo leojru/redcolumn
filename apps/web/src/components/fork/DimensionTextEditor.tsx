@@ -2,6 +2,7 @@
 // pop-up. It opens on a new dimension and on a double-click on one. Enter finishes, Shift+Enter
 // starts a second line, Esc leaves the text as it was; clicking away finishes too. A Length's text is
 // its measurement: a new one resizes the line.
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { formatLength, realLengthAlong } from '@nb/measure';
 import { cssFont, dimensionLine, dimensionText, textColor, type Markup, type MarkupStore } from '@nb/markup';
@@ -98,7 +99,7 @@ export function DimensionTextEditor({ markup, store, viewer, onDone }: Props) {
       ref={ref}
       className="text-editor dimension-text-editor"
       data-dimension-editor={markup.id}
-      aria-label={isLength ? 'Length' : 'Dimension text'}
+      aria-label={isLength ? msg('Length') : msg('Dimension text')}
       aria-invalid={invalid || undefined}
       spellCheck={spellCheck}
       value={text}

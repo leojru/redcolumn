@@ -1,6 +1,8 @@
 // Modified in the leojru/redcolumn fork (revu-layout): 'classic' toolbar style, the default for new profiles, with a fuller default toolbar and Leo's shortcuts; classic panel layout.
+import { msg } from '@nb/i18n';
+import type { RegisterTemplate } from '../sheetsync/register';
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
+import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type CountSymbol, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
 import type { TaughtMark } from '../sheets/marks';
@@ -23,6 +25,8 @@ export interface ToolChestItem {
   subject?: string;
   /** The Label (category) its markups take; `label` above is the tool's own name. */
   markupLabel?: string;
+  /** The comment its markups take (Revu's Comment column), for markups with no text of their own. */
+  comment?: string;
   /** The markup layer its markups go on. */
   layer?: string;
   image?: string;
@@ -31,6 +35,11 @@ export interface ToolChestItem {
    * of it. Tools without one (imported, recent) draw new markups in their style.
    */
   markups?: Markup[];
+  /**
+   * How clicking a tool with saved `markups` uses it: `copy` places the exact markup, `style` draws
+   * new markups in its look. Set from the tool's right-click menu; unset follows Preferences.
+   */
+  mode?: 'copy' | 'style';
   /** The page scale (metres per point) it was saved at, for tool sets that scale to the page. */
   metersPerPoint?: number;
   /** Drawn with the Cloud+ tool (a cloud, then a callout): `type` is its cloud. */
@@ -58,6 +67,8 @@ export interface ToolSet {
   view?: 'icon' | 'detail';
   /** Tools keep their real-world size: placed copies grow or shrink with the page's scale. */
   scaleToPage?: boolean;
+  /** The trade pack it was added from (its library id, or its name for a pack file): adding the pack again replaces it. */
+  pack?: string;
   items: ToolChestItem[];
 }
 
@@ -133,8 +144,12 @@ export interface WorkspaceState {
   taughtMarks: TaughtMark[];
   /** Clients' drawing standards (title block, drawing numbers), chosen per document (kept on this device; shared as files). */
   drawingStandards: DrawingStandard[];
+  /** Comment register templates, one per client (kept on this device; shared as files). */
+  registerTemplates?: RegisterTemplate[];
   /** Colors saved from the color pickers' "More colors…" (#rrggbb, newest first). */
   customColors?: string[];
+  /** Custom Count tool symbols saved by the user (vector markups or pictures). */
+  countSymbols?: CountSymbol[];
 }
 
 /** 'classic' (fork addition): a main toolbar row plus a context Properties row (components/fork/ClassicToolbars.tsx). */
@@ -190,6 +205,7 @@ export function defaultWorkspace(): WorkspaceState {
     bookmarkTemplates: [],
     taughtMarks: [],
     drawingStandards: [],
+    countSymbols: [],
   };
 }
 
@@ -226,16 +242,21 @@ function load(): Saved {
 }
 
 let saved = load();
+let persisted = true;
 const listeners = new Set<() => void>();
 
-function commit(next: Saved) {
+/** Saves the profiles. False when the browser would not keep them (storage full or blocked): they still apply for this visit. */
+function commit(next: Saved): boolean {
   saved = next;
   try {
     localStorage.setItem(KEY, JSON.stringify(saved));
+    persisted = true;
   } catch {
     // Not persisted; the profile still applies for this visit.
+    persisted = false;
   }
   listeners.forEach((l) => l());
+  return persisted;
 }
 
 export const profiles = {
@@ -246,9 +267,9 @@ export const profiles = {
   get: () => saved,
   active: (): Profile => saved.profiles.find((p) => p.id === saved.activeId)!,
   /** Changes the active profile's workspace. */
-  update(fn: (s: WorkspaceState) => WorkspaceState) {
+  update(fn: (s: WorkspaceState) => WorkspaceState): boolean {
     const active = profiles.active();
-    commit({ ...saved, profiles: saved.profiles.map((p) => (p === active ? { ...p, state: fn(p.state) } : p)) });
+    return commit({ ...saved, profiles: saved.profiles.map((p) => (p === active ? { ...p, state: fn(p.state) } : p)) });
   },
   switchTo(id: string) {
     if (saved.profiles.some((p) => p.id === id)) commit({ ...saved, activeId: id });
@@ -280,7 +301,7 @@ export const profiles = {
   /** Brings in a cloud backup: its profiles replace ones with the same ID and the rest are kept. Returns how many came in. */
   importAll(text: string): number {
     const data = JSON.parse(text) as { format?: string; activeId?: string; profiles?: Profile[] };
-    if (data.format !== 'nb-profiles' || !Array.isArray(data.profiles) || !data.profiles.length) throw new Error('This is not a profile backup.');
+    if (data.format !== 'nb-profiles' || !Array.isArray(data.profiles) || !data.profiles.length) throw new Error(msg('This is not a profile backup.'));
     const incoming = data.profiles.map((p) => ({ id: p.id, name: p.name, state: upgrade(p.state) }));
     const ids = new Set(incoming.map((p) => p.id));
     const kept = saved.profiles.filter((p) => !ids.has(p.id));
@@ -295,7 +316,7 @@ export const profiles = {
   },
   importJson(text: string): Profile {
     const data = JSON.parse(text) as { format?: string; name?: string; state?: Partial<WorkspaceState> };
-    if (data.format !== 'nb-profile' || !data.state) throw new Error('This is not a profile file.');
+    if (data.format !== 'nb-profile' || !data.state) throw new Error(msg('This is not a profile file.'));
     const p: Profile = { id: crypto.randomUUID(), name: data.name || 'Imported profile', state: upgrade(data.state) };
     commit({ profiles: [...saved.profiles, p], activeId: p.id });
     return p;
@@ -351,4 +372,43 @@ export function stampLibrary(state: WorkspaceState): StampDef[] {
 /** Every line style set this profile offers: the built-in ones, then the imported ones. */
 export function lineSetLibrary(state: WorkspaceState): LineSet[] {
   return [...DEFAULT_LINE_SETS, ...state.lineSets];
+}
+
+// --- count symbols --------------------------------------------------------------------------
+
+/** Saved custom count symbols in this profile. */
+export function countSymbolLibrary(state: WorkspaceState): CountSymbol[] {
+  return state.countSymbols ?? [];
+}
+
+/** Saves a custom count symbol into the active profile. Rolls back and returns false if storage is full. */
+export function addCountSymbol(symbol: CountSymbol): boolean {
+  let previous: CountSymbol[] | undefined;
+  const kept = updateWorkspace((w) => {
+    previous = w.countSymbols;
+    const list = w.countSymbols ?? [];
+    const taken = new Set(list.map((s) => s.name));
+    let name = symbol.name.trim() || 'Custom Symbol';
+    for (let n = 2; taken.has(name); n++) name = `${symbol.name.trim() || 'Custom Symbol'} (${n})`;
+    const next = name === symbol.name ? symbol : { ...symbol, name };
+    return { ...w, countSymbols: [...list, next] };
+  });
+  if (!kept && previous !== undefined) updateWorkspace((w) => ({ ...w, countSymbols: previous }));
+  return kept;
+}
+
+/** Renames or updates a saved custom count symbol in the active profile. */
+export function updateCountSymbol(id: string, patch: Partial<Pick<CountSymbol, 'name'>>) {
+  updateWorkspace((w) => ({
+    ...w,
+    countSymbols: (w.countSymbols ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)),
+  }));
+}
+
+/** Removes a saved custom count symbol from the active profile. */
+export function removeCountSymbol(id: string) {
+  updateWorkspace((w) => ({
+    ...w,
+    countSymbols: (w.countSymbols ?? []).filter((s) => s.id !== id),
+  }));
 }

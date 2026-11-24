@@ -1,16 +1,20 @@
 // Modified in the leojru/redcolumn fork: flat line ends and sharp corners (strokeEnds); dimension text inline, multi-line or lifted with a leader; a Length's line breaks around its label; middle-aligned text centres its capitals; a shape's Highlight blends its fill only; vector snapshots stay sharp on screen.
+import { isAiDraft } from './aiReview';
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { markupDigest } from './digest';
 import { layoutParagraphs } from './textLists';
 import { breakAroundBox, dimensionLayout, leaderPart, lengthLabelBox, lengthLeader, liftedCenter, readingFrame, type DimensionLayout } from './dimensionInline';
+import { baseTextStyle, layoutRuns, runsWithin, spansOf, styleRuns, type StyledMeasure } from './textSpans';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
 import { bulgeMidpoint } from './cad';
-import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { COUNT_SYMBOL_REF, countSymbolImageBox } from './countSymbol';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
+import { imageFrame } from './imageCrop';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
 import { BLEND_MODES, blendsFillOnly, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, strokeEnds, textColor } from './style';
 import { fontKeyword } from './fonts';
@@ -31,6 +35,11 @@ export function onImageLoad(listener: () => void): () => void {
 
 /** Fork (leojru/redcolumn): tells the views to draw again (a sharper snapshot is ready). */
 export function redrawMarkupImages() {
+  imageListeners.forEach((l) => l());
+}
+
+/** Tells everything drawing markups to redraw: a picture's rendering is ready. */
+export function notifyImagesChanged() {
   imageListeners.forEach((l) => l());
 }
 
@@ -236,6 +245,8 @@ export interface MeasureLabel {
   lines: string[];
   at: [number, number];
   angle: number;
+  /** Drawn as a tag: filled, with a dashed border (a typed quantity, not a drawn one). */
+  boxed?: boolean;
 }
 
 export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel | null {
@@ -245,13 +256,18 @@ export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): Measu
   const lifted = liftedCenter(m);
   const at: [number, number] = lifted ? [lifted[0], lifted[1]] : line ? [line.text[0], line.text[1]] : labelAnchor(m.type, m.points);
   const value = measureLabel(m.type, m.points, scale, measureProps(m));
+  if (m.type === 'manual') {
+    const label = markupLabel(m);
+    const text = `${m.subject?.trim() || 'Manual'} · ${value}`;
+    return { text, lines: label ? [label, text] : [text], at: [m.points[0]![0], m.points[0]![1]], angle: 0, boxed: true };
+  }
   const label = m.type === 'count' ? '' : markupLabel(m);
   return { text: value, lines: label ? [label, value] : [value], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
 }
 
-/** A Polylength's labels: each segment's length on the segment, turned along it. (The whole's is `measurementLabel`.) */
+/** A Polylength's labels: each segment's length on the segment, turned along it, unless turned off. (The whole's is `measurementLabel`.) */
 export function segmentLabels(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel[] {
-  if (m.type !== 'polylength' || m.points.length < 3 || m.style.showLabel === false) return [];
+  if (m.type !== 'polylength' || m.points.length < 3 || m.style.showLabel === false || m.style.showSegmentLabels === false) return [];
   return m.points.slice(1).map((b, i) => {
     const a = m.points[i]!;
     let angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
@@ -295,8 +311,8 @@ export const TEXT_INK_METRICS = {
 } as const;
 
 /**
- * Where each line of a text box goes: `x` is the line's left edge, `y` its top, both in page
- * space, for the box's alignment. `measure` gives a string's width at the box's font size.
+ * How far below a line's top its baseline sits, in page units. Canvas, PDF appearance and the CSS
+ * editor all put the baseline here, so a line's ink lands in the same place in each.
  */
 /**
  * Fork (leojru/redcolumn): text inside a circle, triangle or hexagon border is always centred both
@@ -307,32 +323,68 @@ export function centredInShape(m: Pick<Markup, 'type' | 'style'>): boolean {
   return (m.type === 'text' || m.type === 'callout') && !!m.style.boxShape && m.style.boxShape !== 'rect';
 }
 
-export function textBoxLines(m: Markup, measure: (s: string) => number): { text: string; x: number; y: number; width: number; gap: number }[] {
+export function textBaselineOffset(style: { fontFamily?: string; fontSize?: number }): number {
+  return TEXT_INK_METRICS[fontKeyword(style.fontFamily)].ascent * (style.fontSize ?? 12);
+}
+
+/** One run of a laid-out line: its own font, colour and decoration, at its own position. */
+export interface LineRun {
+  text: string;
+  /** Left edge in page space, with the line's justification gaps up to it. */
+  x: number;
+  /** Width, including the gaps inside it. */
+  width: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  color: string;
+}
+
+export interface TextLine {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  gap: number;
+  /** Only where the text has styled parts (and a styled measure was given): the line cut into its runs. */
+  runs?: LineRun[];
+}
+
+/**
+ * Where each line of a text box goes: `x` is the line's left edge, `y` its top, both in page
+ * space, for the box's alignment. `measure` gives a string's width at the box's font size. Where
+ * the text has styled parts, `styled` (a width in a given weight and slant) lays it out run by
+ * run: each line then lists its `runs`.
+ */
+export function textBoxLines(m: Markup, measure: (s: string) => number, styled?: StyledMeasure): TextLine[] {
   const b = contentBox(m);
   const pad = textPadding(m.style);
   const size = m.style.fontSize ?? 12;
   const inner = b.w - pad * 2;
-  const lines = layoutParagraphs(m.text ?? '', inner, measure);
+  const spans = styled ? spansOf(m) : [];
+  const base = baseTextStyle(m);
+  const runLines = styled && spans.length ? layoutRuns(m.text ?? '', spans, base, inner, styled) : null;
+  const runs = runLines ? styleRuns(m.text ?? '', spans, base) : [];
+  const lines: { text: string; indent: number; last: boolean; start?: number; end?: number; width?: number }[] = runLines ?? layoutParagraphs(m.text ?? '', inner, measure);
   const lineH = size * textLineHeight(m.style);
   // Glyphs sit at the top of their line; CSS (the editor, other tools' rich text) splits the extra leading above and below, so shift by half of it. Zero at the default.
   const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * size) / 2;
   const valign = centredInShape(m) ? 'middle' : (m.style.verticalAlign ?? 'top');
-  // Middle and bottom place the visible ink (first line's cap top to last line's descender bottom), not the line boxes, which carry empty space below the glyphs.
+  // Middle and bottom place the visible ink, not the line boxes, which carry empty space below the glyphs.
+  // Middle centres the first line's cap top to the last baseline, so capitals and digits have equal gaps above and below (descenders hang into the lower gap). Bottom keeps descenders on the padding.
   // An installed font uses the metrics of the standard family it falls back to.
   const fm = TEXT_INK_METRICS[fontKeyword(m.style.fontFamily)];
   const inkTopOffset = (fm.ascent - fm.cap) * size + lead;
-  // Fork (leojru/redcolumn): measured to the last line's baseline, so capitals (most text on a drawing) are truly centred; a text box's or callout's top sits one padding down from the capitals' top, as its sides do.
-  const inkH = Math.max(0, lines.length - 1) * lineH + fm.cap * size;
+  const inkH = Math.max(0, lines.length - 1) * lineH + (fm.cap + (valign === 'middle' ? 0 : fm.descent)) * size;
   const top =
     valign === 'middle'
       ? b.y + (b.h - inkH) / 2 - inkTopOffset
       : valign === 'bottom'
         ? b.y + b.h - pad - inkH - inkTopOffset
-        : (m.type === 'text' || m.type === 'callout') && !m.table
-          ? b.y + pad - inkTopOffset
-          : b.y + pad;
-  return lines.map(({ text, indent, last }, i) => {
-    let width = measure(text);
+        : b.y + pad;
+  return lines.map(({ text, indent, last, start, end, width: measured }, i) => {
+    let width = measured ?? measure(text);
     // A wrapped list line hangs in from its first line; aligned text treats the indent as part of the line.
     const full = indent + width;
     const align = centredInShape(m) ? 'center' : (m.style.textAlign ?? 'left');
@@ -344,7 +396,17 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
       gap = (inner - full) / spaces;
       width += gap * spaces;
     }
-    return { text, x, y: top + i * lineH + lead, width, gap };
+    const line: TextLine = { text, x, y: top + i * lineH + lead, width, gap };
+    if (runLines && styled && start !== undefined && end !== undefined) {
+      let at = x;
+      line.runs = runsWithin(runs, start, end).map((r) => {
+        const w = styled(r.text, r.bold, r.italic) + gap * (r.text.match(/ /g) ?? []).length;
+        const run: LineRun = { text: r.text, x: at, width: w, bold: r.bold, italic: r.italic, underline: r.underline, strikethrough: r.strikethrough, color: r.color };
+        at += w;
+        return run;
+      });
+    }
+    return line;
   });
 }
 
@@ -353,17 +415,11 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
  * units (0 for top; can be negative when the text overflows). The in-place editor adds it to its
  * top padding so typing starts where the rendered text sits.
  */
-export function textBlockShift(m: Markup, measure: (s: string) => number): number {
-  // Fork (leojru/redcolumn): measured from where the editor's first line starts, as a top-aligned box's capitals now sit a little above it.
-  const first = textBoxLines(m, measure)[0];
-  if (!first) return 0;
-  const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * (m.style.fontSize ?? 12)) / 2;
-  return first.y - (contentBox(m).y + textPadding(m.style) + lead);
-}
-
-/** Fork (leojru/redcolumn): how far a line's baseline is below its `y`, the same on screen as in the saved PDF on any system's fonts. */
-export function baselineDrop(style: Pick<Markup['style'], 'fontFamily'>, size: number): number {
-  return TEXT_INK_METRICS[fontKeyword(style.fontFamily)].ascent * size;
+export function textBlockShift(m: Markup, measure: (s: string) => number, styled?: StyledMeasure): number {
+  if ((m.style.verticalAlign ?? 'top') === 'top') return 0;
+  const aligned = textBoxLines(m, measure, styled)[0];
+  const top = textBoxLines({ ...m, style: { ...m.style, verticalAlign: 'top' } }, measure, styled)[0];
+  return aligned && top ? aligned.y - top.y : 0;
 }
 
 /** Draws one laid-out line, widening its word gaps when the line is justified. */
@@ -404,6 +460,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.rotate((m.rotation * Math.PI) / 180);
     ctx.translate(-cx, -cy);
   }
+  const strokeAlpha = style.opacity * (style.strokeOpacity ?? 1);
   ctx.globalAlpha = style.opacity;
   // Highlighters multiply by default so drawing detail stays visible underneath.
   const blend = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
@@ -417,7 +474,9 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   const ends = strokeEnds(m);
   ctx.lineJoin = ends.join;
   ctx.lineCap = ends.cap;
-  const dash = style.dashArray ?? dashPattern(style.dash, lineWidth);
+  // An AI draft no person has approved yet is drawn dashed, whatever its own line, so it reads as a proposal.
+  const draftDash = isAiDraft(m) ? Math.max(lineWidth, 2 / (Number.isFinite(zoom) ? zoom : 1)) : 0;
+  const dash = draftDash ? [draftDash * 5, draftDash * 3] : (style.dashArray ?? dashPattern(style.dash, lineWidth));
   // Fork (leojru/redcolumn): a Length's line breaks around its label rather than a white box hiding it.
   const lengthText = measurementLabel(m, scale);
   const lengthGap = lengthLabelBox(m, lengthText);
@@ -425,7 +484,10 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   const shape = [...(lengthGap ? breakAroundBox(markupShape(m), lengthGap) : markupShape(m)), ...(lengthLead ? [leaderPart(lengthLead)] : [])];
   for (const part of styledParts(shape, style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
     if (part.art) {
+      ctx.save();
+      ctx.globalAlpha = strokeAlpha;
       paintArt(ctx, part.art);
+      ctx.restore();
       continue;
     }
     if (part.hatch && part.clip) {
@@ -439,19 +501,44 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     if (part.fill) {
       ctx.save();
       if (fillOnly && !part.decoration) ctx.globalCompositeOperation = blend;
-      ctx.globalAlpha = style.opacity * (part.decoration ? 1 : (style.fillOpacity ?? 1));
+      ctx.globalAlpha = part.decoration ? strokeAlpha : style.opacity * (style.fillOpacity ?? 1);
       ctx.fillStyle = part.fill;
       ctx.fill(part.evenOdd ? 'evenodd' : 'nonzero');
       ctx.restore();
     }
     if (part.stroke) {
+      ctx.save();
+      ctx.globalAlpha = strokeAlpha;
       ctx.setLineDash(part.decoration ? [] : dash);
       // An exact dash pattern is drawn with flat ends, as other viewers do; presets use round ones for dots.
       if (style.dashArray) ctx.lineCap = part.decoration ? 'round' : 'butt';
       ctx.stroke();
+      ctx.restore();
     }
   }
   ctx.setLineDash([]);
+  if (m.type === 'count' && style.countSymbol) {
+    const sym = style.countSymbol;
+    const r = markerSize(m);
+    if (sym.image) {
+      const img = markupImage(sym.image);
+      if (img) {
+        const { w, h } = countSymbolImageBox(sym.aspect ?? img.naturalWidth / Math.max(1, img.naturalHeight), r);
+        for (const [x, y] of m.points) ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+      }
+    } else if (sym.markups?.length) {
+      const k = r / COUNT_SYMBOL_REF;
+      for (const [x, y] of m.points) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(k, k);
+        for (const sub of sym.markups) {
+          drawMarkup(ctx, { ...sub, style: { ...sub.style, opacity: sub.style.opacity * style.opacity, showLabel: false } }, zoom * k);
+        }
+        ctx.restore();
+      }
+    }
+  }
   const whole = measurementLabel(m, scale);
   for (const label of whole ? [whole, ...segmentLabels(m, scale)] : []) {
     const { size, background } = labelStyle(m);
@@ -466,7 +553,16 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       ctx.rotate(label.angle);
       x = y = 0;
     }
-    if (background && !lengthGap) {
+    if (label.boxed) {
+      ctx.globalAlpha = style.opacity;
+      ctx.fillStyle = style.fill ?? '#ffffff';
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.globalAlpha = strokeAlpha;
+      ctx.strokeStyle = style.stroke;
+      ctx.setLineDash(dash.length ? dash : [style.width * 3, style.width * 2]);
+      ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+      ctx.setLineDash([]);
+    } else if (background && !lengthGap) {
       ctx.globalAlpha = 0.85 * style.opacity;
       ctx.fillStyle = background;
       ctx.fillRect(x - w / 2, y - h / 2, w, h);
@@ -513,11 +609,19 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.fillText(flow.text, flow.at[0], flow.at[1]);
   }
   if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
-    const b = boundsOf(m.points);
     const img = markupImage(m.image);
-    const sharpFrom = m.type !== 'image' || !vectorPictureDrawer ? null : vectorStillCurrent(m) ? m.vector! : importedPictureCurrent(m) ? m.image! : null;
+    const b = boundsOf(m.points);
+    const sharpFrom = m.type !== 'image' || !vectorPictureDrawer || m.crop ? null : vectorStillCurrent(m) ? m.vector! : importedPictureCurrent(m) ? m.image! : null;
     const sharp = !!sharpFrom && vectorPictureDrawer!(ctx, sharpFrom, b, img?.naturalWidth ?? 0);
-    if (img && !sharp) ctx.drawImage(img, b.x, b.y, b.w, b.h);
+    if (img && !sharp) {
+      const { clip, full } = imageFrame(m);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(clip.x, clip.y, clip.w, clip.h);
+      ctx.clip();
+      ctx.drawImage(img, full.x, full.y, full.w, full.h);
+      ctx.restore();
+    }
   }
   if (isTextType(m.type) && m.text) {
     const b = contentBox(m);
@@ -530,8 +634,27 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.beginPath();
     ctx.rect(b.x, b.y, b.w, b.h);
     ctx.clip();
-    for (const line of textBoxLines(m, (s) => ctx.measureText(s).width)) {
-      drawJustified(ctx, { ...line, y: line.y + baselineDrop(style, size) });
+    const base = textBaselineOffset(style);
+    const styledMeasure: StyledMeasure = (t, bold, italic) => {
+      ctx.font = cssFont({ ...style, bold, italic }, size);
+      return ctx.measureText(t).width;
+    };
+    const lines = textBoxLines(m, (s) => ctx.measureText(s).width, styledMeasure);
+    ctx.font = cssFont(style, size);
+    for (const line of lines) {
+      if (line.runs) {
+        // Styled parts: each run in its own font and colour, with its own underline and strikethrough.
+        for (const run of line.runs) {
+          ctx.font = cssFont({ ...style, bold: run.bold, italic: run.italic }, size);
+          ctx.fillStyle = run.color;
+          drawJustified(ctx, { text: run.text, x: run.x, y: line.y + base, gap: line.gap });
+          if (/^\s*$/.test(run.text)) continue;
+          if (run.underline) underline(ctx, run.x, line.y + size * 0.98, run.width, size);
+          if (run.strikethrough) underline(ctx, run.x, line.y + size * 0.55, run.width, size);
+        }
+        continue;
+      }
+      drawJustified(ctx, { ...line, y: line.y + base });
       if (style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
       if (style.strikethrough && line.text) underline(ctx, line.x, line.y + size * 0.55, line.width, size);
     }
@@ -604,7 +727,7 @@ function drawTable(ctx: CanvasRenderingContext2D, m: Markup) {
     ctx.rect(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h);
     ctx.clip();
     for (const line of textBoxLines(tableCellText(m, cell), (s) => ctx.measureText(s).width)) {
-      drawJustified(ctx, { ...line, y: line.y + baselineDrop(cell.style, size) });
+      drawJustified(ctx, { ...line, y: line.y + textBaselineOffset({ ...cell.style, fontSize: size }) });
       if (cell.style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
     }
     ctx.restore();
@@ -694,9 +817,12 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
   ctx.fillStyle = '#fff';
   const h = handlePx * px;
   const box = TYPE_INFO[m.type].handles === 'box';
+  const calloutBox = m.type === 'callout' && m.points.length >= 4;
+  const n = m.points.length;
   handlePositions({ ...m, rotation: 0 }).forEach(([x, y], i) => {
     // A box's corners are round and the middles of its edges square, as in Bluebeam.
-    if (box && BOX_CORNERS.includes(i)) {
+    const isCorner = (box && BOX_CORNERS.includes(i)) || (calloutBox && (i === 2 || i === 3 || i === n || i === n + 1));
+    if (isCorner) {
       ctx.beginPath();
       ctx.arc(x, y, h / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -833,7 +959,17 @@ export function handlePositions(m: Markup): [number, number][] {
   const handles = TYPE_INFO[m.type].handles;
   // A connector's bends are routed for it: only its two ends are handles.
   const ends = m.type === 'connector' && m.points.length > 1 ? [m.points[0]!, m.points[m.points.length - 1]!] : m.points.slice(0, 2);
-  const pts = handles === 'none' ? [] : handles === 'vertices' ? m.points : handles === 'box' ? boxHandles(m.points) : ends;
+  // A callout exposes its leader vertices (tip, knee, ...) plus all 8 handles of its text box (points 2-3 are the first two corners).
+  const pts =
+    m.type === 'callout' && m.points.length >= 4
+      ? [...m.points, ...boxHandles(m.points.slice(2, 4)).slice(2)]
+      : handles === 'none'
+        ? []
+        : handles === 'vertices'
+          ? m.points
+          : handles === 'box'
+            ? boxHandles(m.points)
+            : ends;
   if (!m.rotation) return pts;
   const c = rotationCentre(m);
   return pts.map((p) => rotatePoint(p, c, m.rotation!));

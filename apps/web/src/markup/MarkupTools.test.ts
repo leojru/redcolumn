@@ -4,12 +4,13 @@
 // so page points and screen pixels are the same.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { METERS_PER_UNIT, measureValue, pathLengthArcs } from '@nb/measure';
+import { METERS_PER_UNIT, measureValue, pathLengthArcs, polygonAreaArcs } from '@nb/measure';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import { frameRect, groupFrame, groupHandles } from './groupBox';
 import type { MarkupTools as Tools, MarkupToolsOptions, TableDraft } from './MarkupTools';
+import { parseRotationInput } from './rotationInput';
 
 // MarkupTools listens on `window` for modifier keys when it loads.
 type WinListener = (e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean; key?: string; repeat?: boolean }) => void;
@@ -63,6 +64,7 @@ async function setup(extra: Partial<MarkupToolsOptions> = {}) {
     onFollowLink() {},
     onCreated: (m) => created.push(m),
     defaultStamp: () => DEFAULT_STAMPS[0]!,
+    manualQuantity: () => ({ manual: { kind: 'area', value: 24 } }),
     stampValues: () => ({ file: 'A-101.pdf', page: '1' }),
     ...extra,
   });
@@ -1950,6 +1952,158 @@ test('an area curves a segment with Ctrl+drag and leaves the closing segment str
   assert.equal(m.bulges!.slice(1).every((b) => b === 0), true);
 });
 
+// Arc (3-point): armed, the next click is a point on the curve and the one after it the arc's end.
+const onCircle = (c: Point, r: number, degrees: number): Point => [c[0] + r * Math.cos((degrees * Math.PI) / 180), c[1] + r * Math.sin((degrees * Math.PI) / 180)];
+
+test('a 3-point arc through three points on a circle measures θ·r, and drawing goes straight again', async () => {
+  const h = await polylengthHarness();
+  const c: Point = [300, 400];
+  const r = 100;
+  click(h.tools, onCircle(c, r, 0));
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'awaitMid');
+  // Any point along the arc will do, not only its middle.
+  click(h.tools, onCircle(c, r, 40));
+  assert.equal(h.tools.getState().arc, 'awaitEnd');
+  const g = (h.tools as unknown as { gesture: { markup: Markup } }).gesture;
+  assert.equal(g.markup.points.length, 1, 'the point on the curve is not a vertex');
+  click(h.tools, onCircle(c, r, 120));
+  assert.equal(h.tools.getState().arc, 'off', 'one arc per toggle');
+  const end = onCircle(c, r, 120);
+  click(h.tools, [end[0] - 100, end[1]]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 3);
+  assert.equal(m.bulges!.length, 2);
+  assert.equal(m.bulges![1], 0, 'the click after the arc is straight');
+  const arc = pathLengthArcs(m.points.slice(0, 2), m.bulges!.slice(0, 1));
+  const expected = ((2 * Math.PI) / 3) * r;
+  assert.ok(Math.abs(arc - expected) / expected < 1e-6, `${arc} vs ${expected}`);
+  assert.ok(Math.abs(pathLengthArcs(m.points, m.bulges) - (expected + 100)) / (expected + 100) < 1e-6);
+});
+
+test('a 3-point arc armed before the first vertex bends the segment after it', async () => {
+  const h = await polylengthHarness();
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'awaitMid');
+  click(h.tools, [100, 300]);
+  assert.equal(h.tools.getState().arc, 'awaitMid', 'the first click is the arc start');
+  click(h.tools, [150, 250]);
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 2);
+  assert.ok(Math.abs(Math.abs(m.bulges![0]!) - 1) < 1e-9, 'a half circle');
+});
+
+test('an area with one 3-point arc edge has the polygon area plus the circular segment', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  click(h.tools, [100, 100]);
+  click(h.tools, [300, 100]);
+  h.tools.toggleArc();
+  // The right side bulges out in a half circle of radius 100 about (300, 200).
+  click(h.tools, [400, 200]);
+  click(h.tools, [300, 300]);
+  click(h.tools, [100, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'area')!;
+  assert.equal(m.points.length, 4);
+  assert.equal(m.bulges!.filter(Boolean).length, 1);
+  const expected = 200 * 200 + (Math.PI * 100 * 100) / 2;
+  const area = polygonAreaArcs(m.points, m.bulges);
+  assert.ok(Math.abs(area - expected) / expected < 1e-6, `${area} vs ${expected}`);
+});
+
+test('a 3-point arc ended on the first vertex closes the area along the arc', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  for (const p of [[100, 100], [300, 100], [300, 300], [100, 300]] as Point[]) click(h.tools, p);
+  h.tools.toggleArc();
+  // The left side bulges out in a half circle about (100, 200), and the end click closes the shape.
+  click(h.tools, [0, 200]);
+  click(h.tools, [100, 100]);
+  assert.equal(h.tools.getState().measuring, false, 'the closing click finished it');
+  const m = h.store.all().find((s) => s.type === 'area')!;
+  assert.equal(m.points.length, 4);
+  assert.equal(m.bulges!.length, 4, 'the closing segment has a bulge');
+  assert.ok(Math.abs(Math.abs(m.bulges![3]!) - 1) < 1e-9);
+  const expected = 200 * 200 + (Math.PI * 100 * 100) / 2;
+  assert.ok(Math.abs(polygonAreaArcs(m.points, m.bulges) - expected) / expected < 1e-6);
+});
+
+test('Escape drops a pending 3-point arc and drawing carries on', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 250]);
+  h.tools.cancel();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.getState().measuring, true, 'still drawing');
+  click(h.tools, [200, 300]);
+  h.tools.cancel();
+  assert.equal(h.tools.getState().measuring, false, 'a second Escape drops the drawing as before');
+  assert.equal(h.store.all().length, 0);
+  // Escape with the arc armed before any vertex disarms it, keeping the tool.
+  h.tools.toggleArc();
+  h.tools.cancel();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.getState().tool, 'polylength');
+});
+
+test('Backspace drops a pending 3-point arc first, then removes points and their bulges', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 250]);
+  click(h.tools, [200, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [250, 350]);
+  h.tools.removeLastPoint();
+  assert.equal(h.tools.getState().arc, 'off');
+  const g = (h.tools as unknown as { gesture: { markup: Markup } }).gesture;
+  assert.equal(g.markup.points.length, 2, 'only the pending arc went');
+  h.tools.removeLastPoint();
+  assert.equal(g.markup.points.length, 1);
+  assert.equal(g.markup.bulges, undefined, 'the arc went with its point');
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]!.bulges, undefined);
+});
+
+test('a 3-point arc through nearly collinear points is straight, and only curving measurements arm one', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 300.2]);
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]!.bulges, undefined);
+  h.tools.setTool('line');
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.canArc(), false);
+});
+
+test('Ctrl+drag still curves a segment alongside a 3-point arc', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [50, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [100, 250]);
+  click(h.tools, [150, 300]);
+  drag(h.tools, [250, 300], [200, 350], { ctrlKey: true });
+  click(h.tools, [350, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 4);
+  assert.ok(Math.abs(Math.abs(m.bulges![0]!) - 1) < 1e-9, '3-point arc');
+  assert.ok(Math.abs(Math.abs(m.bulges![1]!) - 1) < 1e-9, 'Ctrl+drag');
+  assert.equal(m.bulges![2], 0);
+  // Half circles of radius 2.5 m each, then 5 m.
+  const metres = measureValue('polylength', m.points, 0.05, { bulges: m.bulges });
+  assert.ok(Math.abs(metres - (2 * Math.PI * 2.5 + 5)) < 1e-6, `${metres}`);
+});
+
 test('selected measurements: Ctrl-click smooths then corners a vertex; the ends of a path are left alone', async () => {
   const h = await setup();
   const line = put(h, 'polylength', [[0, 0], [100, 40], [200, 0]]);
@@ -2026,6 +2180,25 @@ test('Ctrl-click on a vertex of a shape that cannot curve does nothing; Convert 
   assert.equal(h.store.get(area.id)!.bulges, undefined);
 });
 
+test('a slope on the running measure tool or its preset goes on the next measurements (Hip, Valley, Takeoff › Slope)', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.05, unit: 'm', label: '1:100' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('polylength', { subject: 'Hip', slope: { kind: 'hip', a: { kind: 'pitch', value: 6 } } });
+  click(h.tools, [50, 300]);
+  click(h.tools, [150, 300]);
+  h.tools.finish();
+  const hip = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(hip.subject, 'Hip');
+  assert.deepEqual(hip.slope, { kind: 'hip', a: { kind: 'pitch', value: 6 } });
+
+  h.tools.setTool('length');
+  h.tools.setToolFields({ slope: { kind: 'pitch', value: 6 } });
+  click(h.tools, [50, 400]);
+  click(h.tools, [150, 400]);
+  assert.deepEqual(h.store.all().find((s) => s.type === 'length')!.slope, { kind: 'pitch', value: 6 });
+  assert.equal(h.tools.getState().tool, 'length', 'the command carries on');
+});
+
 test('Subject, Label and Layer edited on the running tool go on the next markups without leaving the tool', async () => {
   const h = await setup();
   h.tools.setTool('rect', { id: 'chest-1', style: h.tools.getState().styles.rect, subject: 'Original', layer: 'Base' });
@@ -2081,5 +2254,153 @@ test('copies keep the stacking order of the originals, whatever order they were 
   h.tools.paste(h.tools.copySelected(), 0, [400, 500]);
   const copies = h.store.all().filter((m) => m.id !== under!.id && m.id !== over!.id).sort((a, b) => a.createdAt - b.createdAt);
   assert.deepEqual(copies.map((m) => m.type), [under!.type, over!.type], 'the one that was on top is still on top');
+});
+
+test('setRotation turns clockwise on screen: a fall to the right is a positive angle', async () => {
+  for (const [typed, expected] of [['-2%', 1.15], ['2%', 358.85], ['-1:50', 1.15], ['30', 30]] as const) {
+    const h = await setup();
+    const box = put(h, 'rect', [[300, 100], [400, 200]]);
+    h.tools.select([box.id]);
+    const r = parseRotationInput(typed);
+    assert.ok(r.ok);
+    h.tools.setRotation(r.degrees);
+    assert.ok(Math.abs(h.store.get(box.id)!.rotation! - expected) < 1e-6, typed);
+  }
+});
+
+test('Rotate by a typed grade turns an already diagonal line the right way', async () => {
+  for (const [typed, sign] of [['-2%', 1], ['2%', -1]] as const) {
+    const h = await setup();
+    const l = put(h, 'line', [[100, 100], [200, 200]]);
+    h.tools.select([l.id]);
+    settings.set({ rotateAngle: typed });
+    try {
+      h.tools.setTool('rotateRef');
+      click(h.tools, [100, 100]);
+      const end = h.store.get(l.id)!.points[1]!;
+      // Page y grows down, so a fall to the right (-2%) grows the angle from +x.
+      const angle = Math.atan2(end[1]! - 100, end[0]! - 100) * (180 / Math.PI);
+      assert.ok(Math.abs(angle - (45 + sign * 1.1458)) < 0.01, `${typed}: ${angle}`);
+    } finally {
+      settings.set({ rotateAngle: '' });
+    }
+  }
+});
+
+test('Rotate by a typed grade: positive rises to the right, negative falls to the right', async () => {
+  for (const [typed, sign] of [['-2%', 1], ['2%', -1], ['-1:50', 1]] as const) {
+    const h = await setup();
+    const l = put(h, 'line', [[100, 100], [200, 100]]);
+    h.tools.select([l.id]);
+    settings.set({ rotateAngle: typed });
+    try {
+      h.tools.setTool('rotateRef');
+      click(h.tools, [100, 100]);
+      const end = h.store.get(l.id)!.points[1]!;
+      // Page y grows downwards, so a fall to the right makes y larger.
+      assert.ok(Math.abs(end[1]! - 100 - sign * 2) < 0.1, typed + ': ' + end);
+    } finally {
+      settings.set({ rotateAngle: '' });
+    }
+  }
+});
+
+test('addCalloutLeader turns a text box into a callout and undoes cleanly', async () => {
+  const h = await setup();
+  const tb = put(h, 'text', [[200, 100], [320, 140]], {
+    text: 'Check footing depth',
+    subject: 'Structural Note',
+    style: { ...DEFAULT_STYLES.text, fill: '#fef9c3', fontSize: 14 },
+  });
+
+  h.tools.addCalloutLeader(tb.id);
+  // Cancelling with right-click leaves the text box untouched.
+  press(h.tools, [120, 120], { button: 2 });
+  assert.equal(h.store.get(tb.id)!.type, 'text');
+  assert.deepEqual(h.store.get(tb.id)!.points, [[200, 100], [320, 140]]);
+
+  // Left-click places the arrow tip and converts the text box to a callout.
+  h.tools.addCalloutLeader(tb.id);
+  click(h.tools, [120, 120]);
+  const after = h.store.get(tb.id)!;
+  assert.equal(after.type, 'callout');
+  assert.equal(after.text, 'Check footing depth');
+  assert.equal(after.subject, 'Structural Note');
+  assert.equal(after.style.fill, '#fef9c3');
+  assert.equal(after.style.fontSize, 14);
+  assert.equal(after.points.length, 4);
+  assert.deepEqual(after.points[0], [120, 120]);
+  // Knee lands to the left of the text box at its vertical midpoint.
+  assert.ok(after.points[1]![0] < 200);
+  assert.equal(after.points[1]![1], 120);
+  assert.deepEqual(after.points.slice(2, 4), [[200, 100], [320, 140]]);
+  assert.deepEqual([...h.tools.getState().selected], [tb.id]);
+
+  // A second Add Leader appends another leader, and Remove Last Leader takes it back off.
+  h.tools.addCalloutLeader(tb.id);
+  click(h.tools, [380, 120]);
+  assert.equal(h.store.get(tb.id)!.points.length, 6);
+  assert.deepEqual(h.store.get(tb.id)!.points[4], [380, 120]);
+  h.tools.removeCalloutLeader(tb.id);
+  assert.equal(h.store.get(tb.id)!.points.length, 4);
+
+  // Undo steps back to the original text box.
+  h.store.undo(); // undo removeCalloutLeader
+  h.store.undo(); // undo second leader
+  h.store.undo(); // undo text -> callout conversion
+  const undone = h.store.get(tb.id)!;
+  assert.equal(undone.type, 'text');
+  assert.deepEqual(undone.points, [[200, 100], [320, 140]]);
+  assert.equal(undone.text, 'Check footing depth');
+
+  await h.store.destroy();
+});
+
+test('addCalloutLeader on a text box clears rotation, updates default subject, and preserves borderless look', async () => {
+  const h = await setup();
+  const tb = put(h, 'text', [[320, 140], [200, 100]], {
+    text: 'Note',
+    subject: 'Text Box',
+    rotation: 30,
+    style: { ...DEFAULT_STYLES.text, width: 0, noBox: true },
+  });
+
+  h.tools.addCalloutLeader(tb.id);
+  click(h.tools, [120, 120]);
+  const after = h.store.get(tb.id)!;
+  assert.equal(after.type, 'callout');
+  assert.equal(after.rotation, undefined);
+  assert.equal(after.subject, 'Callout');
+  assert.equal(after.style.width, DEFAULT_STYLES.callout.width);
+  assert.equal(after.style.borderless, true);
+  // Box corners are normalized to top-left and bottom-right.
+  assert.deepEqual(after.points.slice(2, 4), [[200, 100], [320, 140]]);
+
+  // Locked text boxes do not accept a leader.
+  const locked = put(h, 'text', [[100, 200], [200, 240]], { locked: true, text: 'Locked' });
+  h.tools.addCalloutLeader(locked.id);
+  click(h.tools, [50, 220]);
+  assert.equal(h.store.get(locked.id)!.type, 'text');
+
+  await h.store.destroy();
+});
+
+test('two-click callout placement commits on pointerUp so TextEditor is not blurred by mousedown', async () => {
+  const edited: string[] = [];
+  const h = await setup({ onEditText: (id) => edited.push(id) });
+  h.tools.setTool('callout');
+  // First click places the arrow tip.
+  click(h.tools, [100, 200]);
+  assert.equal(h.store.all().length, 0);
+  // Second click: pointerDown arms placement without committing yet.
+  press(h.tools, [220, 150]);
+  assert.equal(h.store.all().length, 0);
+  assert.equal(edited.length, 0);
+  // pointerUp commits the callout and opens TextEditor.
+  release(h.tools, [220, 150]);
+  assert.equal(h.store.all().length, 1);
+  assert.equal(h.store.all()[0]!.type, 'callout');
+  assert.deepEqual(h.store.all()[0]!.points[0], [100, 200]);
+  assert.deepEqual(edited, [h.store.all()[0]!.id]);
   await h.store.destroy();
 });
