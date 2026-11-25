@@ -54,3 +54,21 @@ test('a length saves its scale and text style as Revu writes its own', async () 
   assert.equal(back.label, '3/16" = 1\'-0"');
   assert.ok(Math.abs(back.metersPerPoint / threeSixteenths.metersPerPoint - 1) < 1e-6);
 });
+
+test('a length saved with the old /Measure (no /TargetUnitConversion) is written afresh on the next save', async () => {
+  const { readPdfExtras } = await import('./pdfExtras.ts');
+  const { importAnnotations } = await import('./import.ts');
+  const blank = await PDFDocument.create();
+  blank.addPage([500, 500]);
+  const doc = await PDFDocument.load(await exportWithAnnotations((await blank.save()).buffer as ArrayBuffer, [length], { scaleFor: () => threeSixteenths }));
+  const annotOf = (d: PDFDocument) => d.context.lookup(d.getPage(0).node.Annots()!.get(0)) as PDFDict;
+  const importOf = async (bytes: Uint8Array) => {
+    const d = await PDFDocument.load(bytes);
+    const a = annotOf(d);
+    const found = [{ index: 0, subtype: 'Line', rect: { x: 100, y: 90, w: 200, h: 20 }, color: null, interior: null, opacity: 1, borderWidth: 1, contents: '', author: 'T', intent: 'LineDimension', cloudy: false, da: '', flags: 4, vertices: [], ink: [], line: null, link: null, appData: a.lookup(PDFName.of('NBData'), PDFString, PDFHexString).decodeText() }];
+    return importAnnotations(0, found as never, undefined, await readPdfExtras(bytes)).markups[0]!;
+  };
+  assert.notEqual((await importOf(await doc.save())).pdfAnnot?.digest, '', 'a length saved as Revu writes it is left as it is');
+  annotOf(doc).lookup(PDFName.of('Measure'), PDFDict).delete(PDFName.of('TargetUnitConversion'));
+  assert.equal((await importOf(await doc.save())).pdfAnnot?.digest, '', 'an old one counts as changed');
+});

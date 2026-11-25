@@ -373,6 +373,9 @@ export function importAnnotations(
           }
           // Fork (leojru/redcolumn): its appearance lost its font (see BROKEN_FONT_KEY): saved afresh, its text drawn again.
           if (r?.[BROKEN_FONT_KEY] === true) redraw.add(m);
+          // Fork (leojru/redcolumn): a measurement we saved before writing /Measure as Revu does (no /TargetUnitConversion) is saved afresh.
+          const measure = r ? dict(r.Measure) : null;
+          if (measure && measure.TargetUnitConversion === undefined) redraw.add(m);
           markups.push(m);
           imported.push(a.index);
           continue;
