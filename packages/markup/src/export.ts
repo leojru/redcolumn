@@ -3,7 +3,7 @@ import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, P
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
-import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type GeoRegion, type Scale } from '@nb/measure';
+import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, scaleParts, volumeLabelOf, volumeUnitOf, type GeoRegion, type Scale } from '@nb/measure';
 import { countMarkerOutline, flatten, markupShape, type PathCmd } from './geometry';
 import { COUNT_STYLE_FROM_PDF, COUNT_STYLE_TO_PDF, COUNT_SYMBOL_REF, countSymbolImageBox, countSymbolKey, type CountSymbol } from './countSymbol';
 import { connectorLabel } from './flowchart';
@@ -176,6 +176,14 @@ function richParagraphs(m: Markup): string[] {
       });
     return `<p>${parts.join('')}</p>`;
   });
+}
+
+/** Fork (leojru/redcolumn): a measurement's text style (/DS) as Revu writes it on its own: `font: Helvetica 8pt; text-align:center; color:#0000FF`. */
+function measureTextStyle(m: Markup): string {
+  const s = m.style;
+  const family = isNamedFont(s.fontFamily) ? s.fontFamily : { sans: 'Helvetica', serif: 'Times New Roman', mono: 'Courier' }[fontKeyword(s.fontFamily)];
+  const size = labelStyle(m).size;
+  return [`font: ${family} ${fmt(size)}pt`, 'text-align:center', `line-height:${fmt(size * 1.15)}pt`, `color:${textColor(s).toUpperCase()}`, ...((s.bold ?? true) ? ['font-weight:bold'] : []), ...(s.italic ? ['font-style:italic'] : [])].join('; ');
 }
 
 /** A text markup's default style (/DS) and rich text (/RC), which Bluebeam and Acrobat lay text out from. */
@@ -386,18 +394,40 @@ function measureDict(scale: Scale): LiteralObject {
   const format = (unit: string, factor: number) => ({ Type: 'NumberFormat', U: PDFString.of(unit), C: factor, D: 100 });
   const unitsPerPoint = scale.metersPerPoint / METERS_PER_UNIT[scale.unit];
   const separateY = scale.yMetersPerPoint !== undefined && scale.yMetersPerPoint > 0 && Math.abs(scale.yMetersPerPoint / scale.metersPerPoint - 1) > 1e-9;
+  // Fork (leojru/redcolumn): feet and inches as Revu writes them (its own measurements' /Measure): the
+  // feet as ' and the inches as ", in fractions, so Revu shows 15'-6" when it measures again rather
+  // than 15.50 ft. Our import reads them back (bluebeam.ts, scaleFromMeasure).
+  const feetInches = scale.feetInches && scale.unit === 'ft';
+  const denominator = Math.max(1, Math.round(scale.precision || 16));
+  const feet = (factor: number, extra: LiteralObject = {}) => ({ Type: 'NumberFormat', U: PDFString.of("'"), C: factor, F: 'F', D: denominator, FD: true, ...extra });
+  const lengthFormat = (factor: number) => (feetInches ? feet(factor, { SS: PDFString.of('') }) : format(scale.unit, factor));
   return {
     Type: 'Measure',
     Subtype: 'RL',
-    R: PDFString.of(scale.label),
-    X: [format(scale.unit, unitsPerPoint)],
+    R: PDFString.of(revuScaleRatio(scale)),
+    X: [lengthFormat(unitsPerPoint)],
     // A separate vertical scale: /Y gives the units per point up the page when it is not /X's.
-    ...(separateY ? { Y: [format(scale.unit, scale.yMetersPerPoint! / METERS_PER_UNIT[scale.unit])] } : {}),
-    D: [format(scale.unit, 1)],
+    ...(separateY ? { Y: [lengthFormat(scale.yMetersPerPoint! / METERS_PER_UNIT[scale.unit])] } : {}),
+    D: feetInches
+      ? [feet(1, { PS: PDFString.of(''), SS: PDFString.of('-') }), { Type: 'NumberFormat', U: PDFString.of('"'), C: 12, F: 'F', D: denominator, FD: true, PS: PDFString.of(''), SS: PDFString.of('') }]
+      : [format(scale.unit, 1)],
     A: [format(areaLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[areaUnitOf(scale)]) ** 2)],
     V: [format(volumeLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[volumeUnitOf(scale)]) ** 3)],
     T: [{ Type: 'NumberFormat', U: PDFHexString.fromText('°'), C: 1, D: 10 ** (scale.anglePrecision ?? 1) }],
+    // Fork (leojru/redcolumn): Revu's own entry, the unit per point at full size; without it Revu says "Scale Not Set".
+    TargetUnitConversion: 0.0254 / 72 / METERS_PER_UNIT[scale.unit],
   };
+}
+
+/**
+ * Fork (leojru/redcolumn): a scale's /R as Revu words it, paper = world: `0.1875 in = 1 ft' in"` for
+ * 3/16" = 1'-0", `1 in = 10 ft`, `1 mm = 100 mm`. Our import turns it back into the usual label.
+ */
+export function revuScaleRatio(scale: Scale): string {
+  const p = scaleParts(scale);
+  const n = (v: number) => String(Math.round(v * 1e6) / 1e6);
+  const world = scale.feetInches && p.realUnit === 'ft' ? `ft' in"` : p.realUnit;
+  return `${n(p.paper)} ${p.paperUnit} = ${n(p.real)} ${world}`;
 }
 
 const dashOp = (dash: number[]) => `[${dash.map(fmt).join(' ')}] 0 d`;
@@ -1195,7 +1225,20 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       break;
     }
     case 'length':
-      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, IT: 'LineDimension', Measure: measureDict(ctx.scale), ...leaderLength(m, matrix) };
+      // Fork (leojru/redcolumn): with what Revu's own lengths carry (its caption shown, the measurement kind,
+      // and its text style), so a length Revu measures again keeps its text's look rather than Revu's default.
+      specific = {
+        Subtype: 'Line',
+        L: flat(user.slice(0, 2)),
+        LE: le,
+        IT: 'LineDimension',
+        Cap: true,
+        MeasurementTypes: 130,
+        ...(filledEnd ? { IC: color } : {}),
+        DS: pdfText(measureTextStyle(m)),
+        Measure: measureDict(ctx.scale),
+        ...leaderLength(m, matrix),
+      };
       break;
     case 'dimension':
       // Bluebeam's unscaled dimension is a line dimension without a /Measure.

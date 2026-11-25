@@ -5,7 +5,7 @@
  * (pdfExtras.ts, which needs pdf-lib) reads the raw values; this module interprets them and has
  * no pdf-lib dependency, so the importer can use it without loading pdf-lib.
  */
-import { METERS_PER_UNIT, type LengthUnit, type Scale } from '@nb/measure';
+import { METERS_PER_UNIT, SCALE_PRESETS, scaleEquation, type LengthUnit, type Scale } from '@nb/measure';
 import type { ColumnType, CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
 import type { Portal } from './portals';
@@ -369,6 +369,20 @@ function powerUnitOf(u: string | null): LengthUnit | null {
   return SQUARE_SHORT[t] ?? unitOf(t.replace(/^(sq|cu|square|cubic)\.?\s*/, '').replace(/[²³23]$/, ''));
 }
 
+/**
+ * Fork (leojru/redcolumn): Revu's wording of a scale, paper = world (`0.25 in = 1 ft' in"`, `1 in = 10 ft`),
+ * as people write it: `1/4" = 1'-0"` (the preset's label when it is one), `1" = 10'`. Null for other wording.
+ */
+function revuWorded(r: string, metersPerPoint: number, unit: LengthUnit): string | null {
+  const m = /^([\d.]+)\s*(in|mm|cm)\s*=\s*([\d.]+)\s*(ft' in"|[a-z]+)$/i.exec(r);
+  if (!m) return null;
+  const preset = SCALE_PRESETS.find((p) => p.scale.unit === unit && Math.abs(p.scale.metersPerPoint / metersPerPoint - 1) < 1e-4);
+  if (preset) return preset.label;
+  const worldUnit = m[4]!.startsWith("ft'") ? 'ft' : unitOf(m[4]!);
+  if (!worldUnit) return null;
+  return scaleEquation({ metersPerPoint, unit: worldUnit, feetInches: false, precision: 2, label: '' });
+}
+
 /** A /Measure dictionary (rectilinear) as a drawing scale; null when it cannot be read. */
 export function scaleFromMeasure(measure: PdfDictValue | null): Scale | null {
   if (!measure) return null;
@@ -378,8 +392,12 @@ export function scaleFromMeasure(measure: PdfDictValue | null): Scale | null {
   const c = num(f0?.C);
   if (!f0 || !unit || !c || c <= 0) return null;
   const f1 = x[1];
-  const feetInches = unit === 'ft' && unitOf(str(f1?.U)) === 'in';
-  const d = num(feetInches ? f1?.D : f0.D) ?? 100;
+  // Fork (leojru/redcolumn): Revu says feet and inches in /D (feet, then inches), keeping /X in feet alone.
+  const shown = arr(measure.D).map(dict);
+  const inchesOf = (fs: (PdfDictValue | null)[]) => (unitOf(str(fs[0]?.U)) === 'ft' && unitOf(str(fs[1]?.U)) === 'in' ? fs[1] : null);
+  const inches = unit === 'ft' ? (inchesOf(x) ?? inchesOf(shown)) : null;
+  const feetInches = !!inches;
+  const d = num(feetInches ? inches?.D : f0.D) ?? 100;
   const precision = feetInches ? d : Math.max(0, Math.min(6, Math.round(Math.log10(d))));
   const r = (str(measure.R) ?? '').trim();
   // "1 mm = 20 mm" is a plain ratio: show it the usual way.
@@ -407,7 +425,7 @@ export function scaleFromMeasure(measure: PdfDictValue | null): Scale | null {
     ...(angleD ? { anglePrecision: Math.max(0, Math.min(4, Math.round(Math.log10(angleD)))) } : {}),
     feetInches,
     precision,
-    label: ratio ? `1:${Number(ratio[2])}` : r || 'Calibrated',
+    label: ratio ? `1:${Number(ratio[2])}` : revuWorded(r, xMetersPerPoint, unit) ?? (r || 'Calibrated'),
   };
 }
 
