@@ -1977,6 +1977,11 @@ export function App() {
       const front = pane === 'b' ? openBRef.current : openRef.current;
       const at = front ? tabs.indexOf(front) + 1 : tabs.length;
       setTabs(pane, [...tabs.slice(0, at), packed, ...tabs.slice(at)]);
+      // Fork (leojru/redcolumn): while split, as in Revu, a newly opened document is a tab in both panes.
+      if (ctlB && openBRef.current && openRef.current) {
+        const other: Pane = pane === 'b' ? 'a' : 'b';
+        setTabs(other, [...(other === 'b' ? tabsBRef.current : tabsARef.current), packed]);
+      }
       activateTab(pane, packed);
       if (pane === 'a' && settings.get().showThumbnailsOnOpen) {
         // Off (the default), the side panel stays as the user left it. On: stay on Sessions, Sets or Search
@@ -2512,10 +2517,12 @@ export function App() {
     const mirror = pendingMirror.current;
     pendingMirror.current = false;
     if (mirror && openRef.current) {
-      // One document in both panes (one markup store, two views). Fork: the views are independent (own page,
-      // zoom and pan, as in Revu); Synchronise in the View menu ties them together.
-      mirrorRef.current = true;
-      showInPane('b', openRef.current, true);
+      // Fork (leojru/redcolumn), as in Revu: the right pane gets a tab for every open document, the one in front
+      // shown on both sides (one markup store, two independent views); each pane then picks its own document.
+      // Synchronise in the View menu ties the views together.
+      mirrorRef.current = false;
+      setTabs('b', [...tabsARef.current]);
+      showInPane('b', openRef.current);
       setSync(null);
       setActivePane('a');
     }
@@ -4730,7 +4737,9 @@ export function App() {
         return true;
       }
       pane = tabPaneOf(pane);
-      if (!(await settleUnsaved(pane, fileId))) return false;
+      // Fork (leojru/redcolumn): a document still open in the other pane is not closed, so there is nothing to ask.
+      const inOther = (pane === 'b' ? tabsARef.current : tabsBRef.current).some((x) => x.file.id === fileId);
+      if (!inOther && !(await settleUnsaved(pane, fileId))) return false;
       closeTab(pane, fileId);
       return true;
     },
@@ -9648,7 +9657,8 @@ export function App() {
     canUndo: !!activeOpen && activeOpen.store.undoHistory().length > 0,
     split,
     splitHorizontal,
-    mirrored: mirrorRef.current,
+    // Fork (leojru/redcolumn): the same document in front on both sides has nothing to swap.
+    mirrored: mirrorRef.current || (!!open && open === openB),
     sync,
     columns: spread.columns,
     cover: spread.cover,
