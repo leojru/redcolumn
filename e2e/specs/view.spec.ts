@@ -397,7 +397,7 @@ test.describe('view', () => {
     });
   }
 
-  test('split with two files open: every file is a tab in both panes, each pane picks its own', async ({ app }) => {
+  test('split with two files open: the front file on both sides, Split Vertical on a tab adds another to the right', async ({ app }) => {
     await app.tool('rect');
     await app.drag([300, 450], [350, 500]);
     // Back to Select: with a tool armed, making the right pane active resizes this layout's Properties row under the pointer.
@@ -406,7 +406,7 @@ test.describe('view', () => {
     await app.open('plan.pdf');
     let picked = false;
     app.page.on('filechooser', () => (picked = true));
-    // Fork (leojru/redcolumn): as in Revu, Split shows the document in front twice and lists every open file on both sides.
+    // Fork (leojru/redcolumn): as in Revu, Split shows only the document in front, on both sides.
     await app.cmd('view.split');
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
@@ -414,11 +414,14 @@ test.describe('view', () => {
     const left = app.page.getByRole('tablist', { name: 'Documents', exact: true });
     const right = app.page.getByRole('tablist', { name: 'Right pane documents' });
     await expect(left.locator('.doc-tab')).toHaveCount(2);
-    await expect(right.locator('.doc-tab')).toHaveCount(2);
+    await expect(right.locator('.doc-tab')).toHaveCount(1);
     await expect(right.locator('.doc-tab.active')).toContainText('plan.pdf');
     expect((await app.command('view.switchPanes')).enabled).toBe(false);
-    // The right pane goes to the other file; the left stays on plan.pdf (with its markup).
-    await right.locator('.doc-tab', { hasText: 'plan-rev1.pdf' }).click();
+    // Split Vertical on the other file's tab: it joins the right pane (and stays on the left); the left stays on plan.pdf.
+    await left.locator('.doc-tab', { hasText: 'plan-rev1.pdf' }).click({ button: 'right' });
+    await app.page.getByRole('menuitem', { name: 'Split Vertical' }).click();
+    await expect(right.locator('.doc-tab')).toHaveCount(2);
+    await expect(left.locator('.doc-tab')).toHaveCount(2);
     await expect(right.locator('.doc-tab.active')).toContainText('plan-rev1.pdf');
     await expect(left.locator('.doc-tab.active')).toContainText('plan.pdf');
     expect((await app.documents()).map((d) => d.name).sort()).toEqual(['plan-rev1.pdf', 'plan.pdf']);

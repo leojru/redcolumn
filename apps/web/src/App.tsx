@@ -1454,6 +1454,8 @@ export function App() {
   const pendingMove = useRef<OpenFile | null>(null);
   /** Split View with one file open: once the right pane exists, show the front document in it too. */
   const pendingMirror = useRef(false);
+  /** Fork (leojru/redcolumn): the tab whose Split Vertical / Horizontal is waiting for the right pane to exist. */
+  const pendingSplitDoc = useRef<OpenFile | null>(null);
   /**
    * The right pane is a tab-less second view of the left pane's front document, following it
    * (one document, one markup store, two views). It ends when the right pane is given its own document.
@@ -1977,11 +1979,6 @@ export function App() {
       const front = pane === 'b' ? openBRef.current : openRef.current;
       const at = front ? tabs.indexOf(front) + 1 : tabs.length;
       setTabs(pane, [...tabs.slice(0, at), packed, ...tabs.slice(at)]);
-      // Fork (leojru/redcolumn): while split, as in Revu, a newly opened document is a tab in both panes.
-      if (ctlB && openBRef.current && openRef.current) {
-        const other: Pane = pane === 'b' ? 'a' : 'b';
-        setTabs(other, [...(other === 'b' ? tabsBRef.current : tabsARef.current), packed]);
-      }
       activateTab(pane, packed);
       if (pane === 'a' && settings.get().showThumbnailsOnOpen) {
         // Off (the default), the side panel stays as the user left it. On: stay on Sessions, Sets or Search
@@ -2516,13 +2513,15 @@ export function App() {
     }
     const mirror = pendingMirror.current;
     pendingMirror.current = false;
-    if (mirror && openRef.current) {
-      // Fork (leojru/redcolumn), as in Revu: the right pane gets a tab for every open document, the one in front
-      // shown on both sides (one markup store, two independent views); each pane then picks its own document.
-      // Synchronise in the View menu ties the views together.
+    const chosen = pendingSplitDoc.current ?? (mirror ? openRef.current : null);
+    pendingSplitDoc.current = null;
+    if (chosen) {
+      // Fork (leojru/redcolumn), as in Revu: the right pane starts with just the document split (by default the
+      // one in front, which then shows on both sides: one markup store, two independent views). More documents
+      // join it from a tab's Split Vertical / Split Horizontal. Synchronise in the View menu ties the views together.
       mirrorRef.current = false;
-      setTabs('b', [...tabsARef.current]);
-      showInPane('b', openRef.current);
+      setTabs('b', [chosen]);
+      showInPane('b', chosen);
       setSync(null);
       setActivePane('a');
     }
@@ -8019,6 +8018,21 @@ export function App() {
     if (copyMarkups(pane)) paneParts(pane).c?.tools.deleteSelected();
   };
 
+  /**
+   * Fork (leojru/redcolumn), as Revu's tab menu: shows a document in the right pane as well (it stays a tab on the
+   * left), splitting the view first if needed.
+   */
+  const splitTab = (t: OpenFile, horizontal: boolean) => {
+    if (!split) {
+      setSplitHorizontal(horizontal);
+      pendingSplitDoc.current = t;
+      setSplit(true);
+      return;
+    }
+    if (!tabsBRef.current.includes(t)) setTabs('b', [...tabsBRef.current, t]);
+    activateTab('b', t);
+  };
+
   /** Moves a tab to the other pane, splitting the view first if needed. */
   const moveTab = (from: Pane, t: OpenFile) => {
     const to: Pane = from === 'a' ? 'b' : 'a';
@@ -8216,6 +8230,13 @@ export function App() {
           }]
         : []),
       SEP,
+      // Fork (leojru/redcolumn): as in Revu, the document joins the split pane and stays here.
+      ...(pane === 'a'
+        ? [
+            { label: msg('Split Vertical'), disabled: split && splitHorizontal, onClick: () => splitTab(t, false) },
+            { label: msg('Split Horizontal'), disabled: split && !splitHorizontal, onClick: () => splitTab(t, true) },
+          ]
+        : []),
       { label: pane === 'a' ? (split ? msg('Move to Right Pane') : msg('Open in Split View')) : msg('Move to Left Pane'), onClick: () => moveTab(pane, t) },
     ];
   };

@@ -43,19 +43,20 @@ test('closing the right pane of a split document closes that view only, the docu
   expect((await app.documents()).map((d) => d.name)).toEqual(['plan.pdf']);
 });
 
-test('while split, a newly opened file is a tab in both panes', async ({ app }) => {
+test('Split Vertical on a tab splits with that file in the right pane', async ({ app }) => {
+  await app.open('plan-rev1.pdf');
   await app.open('plan.pdf');
-  await app.cmd('view.split');
-  await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
   const left = app.page.getByRole('tablist', { name: 'Documents', exact: true });
   const right = app.page.getByRole('tablist', { name: 'Right pane documents' });
+  // Not split yet: Split Vertical on the plan-rev1.pdf tab splits with it on the right; plan.pdf stays in front on the left.
+  await left.locator('.doc-tab', { hasText: 'plan-rev1.pdf' }).click({ button: 'right' });
+  await app.page.getByRole('menuitem', { name: 'Split Vertical' }).click();
+  await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
   await expect(right.locator('.doc-tab')).toHaveCount(1);
-  await app.open('plan-rev1.pdf');
+  await expect(right.locator('.doc-tab.active')).toContainText('plan-rev1.pdf');
   await expect(left.locator('.doc-tab')).toHaveCount(2);
-  await expect(right.locator('.doc-tab')).toHaveCount(2);
-  // It came to the front where it was opened (the left pane); the right pane stays on plan.pdf.
-  await expect(left.locator('.doc-tab.active')).toContainText('plan-rev1.pdf');
-  await expect(right.locator('.doc-tab.active')).toContainText('plan.pdf');
+  await expect(left.locator('.doc-tab.active')).toContainText('plan.pdf');
   await app.cmd('view.unsplit');
+  await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
   await expect(left.locator('.doc-tab')).toHaveCount(2);
 });
