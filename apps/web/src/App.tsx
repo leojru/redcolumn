@@ -270,7 +270,7 @@ import { apply as applyAffine, compose as composeAffine, invert as invertStitch,
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
-import { pickSplitPartner, touchRecent } from './splitPartner';
+import { touchRecent } from './splitPartner';
 import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink, afterFontNotice } from './fonts/fontNotices';
 
 // Fork (leojru/redcolumn): new markups go on the layer set as default in the Layers panel.
@@ -1000,6 +1000,8 @@ export function App() {
   /** Documents an autosave is writing right now, so one is never written twice at once. */
   const autosaving = useRef(new Set<string>());
   const [tabsB, setTabsB] = useState<OpenFile[]>([]);
+  // Fork (leojru/redcolumn): every open document once; a document split to itself is a tab in both panes.
+  const allTabs = useMemo(() => [...new Set([...tabsA, ...tabsB])], [tabsA, tabsB]);
   const tabsBRef = useRef<OpenFile[]>([]);
   /** Where each tab was scrolled to, restored when it comes back to the front. */
   const savedViews = useRef(new Map<string, ViewState>());
@@ -2531,7 +2533,7 @@ export function App() {
   // Remember the library documents open in tabs for next time.
   useEffect(() => {
     if (!restored.current) return;
-    const ids = [...new Set([...tabsA, ...tabsB].map((t) => t.file.id))].filter((id) => !studioDocOf(id));
+    const ids = [...new Set(allTabs.map((t) => t.file.id))].filter((id) => !studioDocOf(id));
     try {
       localStorage.setItem(TABS_KEY, JSON.stringify({ ids, active: (activePane === 'b' ? openB : open)?.file.id ?? null }));
     } catch {
@@ -4617,6 +4619,13 @@ export function App() {
    */
   const closeTab = useCallback(
     (pane: Pane, fileId: string) => {
+      // Fork (leojru/redcolumn): closing the mirrored right pane closes that view only; the document stays open on the left.
+      if (pane === 'b' && mirrorRef.current && openBRef.current?.file.id === fileId) {
+        showInPane('b', null);
+        setSplit(false);
+        setActivePane('a');
+        return;
+      }
       pane = tabPaneOf(pane);
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
@@ -4624,7 +4633,7 @@ export function App() {
       const closing = tabs[idx]!;
       // Fork (leojru/redcolumn): split to itself, closing one side closes that view only (as Revu):
       // asked before the other pane's tabs can move across below.
-      const elsewhere = (pane === 'b' ? tabsARef.current : tabsBRef.current).includes(closing) || (pane === 'a' && mirrorRef.current && openBRef.current === closing);
+      const elsewhere = (pane === 'b' ? tabsARef.current : tabsBRef.current).includes(closing) || (pane === 'a' && mirrorRef.current && openBRef.current === closing && tabs.length > 1);
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
       // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.
@@ -4708,6 +4717,11 @@ export function App() {
    */
   const requestCloseTab = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
+      // Fork (leojru/redcolumn): the mirrored right pane is only a second view; closing it keeps the document (nothing to save).
+      if (pane === 'b' && mirrorRef.current && openBRef.current?.file.id === fileId) {
+        closeTab('b', fileId);
+        return true;
+      }
       pane = tabPaneOf(pane);
       if (!(await settleUnsaved(pane, fileId))) return false;
       closeTab(pane, fileId);
@@ -4771,7 +4785,7 @@ export function App() {
   useEffect(() => {
     const host = desktop();
     if (!host?.setUnsavedChanges) return;
-    const stores = [...tabsA, ...tabsB];
+    const stores = allTabs;
     let last: boolean | null = null;
     const report = () => {
       const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) || sessions.some((s) => {
@@ -4788,7 +4802,7 @@ export function App() {
   // (the browser shows its own Leave / Reload site? prompt). The desktop app asks above instead.
   useEffect(() => {
     if (desktop()) return;
-    const stores = [...tabsA, ...tabsB];
+    const stores = allTabs;
     const warn = (e: BeforeUnloadEvent) => {
       if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) && !sessions.some((s) => ['saving', 'error'].includes(s.getSnapshot().localSave ?? ''))) return;
       e.preventDefault();
@@ -4809,7 +4823,7 @@ export function App() {
       }
       return;
     }
-    const docs = [...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id));
+    const docs = allTabs.filter((t) => !studioDocOf(t.file.id));
     const report = () => rememberUnsaved(new Map(docs.map((t) => [t.file.id, hasUnsavedChanges(t)])));
     report();
     const offs = docs.map((t) => t.store.subscribe(report));
@@ -4839,7 +4853,8 @@ export function App() {
     const origin = splitOrigin.current;
     splitOrigin.current = null;
     const back = origin ? moved.find((t) => t.file.id === origin.id) : undefined;
-    const joined = [...tabsARef.current, ...moved.filter((t) => t !== back)];
+    // A document split to itself is already a tab on the left: it is not listed twice.
+    const joined = [...tabsARef.current, ...moved.filter((t) => t !== back && !tabsARef.current.includes(t))];
     if (back) joined.splice(Math.min(origin!.index, tabsARef.current.length), 0, back);
     setTabs('a', joined);
     if (!openRef.current && bFront) showInPane('a', bFront);
@@ -5496,7 +5511,7 @@ export function App() {
   // after a reload. Each is tried once; one that needs a sign-in waits for a click in the panel.
   const triedProjects = useRef(new Set<string>());
   useEffect(() => {
-    for (const tab of [...tabsA, ...tabsB]) {
+    for (const tab of allTabs) {
       const id = linkOf(tab.file.id)?.projectId;
       if (!id || projectById(id) || triedProjects.current.has(id)) continue;
       triedProjects.current.add(id);
@@ -5996,7 +6011,7 @@ export function App() {
 
   // A preview goes when its document is closed.
   useEffect(() => {
-    const open = new Set([...tabsA, ...tabsB].map((t) => t.file.id));
+    const open = new Set(allTabs.map((t) => t.file.id));
     setLinkPreviews((ps) => (ps.every((p) => open.has(p.fileId)) ? ps : ps.filter((p) => open.has(p.fileId))));
   }, [tabsA, tabsB]);
 
@@ -6272,7 +6287,7 @@ export function App() {
       return savedViews.current.get(t.file.id)?.pageIndex ?? 0;
     };
     // Fork (leojru/redcolumn): a document split into both panes is listed once.
-    return [...new Set([...tabsA, ...tabsB])].map((t) => ({
+    return allTabs.map((t) => ({
       id: t.file.id,
       name: t.file.name,
       pageCount: t.doc.pages.length,
@@ -7207,13 +7222,9 @@ export function App() {
   const startSplit = () => {
     const front = openRef.current;
     if (split || !front) return;
-    const tabs = tabsARef.current;
-    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentOpenIds.current);
-    const partner = tabs.find((t) => t.file.id === partnerId);
-    if (partner) {
-      pendingMove.current = partner;
-      splitOrigin.current = { id: partner.file.id, index: tabs.indexOf(partner) };
-    } else pendingMirror.current = true;
+    // Fork (leojru/redcolumn): as in Revu, Split always shows the document in front on both sides, whatever else is
+    // open (upstream put the most recently used other document in the new pane).
+    pendingMirror.current = true;
     setSplit(true);
   };
 
@@ -9797,7 +9808,7 @@ export function App() {
             focusToken={searchFocus}
             sheets={sheets}
             sources={(scope) => {
-              const tabs = [...tabsA, ...tabsB];
+              const tabs = allTabs;
               const fromTab = (o: OpenFile, page?: number) => openSource(o, formModels[o.file.hash], page);
               if (scope === 'document') return activeOpen ? [fromTab(activeOpen)] : [];
               if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
@@ -10093,7 +10104,7 @@ export function App() {
           />
         ) : tab === 'ai' ? (
           <SemanticComparePanel
-            docs={[...new Map([...tabsA, ...tabsB].map((t) => [t.file.id, { id: t.file.id, name: t.file.name }])).values()]}
+            docs={[...new Map(allTabs.map((t) => [t.file.id, { id: t.file.id, name: t.file.name }])).values()]}
             currentId={activeOpen?.file.id ?? null}
             onRun={runSemanticCompare}
             onGo={(change) => void goToParagraph(change)}
@@ -10199,9 +10210,9 @@ export function App() {
             busy={studioBusy}
             error={studioError}
             activeDoc={activeStudioDoc}
-            openDocs={new Set([...tabsA, ...tabsB].map((t) => studioDocOf(t.file.id)).filter((d) => !!d).map((d) => `${d!.sessionId}:${d!.docId}`))}
+            openDocs={new Set(allTabs.map((t) => studioDocOf(t.file.id)).filter((d) => !!d).map((d) => `${d!.sessionId}:${d!.docId}`))}
             localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
-            openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
+            openFiles={allTabs.filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
             library={library.map((f) => ({ id: f.id, name: f.name }))}
             oneDriveAvailable={oneDriveSharingEnabled}
             folderAvailable={folderSessionsAvailable()}
@@ -10839,14 +10850,14 @@ export function App() {
           )}
           {applyStitch && activeOpen && (
             <ApplyStitchingDialog
-              documents={[activeOpen, ...[...tabsA, ...tabsB].filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
+              documents={[activeOpen, ...allTabs.filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
               onApply={(targetId, pairs, tol, options) => {
-                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId) ?? activeOpen;
+                const target = allTabs.find((t) => t.file.id === targetId) ?? activeOpen;
                 return applyStitching(activeOpen, target, pairs, tol, options);
               }}
               onShow={(targetId, page) => {
                 setApplyStitch(false);
-                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId);
+                const target = allTabs.find((t) => t.file.id === targetId);
                 if (!target || target.file.id !== activeOpen.file.id) return setNotice(msg('Switch to {value} to see its stitched sheets.', { value: target?.file.name ?? msg('that document') }));
                 const group = mergeStitch(target.store.stitchGroups(), withViewportRegions(target.store.manualStitch(), target.store.allViewports())).find((g) => g.placements.some((p) => p.pageIndex === page));
                 if (group) openStitch(group, page);
@@ -11167,7 +11178,7 @@ export function App() {
       )}
       {combineOpen && (
         <CombineDialog
-          open={[...tabsA, ...tabsB].filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i).map((t) => ({ id: t.file.id, name: t.file.name }))}
+          open={allTabs.filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i).map((t) => ({ id: t.file.id, name: t.file.name }))}
           onCancel={() => setCombineOpen(false)}
           onCombine={(sources, name) => void combineDocuments(sources, name)}
         />
@@ -11344,7 +11355,7 @@ export function App() {
         <CompareDialog
           mode={compareOpen}
           files={library}
-          openIds={[...tabsA, ...tabsB].map((t) => t.file.id)}
+          openIds={allTabs.map((t) => t.file.id)}
           currentId={activeOpen?.file.id ?? null}
           currentPage={pageIndex}
           preview={previewPage}
@@ -12267,7 +12278,7 @@ export function App() {
           markups={activeOpen ? markups : []}
           ctx={cellContext}
           customColumns={activeOpen ? columnSet.columns : []}
-          openFiles={[...tabsA, ...tabsB].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length }))}
+          openFiles={allTabs.map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length }))}
           library={library.map((f) => ({ id: f.id, name: f.name }))}
           busy={exportBusy}
           initialFilters={prefs.excludeFilteredOnExport ? listFilters : {}}

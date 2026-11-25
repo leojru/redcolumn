@@ -377,23 +377,21 @@ test.describe('view', () => {
       })
       .toBe(true);
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
-    // Closing the edited document from the right pane asks about the changes, then closes the tab and ends the split.
+    // Fork (leojru/redcolumn): closing the right pane closes that view only (as Revu); the edited document stays open.
     await app.cmd('file.close');
-    const dialog = app.page.getByRole('dialog', { name: 'Save changes?' });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: "Don't Save" }).click();
-    await expect.poll(async () => (await app.documents()).length).toBe(0);
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+    expect(await app.page.getByRole('dialog', { name: 'Save changes?' }).count()).toBe(0);
+    expect((await app.documents()).length).toBe(1);
   });
 
   for (const from of ['left', 'right'] as const) {
-    test(`closing the document from the ${from} pane while mirrored closes both views`, async ({ app }) => {
+    test(`closing from the ${from} pane while mirrored ends the split${from === 'left' ? ' and closes the document' : ', the document stays open'}`, async ({ app }) => {
       await app.cmd('view.split');
       await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
       await app.page.locator('main.stage').nth(from === 'left' ? 0 : 1).click({ position: { x: 5, y: 5 } });
       await app.cmd('file.close');
-      await expect.poll(async () => (await app.documents()).length).toBe(0);
+      await expect.poll(async () => (await app.documents()).length).toBe(from === 'left' ? 0 : 1);
       await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
       await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
     });
@@ -415,28 +413,31 @@ test.describe('view', () => {
     expect((await app.documents()).map((d) => d.name).sort()).toEqual(['plan-rev1.pdf', 'plan.pdf']);
   });
 
-  test('split with two files open puts the other open file in the second pane', async ({ app }) => {
+  test('split with two files open shows the front file on both sides; the right pane keeps it when the left moves on', async ({ app }) => {
     await app.tool('rect');
     await app.drag([300, 450], [350, 500]);
     await app.open('plan-rev1.pdf');
     await app.open('plan.pdf');
     let picked = false;
     app.page.on('filechooser', () => (picked = true));
+    // Fork (leojru/redcolumn): as in Revu, Split shows the document in front twice, whatever else is open.
     await app.cmd('view.split');
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
     expect(picked).toBe(false);
-    expect((await app.documents()).map((d) => d.name).sort()).toEqual(['plan-rev1.pdf', 'plan.pdf']);
-    // The active file stays active, its markups intact.
     expect((await app.documents()).find((d) => d.active)!.name).toBe('plan.pdf');
+    expect((await app.command('view.switchPanes')).enabled).toBe(false);
+    // The left pane goes to the other file; the right pane stays on plan.pdf (with its markup).
+    await app.open('plan-rev1.pdf');
+    await expect.poll(() => app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(0);
+    expect((await app.documents()).map((d) => d.name).sort()).toEqual(['plan-rev1.pdf', 'plan.pdf']);
     for (const id of ['view.unsplit', 'view.switchPanes', 'view.balance', 'view.syncDocument', 'view.syncPage']) expect((await app.command(id)).enabled, id).toBe(true);
     // Switch Panes swaps the documents: the active file is unchanged, and both stay open.
     const before = (await app.documents()).find((d) => d.active)!.name;
-    expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
-    await app.cmd('view.switchPanes');
-    await expect.poll(() => app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(0);
     await app.cmd('view.switchPanes');
     await expect.poll(() => app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
+    await app.cmd('view.switchPanes');
+    await expect.poll(() => app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(0);
     expect((await app.documents()).find((d) => d.active)!.name).toBe(before);
     await app.cmd('view.balance');
     await expect

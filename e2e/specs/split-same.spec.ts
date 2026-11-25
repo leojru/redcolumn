@@ -31,3 +31,14 @@ test('split shows the same document twice, each pane its own view, the markups s
   expect((await app.documents()).length).toBe(1);
   expect(await count()).toBe(2);
 });
+
+test('closing the right pane of a split document closes that view only, the document stays open', async ({ app }) => {
+  await app.open('plan.pdf');
+  await app.cmd('view.split');
+  await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+  await app.page.locator('main.stage').nth(1).click({ position: { x: 5, y: 5 } });
+  await app.cmd('file.close');
+  await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
+  await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+  expect((await app.documents()).map((d) => d.name)).toEqual(['plan.pdf']);
+});
