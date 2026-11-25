@@ -1814,6 +1814,13 @@ export function App() {
   const tabPaneOf = (pane: Pane): Pane => (pane === 'b' && mirrorRef.current ? 'a' : pane);
 
   const setTabs = useCallback((pane: Pane, tabs: OpenFile[]) => {
+    // Fork (leojru/redcolumn): another document added to a mirrored right pane (Move to Right Pane, open there) joins the
+    // split document as a second tab, as in Revu; the mirror ends and the split document keeps its own tab on the right.
+    const mirrored = openBRef.current;
+    if (pane === 'b' && mirrorRef.current && mirrored && tabs.length && !tabs.includes(mirrored)) {
+      tabs = [mirrored, ...tabs];
+      mirrorRef.current = false;
+    }
     (pane === 'b' ? tabsBRef : tabsARef).current = tabs;
     (pane === 'b' ? setTabsB : setTabsA)(tabs);
   }, []);
