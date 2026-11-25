@@ -419,6 +419,11 @@ function measureDict(scale: Scale): LiteralObject {
   };
 }
 
+/** Fork (leojru/redcolumn): an id as Revu gives its viewports (/NM): sixteen capital letters. */
+function revuId(): string {
+  return Array.from({ length: 16 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('');
+}
+
 /**
  * Fork (leojru/redcolumn): a scale's /R as Revu words it, paper = world: `0.1875 in = 1 ft' in"` for
  * 3/16" = 1'-0", `1 in = 10 ft`, `1 mm = 100 mm`. Our import turns it back into the usual label.
@@ -2141,6 +2146,14 @@ function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scal
   const geo = geoRegions ? geoRegions.map((r) => geoViewport(doc, matrix, r)) : (existing?.asArray().filter((v) => isGeoViewport(toPdfDict(doc.context, v))) ?? []);
   const crop = page.getCropBox();
   const turned = page.getRotation().angle % 180 !== 0;
+  // Fork (leojru/redcolumn): Revu boxes the page's own scale as the page is shown: on a page turned a
+  // quarter, width and height swap (its 24x36 sheet turned 270° says [0 0 2592 1728]). Boxed as stored,
+  // Revu does not take it for the page's scale and says "Scale Not Set".
+  const pageBox = turned ? [crop.x, crop.y, crop.x + crop.height, crop.y + crop.width] : [crop.x, crop.y, crop.x + crop.width, crop.y + crop.height];
+  const boxedAsRevu = !scale || (existing?.asArray() ?? []).some((v) => {
+    const box = toPdfDict(doc.context, v)?.BBox;
+    return Array.isArray(box) && box.length === 4 && box.every((n, i) => typeof n === 'number' && Math.abs(n - pageBox[i]!) < 0.5);
+  });
   if (existing) {
     const current = importViewports(pageIndex, {
       matrix,
@@ -2159,10 +2172,10 @@ function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scal
       sameScale(current.scale, scale) &&
       current.viewports.length === viewports.length &&
       viewports.every((v) => current.viewports.some((c) => sameScale(c.scale, v.scale) && near(c.rect.x, v.rect.x) && near(c.rect.y, v.rect.y) && near(c.rect.w, v.rect.w) && near(c.rect.h, v.rect.h)));
-    if (same && !geoRegions) return;
+    if (same && boxedAsRevu && !geoRegions) return;
   } else if (!scale && !viewports.length && !geo.length) return;
   const entries = [
-    ...(scale ? [doc.context.obj({ Type: 'Viewport', BBox: [crop.x, crop.y, crop.x + crop.width, crop.y + crop.height], Measure: measureDict(scale) })] : []),
+    ...(scale ? [doc.context.obj({ Type: 'Viewport', BBox: pageBox, Measure: measureDict(scale), NM: PDFString.of(revuId()) })] : []),
     ...viewports.map((v) => doc.context.obj({ Type: 'Viewport', BBox: userRect(matrix, v.rect), Name: pdfText(v.name), Measure: measureDict(v.scale) })),
     ...geo,
   ];

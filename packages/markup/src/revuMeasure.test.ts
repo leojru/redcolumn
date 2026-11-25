@@ -72,3 +72,23 @@ test('a length saved with the old /Measure (no /TargetUnitConversion) is written
   annotOf(doc).lookup(PDFName.of('Measure'), PDFDict).delete(PDFName.of('TargetUnitConversion'));
   assert.equal((await importOf(await doc.save())).pdfAnnot?.digest, '', 'an old one counts as changed');
 });
+
+test("a turned page's scale is boxed as Revu boxes it, and a box from before is put right", async () => {
+  const { degrees } = await import('pdf-lib');
+  const blank = await PDFDocument.create();
+  blank.addPage([1728, 2592]).setRotation(degrees(270));
+  const bytes = (await blank.save()).buffer as ArrayBuffer;
+  const boxOf = async (b: Uint8Array) => {
+    const d = await PDFDocument.load(b);
+    const vp = d.getPage(0).node.lookup(PDFName.of('VP'), PDFArray).lookup(0, PDFDict);
+    return { box: vp.lookup(PDFName.of('BBox'), PDFArray).asArray().map((n) => (n as PDFNumber).asNumber()), nm: vp.has(PDFName.of('NM')), d };
+  };
+  const first = await boxOf(await exportWithAnnotations(bytes, [], { pageScales: { 0: threeSixteenths } }));
+  assert.deepEqual(first.box, [0, 0, 2592, 1728], "Revu's own box for a 24x36 sheet turned 270°");
+  assert.ok(first.nm, 'with an id, as Revu gives its viewports');
+  // A file saved before: the same scale boxed as stored. Saving again boxes it as Revu does.
+  first.d.getPage(0).node.lookup(PDFName.of('VP'), PDFArray).lookup(0, PDFDict).set(PDFName.of('BBox'), first.d.context.obj([0, 0, 1728, 2592]));
+  const old = await first.d.save();
+  const again = await boxOf(await exportWithAnnotations(old.buffer.slice(old.byteOffset, old.byteOffset + old.byteLength) as ArrayBuffer, [], { pageScales: { 0: threeSixteenths } }));
+  assert.deepEqual(again.box, [0, 0, 2592, 1728]);
+});
