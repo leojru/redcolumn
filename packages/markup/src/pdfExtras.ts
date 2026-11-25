@@ -91,7 +91,7 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   return { pages, ocgNames, columns, statusDefs, images, ...(snapshotSheets.size ? { snapshotSheets } : {}), ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}), ...(portals.length ? { portals } : {}), ...(aiReview ? { aiReview } : {}) };
 }
 
-/** Whether an annotation's normal appearance (or a form it draws) uses a composite font without its descendant font. */
+/** Whether an annotation's normal appearance (or a form it draws) uses a composite font without its descendant font, or a CFF subset. */
 export function appearanceHasBrokenFont(ctx: PDFDocument['context'], entry: PDFObject): boolean {
   try {
     const annot = entry instanceof PDFRef ? ctx.lookup(entry) : entry;
@@ -116,6 +116,8 @@ export function appearanceHasBrokenFont(ctx: PDFDocument['context'], entry: PDFO
           const desc = font.lookup(PDFName.of('DescendantFonts'));
           const first = desc instanceof PDFArray && desc.size() ? ctx.lookup(desc.get(0)) : undefined;
           if (!(first instanceof PDFDict)) return true;
+          // A CFF subset: pdf-lib's subsets of those lose glyphs (Noto Sans CJK's B, o and c came out empty in Revu).
+          if (String(first.get(PDFName.of('Subtype'))) === '/CIDFontType0') return true;
         }
       }
       const xobjects = res.lookup(PDFName.of('XObject'));

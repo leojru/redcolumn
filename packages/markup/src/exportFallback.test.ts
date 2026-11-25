@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDocument, type StandardFonts } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFStream, PDFString, StandardFonts } from 'pdf-lib';
 import { exportWithAnnotations } from './export.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
 
@@ -48,4 +48,40 @@ test('the fallback font is used only for text the standard fonts cannot show', a
   assert.equal(await usesFallback('\u041c\u043e\u0441\u043a\u0432\u0430'), true, 'Cyrillic');
   assert.equal(await usesFallback('x', { type: 'stamp', stamp: { lines: ['\u2713 OK'], frame: 'box' } }), true, 'a stamp line');
   assert.equal(await usesFallback('x', { type: 'table', table: { cols: [1], rows: [1], cells: [['\u2265 5']] } }), true, 'a table cell');
+});
+
+// Fork (leojru/redcolumn): one ∅ in a table used to letter every markup in the fallback font.
+test('only the markups that need it are lettered in the fallback font', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  const fallbackFont = (d: PDFDocument) => d.embedFont(StandardFonts.Courier);
+  const table: Markup = { ...box('x'), id: 't2', createdAt: 2, type: 'table', table: { cols: [1], rows: [1], cells: [['∅ 6']] } };
+  const out = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [box('4" CONC. SLAB'), table], { fallbackFont }));
+  const fontsOf = (i: number) => {
+    const annot = out.getPage(0).node.Annots()!.lookup(i) as PDFDict;
+    const ap = annot.lookup(PDFName.of('AP')) as PDFDict;
+    const n = ap.lookup(PDFName.of('N')) as PDFStream;
+    const fonts = (n.dict.lookup(PDFName.of('Resources')) as PDFDict).lookup(PDFName.of('Font')) as PDFDict;
+    return fonts.values().map((v) => String((out.context.lookup(v) as PDFDict).get(PDFName.of('BaseFont'))));
+  };
+  assert.ok(fontsOf(0).every((f) => f.includes('Helvetica')), `text box: ${fontsOf(0)}`);
+  assert.ok(fontsOf(1).some((f) => f.includes('Courier')), `table: ${fontsOf(1)}`);
+});
+
+test('annotations are saved in the order the markups draw', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  const first = await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [{ ...box('A'), id: 'a', createdAt: 1 }, { ...box('B'), id: 'b', createdAt: 2 }]);
+  const loaded = await PDFDocument.load(first);
+  const ids = (d: PDFDocument) =>
+    d.getPage(0).node.Annots()!.asArray().map((r) => (d.context.lookup(r) as PDFDict).lookup(PDFName.of('NM'), PDFString, PDFHexString).decodeText());
+  assert.deepEqual(ids(loaded), ['a', 'b']);
+  // A brought to the front (now later than B) and C new: they save as B, A, C.
+  const markups: Markup[] = [
+    { ...box('A'), id: 'a', createdAt: 3, pdfAnnot: { index: 0, digest: '' } },
+    { ...box('B'), id: 'b', createdAt: 2, pdfAnnot: { index: 1, digest: '' } },
+    { ...box('C'), id: 'c', createdAt: 4 },
+  ];
+  const second = await PDFDocument.load(await exportWithAnnotations(first.buffer as ArrayBuffer, markups, { imported: { 0: [0, 1] } }));
+  assert.deepEqual(ids(second), ['b', 'a', 'c']);
 });

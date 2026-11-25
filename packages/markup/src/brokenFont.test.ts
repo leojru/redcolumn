@@ -68,3 +68,15 @@ test('an appearance with whole fonts is not flagged', async () => {
   const extras = await readPdfExtras(good);
   assert.equal(extras!.pages[0]!.annots.some((a) => a?.[BROKEN_FONT_KEY]), false);
 });
+
+test('a markup whose appearance font is a CFF subset is found on open', async () => {
+  const base = await PDFDocument.create();
+  base.addPage([400, 400]);
+  const out = await exportWithAnnotations((await base.save()).buffer as ArrayBuffer, [box], { systemFonts });
+  const doc = await PDFDocument.load(out);
+  const [font] = apFonts(doc);
+  const desc = doc.context.lookup(font!.dict.lookup(PDFName.of('DescendantFonts'), PDFArray).get(0), PDFDict);
+  assert.equal((await readPdfExtras(await doc.save()))!.pages[0]!.annots[0]?.[BROKEN_FONT_KEY], undefined, 'a TrueType subset is fine');
+  desc.set(PDFName.of('Subtype'), PDFName.of('CIDFontType0'));
+  assert.equal((await readPdfExtras(await doc.save()))!.pages[0]!.annots[0]?.[BROKEN_FONT_KEY], true);
+});

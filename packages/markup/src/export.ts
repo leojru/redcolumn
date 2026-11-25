@@ -2232,6 +2232,22 @@ export interface ExportOptions {
   open?: (original: ArrayBuffer) => Promise<{ doc: PDFDocument; save: () => Promise<Uint8Array> }>;
 }
 
+/**
+ * Fork (leojru/redcolumn): other viewers draw a page's annotations in /Annots order, so our markups'
+ * annotations are put in the order we draw them (creation order, which Bring to Front changes). They
+ * take the places they already hold among the rest, which stay where they are: an edited markup's
+ * annotation keeps its place, and a new one is added at the end, so without this a markup brought to
+ * the front, or made before one already saved, draws under it in Revu.
+ */
+function restackAnnots(page: PDFPage, order: ReadonlyMap<PDFObject, number>): void {
+  const annots = page.node.Annots();
+  if (!annots || order.size < 2) return;
+  const entries = annots.asArray();
+  const slots = entries.flatMap((e, i) => (order.has(e) ? [i] : []));
+  const sorted = slots.map((i) => entries[i]!).sort((a, b) => order.get(a)! - order.get(b)!);
+  slots.forEach((slot, k) => annots.set(slot, sorted[k]!));
+}
+
 /** Fork (leojru/redcolumn): `x` as an array, following a reference; undefined for anything else (a layer's own dictionary). */
 function arrayOf(doc: PDFDocument, x: PDFObject | undefined): PDFArray | undefined {
   const value = x instanceof PDFRef ? doc.context.lookup(x) : x;
@@ -2379,13 +2395,21 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
 
   // Embed only the fonts some written markup's text or label uses.
   const fonts = new Map<FontKey, PDFFont>();
-  const namedKeys = new Set<FontKey>();
-  // `fallbackFont` is told every character the markups draw, so it can pick a font that has them all (CJK).
-  const unicode = options.fallbackFont && needsUnicodeFont(written) ? [...new Set(written.flatMap(drawnStrings).join(''))].join('') : null;
-  const embedder = unicode !== null ? (d: PDFDocument, n: StandardFonts) => options.fallbackFont!(d, n, unicode) : options.embedFont;
-  const embedStandard = (name: StandardFonts) => (embedder ? embedder(doc, name) : doc.embedFont(name));
-  const allDrawn = written.flatMap((m) => (m.type === 'count' && m.style.countSymbol?.markups?.length ? [m, ...m.style.countSymbol.markups] : [m]));
-  for (const m of allDrawn) {
+  // Fork (leojru/redcolumn): only the markups whose text the standard fonts cannot show (∅, CJK) are
+  // lettered in `fallbackFont`; the rest keep Helvetica, where one such character used to switch all of them.
+  const needsFallback = (m: Markup) => !!options.fallbackFont && needsUnicodeFont([m]);
+  const fallbackWritten = written.filter(needsFallback);
+  // `fallbackFont` is told every character those markups draw, so it can pick a font that has them all (CJK).
+  const unicode = fallbackWritten.length ? [...new Set(fallbackWritten.flatMap(drawnStrings).join(''))].join('') : null;
+  const fallbackFonts = new Map<FontKey, PDFFont>();
+  const fontsOf = (m: Markup) => (unicode !== null && needsFallback(m) ? fallbackFonts : fonts);
+  const embedStandardIn = (target: Map<FontKey, PDFFont>, name: StandardFonts) =>
+    target === fallbackFonts ? options.fallbackFont!(doc, name, unicode!) : options.embedFont ? options.embedFont(doc, name) : doc.embedFont(name);
+  // The font maps that use each installed font.
+  const namedKeys = new Map<FontKey, Set<Map<FontKey, PDFFont>>>();
+  const drawnWith = (m: Markup) => (m.type === 'count' && m.style.countSymbol?.markups?.length ? [m, ...m.style.countSymbol.markups] : [m]);
+  const allDrawn = written.flatMap(drawnWith);
+  for (const [m, target] of written.flatMap((w) => drawnWith(w).map((d) => [d, fontsOf(w)] as const))) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = [
       ...(m.type === 'stamp'
@@ -2398,16 +2422,16 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),
     ];
     for (const name of names) {
-      if (fonts.has(name)) continue;
-      if (name.startsWith(NAMED_PREFIX)) namedKeys.add(name);
-      else fonts.set(name, await embedStandard(name as StandardFonts));
+      if (target.has(name)) continue;
+      if (name.startsWith(NAMED_PREFIX)) namedKeys.set(name, (namedKeys.get(name) ?? new Set()).add(target));
+      else target.set(name, await embedStandardIn(target, name as StandardFonts));
     }
   }
   // Installed fonts: all the variants of a family that markups use are embedded, or none are (so a
   // family never mixes its own look with a standard font's).
   const unembedded = new Set<string>();
   const byFamily = new Map<string, FontKey[]>();
-  for (const key of namedKeys) {
+  for (const key of namedKeys.keys()) {
     const family = key.slice(NAMED_PREFIX.length).split('|')[0]!;
     byFamily.set(family, [...(byFamily.get(family) ?? []), key]);
   }
@@ -2426,10 +2450,12 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       options.onFontFallback?.(family, failure);
       for (const key of keys) {
         const std = keywordFontOf(key);
-        if (!fonts.has(std)) fonts.set(std, await embedStandard(std));
-        fonts.set(key, fonts.get(std)!);
+        for (const target of namedKeys.get(key)!) {
+          if (!target.has(std)) target.set(std, await embedStandardIn(target, std));
+          target.set(key, target.get(std)!);
+        }
       }
-    } else for (const [key, font] of loaded) fonts.set(key, font);
+    } else for (const [key, font] of loaded) for (const target of namedKeys.get(key)!) target.set(key, font);
   }
   const images = new Map<string, PDFImage>();
   for (const m of allDrawn) {
@@ -2478,7 +2504,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
     const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, vectors, countSymbols, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames, unembedded };
     const build = (m: Markup, orig?: PDFDict) => {
-      const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
+      const dict = annotationDict({ ...ctx, scale: scaleOf(m), fonts: fontsOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.
       const oc = m.layer ? layerRefs.get(m.layer) : undefined;
       if (oc) dict.set(PDFName.of('OC'), oc);
@@ -2500,6 +2526,9 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     const owned = new Set([...parts.values()].flat().flatMap((m) => [...(m.pdfAnnot?.owned ?? []), ...(m.pdfAnnot?.members?.slice(1) ?? [])]));
     const remove = new Set<number>();
     const added: PDFRef[] = [];
+    // Fork (leojru/redcolumn): each markup's annotation, with when it draws (we draw in creation order).
+    const drawOrder = new Map<PDFObject, number>();
+    if (annots) for (const [index, ms] of parts) if (index < annots.size()) drawOrder.set(annots.get(index), Math.min(...ms.map((m) => m.createdAt)));
     if (annots) {
       for (const index of imported) {
         if (index >= annots.size()) continue;
@@ -2535,6 +2564,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
         } else {
           parentRef = doc.context.register(merged);
           annots.set(index, parentRef);
+          drawOrder.set(parentRef, drawOrder.get(entry) ?? main.createdAt);
         }
 
         // Replies and review states: those still here stay, removed ones go, new ones are added.
@@ -2628,6 +2658,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       }
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
+      drawOrder.set(ref, m.createdAt);
       made.set(m, { dict, ref });
       if (m.type === 'count' && items.length > 1) {
         const others = items.slice(1).map((item) => {
@@ -2648,6 +2679,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       if (m.checked) page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, 'Marked', 'Marked')));
     }
     writeGroups(doc, made);
+    restackAnnots(page, drawOrder);
   }
   if (options.links) addLinks(doc, pages, options.links);
   // Fork (leojru/redcolumn): a plain rewrite leaves out what nothing points to and compresses what was stored plain; an incremental update must keep every earlier byte.

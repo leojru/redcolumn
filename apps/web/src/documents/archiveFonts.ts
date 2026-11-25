@@ -78,15 +78,30 @@ const CJK_FAMILIES = [
   'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'WenQuanYi Micro Hei', 'Droid Sans Fallback', 'Arial Unicode MS',
 ];
 
+/**
+ * Fork (leojru/redcolumn): sans fonts to try first for text that is not CJK (a symbol such as ∅ that
+ * Liberation lacks), so it stays close to Helvetica rather than taking a CJK font's Latin letters.
+ */
+const SYMBOL_FAMILIES = ['Arial', 'Arial Unicode MS', 'Segoe UI', 'Segoe UI Symbol', 'DejaVu Sans', 'Noto Sans', 'Adwaita Sans', 'Noto Sans Math', 'Noto Sans Symbols', 'Noto Sans Symbols 2', 'Cambria Math'];
+
+/** Fork (leojru/redcolumn): whether a code point is CJK (ideographs, kana, hangul, CJK symbols and full-width forms). */
+const isCjk = (cp: number) =>
+  (cp >= 0x1100 && cp <= 0x11ff) || (cp >= 0x2e80 && cp <= 0x9fff) || (cp >= 0xa960 && cp <= 0xa97f) || (cp >= 0xac00 && cp <= 0xd7ff) || (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xffef) || cp >= 0x20000;
+
 /** The characters of the text that need a font (spaces and controls never do). */
 function codePoints(text: string): number[] {
   return [...new Set([...text].map((c) => c.codePointAt(0)!))].filter((cp) => cp > 0x20 && cp !== 0x7f && !(cp >= 0x80 && cp < 0xa0));
 }
 
-/** Whether a font file (one face of a collection, if `face` names it) has a glyph for each code point. */
-function covers(bytes: Uint8Array, face: string | undefined, cps: number[]): boolean {
+/**
+ * Whether a font file (one face of a collection, if `face` names it) has a glyph for each code point.
+ * Fork (leojru/redcolumn): with `trueType`, only a font with TrueType outlines counts: pdf-lib's subset
+ * of a CFF (.otf) font loses glyphs (Noto Sans CJK's B came out empty, so Revu drew "SLA" for "SLAB").
+ */
+function covers(bytes: Uint8Array, face: string | undefined, cps: number[], trueType = false): boolean {
   try {
-    const f = fontkit.create(bytes, face) as unknown as { hasGlyphForCodePoint(cp: number): boolean };
+    const f = fontkit.create(bytes, face) as unknown as { hasGlyphForCodePoint(cp: number): boolean; directory?: { tables?: Record<string, unknown> } };
+    if (trueType && !f.directory?.tables?.glyf) return false;
     return cps.every((cp) => f.hasGlyphForCodePoint(cp));
   } catch {
     return false;
@@ -121,10 +136,24 @@ async function embedInstalledFont(doc: PDFDocument, text: string): Promise<PDFFo
   const cached = embedded.get(doc)?.get(key);
   if (cached) return cached;
   const fonts = (await installedFonts()).filter((f) => /^(regular|normal|book|roman)$/i.test(f.style));
-  const ordered = [...CJK_FAMILIES.flatMap((family) => fonts.filter((f) => f.family === family)), ...fonts.filter((f) => !CJK_FAMILIES.includes(f.family))];
+  // Fork (leojru/redcolumn): text without CJK tries plain sans fonts first and CJK fonts last.
+  const preferred = cps.some(isCjk) ? [...CJK_FAMILIES, ...SYMBOL_FAMILIES] : SYMBOL_FAMILIES;
+  const rest = fonts.filter((f) => !preferred.includes(f.family));
+  const ordered = [...preferred.flatMap((family) => fonts.filter((f) => f.family === family)), ...rest.filter((f) => !CJK_FAMILIES.includes(f.family)), ...rest.filter((f) => CJK_FAMILIES.includes(f.family))];
+  // A font with TrueType outlines if any has every character; a CFF font only as the last resort.
+  let cff: { f: LocalFont; bytes: Uint8Array } | null = null;
+  let chosen: { f: LocalFont; bytes: Uint8Array } | null = null;
   for (const f of ordered) {
     const bytes = new Uint8Array(await (await f.blob()).arrayBuffer());
-    if (!covers(bytes, f.postscriptName, cps)) continue;
+    if (covers(bytes, f.postscriptName, cps, true)) {
+      chosen = { f, bytes };
+      break;
+    }
+    if (!cff && covers(bytes, f.postscriptName, cps)) cff = { f, bytes };
+  }
+  chosen ??= cff;
+  if (chosen) {
+    const { f, bytes } = chosen;
     // pdf-lib calls `create(bytes)` with no face name, which fails for a collection (.ttc): name the face here.
     doc.registerFontkit({ create: (b: Uint8Array) => fontkit.create(b, f.postscriptName) } as unknown as typeof fontkit);
     const font = await doc.embedFont(bytes, { subset: true });
