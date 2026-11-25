@@ -1638,10 +1638,13 @@ test('Click to Place: a line, a rectangle and a Cloud+ go down with two clicks; 
     click(h.tools, [100, 300]);
     assert.deepEqual(h.store.all().find((m) => m.type === 'rect')?.points, [[400, 400], [100, 300]]);
 
+    // Fork (leojru/redcolumn): Cloud+'s clicks outline a polygon cloud, as Revu's (a drag is still a box).
     h.tools.setTool('cloudPlus');
     click(h.tools, [500, 100]);
     click(h.tools, [650, 200]);
-    assert.ok(h.store.all().some((m) => m.type === 'cloud'), 'Cloud+ makes its cloud');
+    click(h.tools, [520, 260]);
+    h.tools.finish();
+    assert.ok(h.store.all().some((m) => m.type === 'polygonCloud' && m.points.length === 3), 'Cloud+ makes its cloud');
     assert.ok(h.store.all().some((m) => m.type === 'callout'), 'and its callout');
 
     h.tools.setTool('line');
@@ -2402,5 +2405,33 @@ test('two-click callout placement commits on pointerUp so TextEditor is not blur
   assert.equal(h.store.all()[0]!.type, 'callout');
   assert.deepEqual(h.store.all()[0]!.points[0], [100, 200]);
   assert.deepEqual(edited, [h.store.all()[0]!.id]);
+  await h.store.destroy();
+});
+
+// Fork (leojru/redcolumn): Cloud+ as Revu's: a drag is a box cloud, clicks outline a polygon cloud whose corners Control Point edits.
+test('Cloud+ outlines a polygon cloud by clicks, its leader on the cloud; Control Point adds and removes corners', async () => {
+  const h = await setup();
+  h.tools.setTool('cloudPlus');
+  drag(h.tools, [100, 100], [200, 160]);
+  assert.ok(h.store.all().some((m) => m.type === 'cloud'), 'a drag is a box cloud');
+  h.tools.setTool('cloudPlus');
+  for (const p of [[300, 300], [500, 300], [520, 450], [320, 480]] as Point[]) click(h.tools, p);
+  click(h.tools, [300, 300]);
+  const cloud = h.store.all().find((m) => m.type === 'polygonCloud')!;
+  assert.equal(cloud.points.length, 4, 'clicking the first corner again closes it');
+  const callout = h.store.all().find((m) => m.type === 'callout' && m.groupId === cloud.groupId)!;
+  assert.ok(callout, 'its callout is grouped with it');
+  const tip = callout.points[0]!;
+  assert.ok(tip[0] >= 299 && tip[0] <= 521 && tip[1] >= 299 && tip[1] <= 481, `the leader starts on the cloud: ${tip}`);
+
+  assert.equal(h.tools.controlPointTarget([cloud.id, callout.id], callout.id)?.id, cloud.id, 'Control Point edits the cloud of a Cloud+');
+  h.tools.addControlPoint(cloud.id, [400, 300]);
+  const added = h.store.get(cloud.id)!;
+  assert.equal(added.points.length, 5);
+  assert.ok(Math.abs(added.points[1]![0] - 400) < 1 && Math.abs(added.points[1]![1] - 300) < 1, 'the new corner is where it was clicked, between the first two');
+  h.tools.deleteControlPoint(cloud.id, [400, 300]);
+  assert.equal(h.store.get(cloud.id)!.points.length, 4, 'and Delete takes it away');
+  h.tools.deleteControlPoint(cloud.id, [410, 380]);
+  assert.equal(h.store.get(cloud.id)!.points.length, 4, 'Delete away from a corner does nothing');
   await h.store.destroy();
 });

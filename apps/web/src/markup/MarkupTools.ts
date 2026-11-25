@@ -636,7 +636,7 @@ function overLabelText(m: Markup, text: { move: Point; angle: number }, p: Point
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
   if (tool === 'matchLine') return { min: 2, fixed: 2 };
-  if (tool === 'cutout' || tool === 'stitchPolygon' || tool === 'portalPolygon' || POLYGON_REGION_TOOLS.has(tool)) return { min: 3, closes: true };
+  if (tool === 'cutout' || tool === 'stitchPolygon' || tool === 'portalPolygon' || POLYGON_REGION_TOOLS.has(tool) || tool === 'cloudPlus') return { min: 3, closes: true };
   // Draw to Size: lines go point to point (a drag still works), so the second point can be typed.
   if (SKETCH_LINE_TYPES.includes(tool as MarkupType) && settings.get().sketchToScale) return { min: 2, fixed: 2 };
   return (isMarkupTool(tool) && CLICK_SHAPES[tool]) || null;
@@ -1929,7 +1929,7 @@ export class MarkupTools implements ViewerOverlay {
         const m = store.get(id);
         if (m && m.type === type && !this.frozen(m)) store.update(id, { style: mergeStyle(m.style, keepTextColor(m.type, m.style, patch)), ...tableOwnStyleCleared(m, patch) });
         // Fork (leojru/redcolumn): a Cloud+ reads as one markup: its callout follows the cloud's line colour.
-        if (m && type === 'cloud' && patch.stroke && m.type === 'callout' && !this.frozen(m) && this.cloudPlusCallout(m)) store.update(id, { style: mergeStyle(m.style, keepTextColor(m.type, m.style, { stroke: patch.stroke })) });
+        if (m && (type === 'cloud' || type === 'polygonCloud') && patch.stroke && m.type === 'callout' && !this.frozen(m) && this.cloudPlusCallout(m)) store.update(id, { style: mergeStyle(m.style, keepTextColor(m.type, m.style, { stroke: patch.stroke })) });
       }
     });
   }
@@ -1941,7 +1941,7 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Fork (leojru/redcolumn): the cloud a Cloud+'s callout is grouped with. */
   private cloudOf(m: Markup): Markup | null {
-    return m.type === 'callout' && m.groupId ? (this.store?.all().find((o) => o.groupId === m.groupId && (o.type === 'cloud' || o.type === 'rect')) ?? null) : null;
+    return m.type === 'callout' && m.groupId ? (this.store?.all().find((o) => o.groupId === m.groupId && (o.type === 'cloud' || o.type === 'polygonCloud' || o.type === 'rect')) ?? null) : null;
   }
 
   /** Fork (leojru/redcolumn): a Cloud+ callout's points with its leader tip on the cloud's outline, nearest `toward` (the text box's centre by default). */
@@ -1977,7 +1977,7 @@ export class MarkupTools implements ViewerOverlay {
   private resnapCloudCallout(cloudId: string) {
     const store = this.store;
     const cloud = store?.get(cloudId);
-    if (!store || (cloud?.type !== 'cloud' && cloud?.type !== 'rect') || !cloud.groupId) return;
+    if (!store || (cloud?.type !== 'cloud' && cloud?.type !== 'polygonCloud' && cloud?.type !== 'rect') || !cloud.groupId) return;
     const callout = store.all().find((o) => o.groupId === cloud.groupId && o.type === 'callout');
     if (!callout || callout.points.length < 4) return;
     const next = this.tipOnCloud(callout, callout.points as Point[], callout.points[0]!);
@@ -2224,6 +2224,47 @@ export class MarkupTools implements ViewerOverlay {
     this.setGesture({ kind: 'calloutLeader', id, tip });
   }
 
+  /**
+   * Fork (leojru/redcolumn): the markup among `ids` whose corners Right-click › Control Point edits (a
+   * polygon, a polygon cloud, a polyline, a measurement), preferring `hitId`; null when there is none.
+   */
+  controlPointTarget(ids: readonly string[], hitId?: string): Markup | null {
+    const ms = [hitId, ...ids].flatMap((id) => (id ? [this.store?.get(id)] : [])).filter((m): m is Markup => !!m && canEditVertices(m));
+    return ms[0] ?? null;
+  }
+
+  /** Fork (leojru/redcolumn): the corner of `id` at `at` (within reach of a click), or -1. */
+  controlPointAt(id: string, at: Point): number {
+    const m = this.store?.get(id);
+    if (!m) return -1;
+    const tol = (this.hitPx * 1.5) / this.viewer.zoomFor(m.pageIndex);
+    return m.points.findIndex((q) => Math.hypot(q[0] - at[0], q[1] - at[1]) <= tol);
+  }
+
+  /** Fork (leojru/redcolumn): Right-click › Control Point › Add, as Revu: a corner on the outline where it was clicked, to drag out. */
+  addControlPoint(id: string, at: Point) {
+    const m = this.store?.get(id);
+    if (!this.store || this.store.readOnly || !m || this.frozen(m) || !canEditVertices(m)) return;
+    const hit = segmentHit(m, at, Infinity);
+    if (!hit) return;
+    this.store.checkpoint();
+    this.store.update(id, insertVertex(m, hit));
+    this.resnapCloudCallout(id);
+    this.store.checkpoint();
+  }
+
+  /** Fork (leojru/redcolumn): Right-click › Control Point › Delete: the corner at `at` goes, keeping the least the shape needs. */
+  deleteControlPoint(id: string, at: Point) {
+    const m = this.store?.get(id);
+    const index = this.controlPointAt(id, at);
+    if (!this.store || this.store.readOnly || !m || this.frozen(m) || !canEditVertices(m) || index < 0) return;
+    if (m.points.length <= (CLICK_SHAPES[m.type]?.min ?? 2)) return;
+    this.store.checkpoint();
+    this.store.update(id, removeVertex(m, index));
+    this.resnapCloudCallout(id);
+    this.store.checkpoint();
+  }
+
   /** Takes away a callout's most recently added leader (the first one stays). */
   removeCalloutLeader(id: string) {
     const m = this.store?.get(id);
@@ -2388,6 +2429,11 @@ export class MarkupTools implements ViewerOverlay {
         this.setState({ tool: 'select' });
         this.options.onPortalDrawn?.(g.markup.pageIndex, points);
       }
+      return;
+    }
+    // Fork (leojru/redcolumn): a Cloud+ outlined corner by corner: the polygon cloud gets its callout.
+    if (this.state.tool === 'cloudPlus') {
+      if (points.length >= 3) this.addCloudCallout({ ...g.markup, points });
       return;
     }
     if (POLYGON_REGION_TOOLS.has(this.state.tool)) {
@@ -3393,7 +3439,7 @@ export class MarkupTools implements ViewerOverlay {
     }
 
     // Snapshot: a press-and-drag is a box; a plain click starts a polygon, whose later clicks come here.
-    const spec = POLYGON_REGION_TOOLS.has(tool) && this.gesture?.kind !== 'multi' ? null : clickSpec(tool);
+    const spec = (POLYGON_REGION_TOOLS.has(tool) || tool === 'cloudPlus') && this.gesture?.kind !== 'multi' ? null : clickSpec(tool);
     if (spec) {
       const g = this.gesture;
       const p = this.resolve(pt, e, g?.kind === 'multi' ? g.markup.points.at(-1)! : null);
@@ -4112,6 +4158,10 @@ export class MarkupTools implements ViewerOverlay {
         // A click, not a drag: the first corner of a polygon outline.
         const at = g.markup.points[0]!;
         this.setGesture({ kind: 'multi', markup: { ...this.newMarkup('polygon', g.markup.pageIndex, [at]), style: { ...CALIBRATE_STYLE, dash: 'dashed' } }, hover: at, down: at, calibrate: false });
+      } else if (this.state.tool === 'cloudPlus' && Math.max(b.w, b.h) * this.viewer.zoomFor(this.page) < this.dragPx) {
+        // Fork (leojru/redcolumn): Cloud+, as Revu: a click starts a polygon cloud, corner by corner (a drag is a box).
+        const at = g.markup.points[0]!;
+        this.setGesture({ kind: 'multi', markup: { ...g.markup, type: 'polygonCloud', points: [at] }, hover: at, down: at, calibrate: false });
       } else this.commitDraft(g.markup);
     } else if (g.kind === 'groupXform') {
       const store = this.store;
@@ -5001,7 +5051,8 @@ export class MarkupTools implements ViewerOverlay {
     const zoom = this.viewer.zoomFor(this.page);
     const b = boundsOf(cloud.points);
     const groupId = crypto.randomUUID();
-    const tip: Point = [b.x + b.w, b.y];
+    // Fork (leojru/redcolumn): from the outline nearest the top-right corner (a polygon cloud's corner may be anywhere).
+    const tip: Point = nearestOnCloud(cloud, [b.x + b.w, b.y]);
     const callout = this.newMarkup('callout', cloud.pageIndex, calloutPoints(tip, [tip[0] + 40 / zoom, tip[1] - 40 / zoom], CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom));
     // The callout takes the cloud's colour, so the pair reads as one markup. Fork (leojru/redcolumn):
     // and, as Revu's Cloud+, no arrowhead where its leader meets the cloud.

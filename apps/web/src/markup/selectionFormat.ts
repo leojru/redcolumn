@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: a Cloud+ may have a polygon cloud.
 import { isMeasureKind, labelPatch, markupLabel, styleCapabilities, type Markup, type MarkupStyle, type MarkupType, type StyleCapabilities } from '@nb/markup';
 import { slopeApplies, type Slope } from '@nb/measure';
 
@@ -45,7 +46,7 @@ export function isCloudPlusSelection(markups: readonly Pick<Markup, 'type'>[]): 
   let hasCloud = false;
   let hasCallout = false;
   for (const m of markups) {
-    if (m.type === 'cloud') hasCloud = true;
+    if (m.type === 'cloud' || m.type === 'polygonCloud') hasCloud = true;
     else if (m.type === 'callout') hasCallout = true;
     else return false;
   }

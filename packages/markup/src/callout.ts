@@ -192,17 +192,19 @@ export function nearestOnOutline(cloud: readonly Point[], from: Point): Point {
  * (a cloud changed to a plain rectangle) takes the nearest point of its edge.
  */
 export function nearestOnCloud(cloud: Pick<Markup, 'type' | 'points' | 'style'>, from: Point): Point {
-  if (cloud.type !== 'cloud' || cloud.points.length < 2) return nearestOnOutline(cloud.points, from);
+  // A polygon cloud (Cloud+ outlined corner by corner) lands on its joins just as a box cloud does.
+  const polygon = cloud.type === 'polygonCloud' && cloud.points.length > 2;
+  if ((cloud.type !== 'cloud' && !polygon) || cloud.points.length < 2) return nearestOnOutline(cloud.points, from);
   const [a, b] = [cloud.points[0]!, cloud.points[1]!];
   const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
   const [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
-  const corners: Point[] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  const corners: Point[] = polygon ? cloud.points.map((p): Point => [p[0], p[1]]) : [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
   const radius = cloudRadius(cloud as Markup);
   let best: Point = corners[0]!;
   let bestD = Infinity;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < corners.length; i++) {
     const p = corners[i]!;
-    const q = corners[(i + 1) % 4]!;
+    const q = corners[(i + 1) % corners.length]!;
     const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
     if (!len) continue;
     const { n } = cloudBumps(len, radius);

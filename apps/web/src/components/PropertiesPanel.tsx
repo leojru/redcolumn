@@ -147,7 +147,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
   const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint) : null;
   const types = [...new Set(chosen.map((c) => c.type))];
   const cloudPlusSel = isCloudPlusSelection(chosen);
-  const clouds = cloudPlusSel ? chosen.filter((c) => c.type === 'cloud') : [];
+  const clouds = cloudPlusSel ? chosen.filter((c) => c.type === 'cloud' || c.type === 'polygonCloud') : [];
   const callouts = cloudPlusSel ? chosen.filter((c) => c.type === 'callout') : [];
   const cloudIds = clouds.map((c) => c.id);
   const calloutIds = callouts.map((c) => c.id);

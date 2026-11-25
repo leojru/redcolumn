@@ -5931,18 +5931,20 @@ export function App() {
           : selectedTypes.size === 1
             ? [...selectedTypes][0]!
             : // Fork (leojru/redcolumn): a selected Cloud+ (its cloud and callout) shows the cloud's style (fill, hatch, highlight) with the callout's text.
-              selectedTypes.size === 2 && selectedTypes.has('cloud') && selectedTypes.has('callout')
-              ? 'cloud'
+              selectedTypes.size === 2 && selectedTypes.has('callout') && (selectedTypes.has('cloud') || selectedTypes.has('polygonCloud'))
+              ? selectedTypes.has('cloud')
+                ? 'cloud'
+                : 'polygonCloud'
               : null;
   // A Cloud+ is a cloud with a callout, so selecting or drawing one also offers the callout's text options.
-  const textType = styleType === 'cloud' || styleType === null ? (toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedTypes.has('callout')) ? 'callout' : null) : styleType;
+  const textType = styleType === 'cloud' || styleType === 'polygonCloud' || styleType === null ? (toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedTypes.has('callout')) ? 'callout' : null) : styleType;
   // In select mode the style controls show the selected markup's style, not the tool's defaults.
   // Fork (leojru/redcolumn): a table too, so its line style and width read true; its cells' font settings come through textMarkupStyle.
   const selectedStyle = toolsState.tool === 'select' && styleType ? markups.find((m) => m.type === styleType && toolsState.selected.has(m.id))?.style : undefined;
   const selectedText = textType && toolsState.tool === 'select' ? markups.find((m) => m.type === textType && toolsState.selected.has(m.id)) : undefined;
   // Cloud bubble size: shown while drawing a cloud, or when the selection includes one (a Cloud+ is a cloud and its callout).
   // `value` is the selected cloud's size, else the default for new ones (undefined: sized to the zoom).
-  const selectedCloud = markups.find((m) => m.type === 'cloud' && toolsState.selected.has(m.id));
+  const selectedCloud = markups.find((m) => (m.type === 'cloud' || m.type === 'polygonCloud') && toolsState.selected.has(m.id));
   const cloudBubble =
     toolsState.tool === 'cloud' || toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedCloud)
       ? { value: selectedCloud && toolsState.tool === 'select' ? cloudRadius(selectedCloud) : toolsState.styles.cloud.arcRadius }
@@ -7550,6 +7552,8 @@ export function App() {
     const callouts = ms.filter((m) => m.type === 'callout');
     const callout = callouts.length === 1 ? callouts[0] : undefined;
     const leaderTarget = callout ?? (one && first.type === 'text' ? first : undefined);
+    // Fork (leojru/redcolumn): the one outline (alone, or a Cloud+'s cloud) whose corners Control Point edits.
+    const controlTarget = one || oneGroup ? c.tools.controlPointTarget(ids, hitId) : null;
     const status = one ? first.status : null;
     const setStatus = (s: string) => {
       store.checkpoint();
@@ -7681,6 +7685,19 @@ export function App() {
             ...(leaderTarget.type === 'callout' && leaderTarget.points.length >= 6
               ? [{ label: msg('Remove Last Leader'), disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.removeCalloutLeader(leaderTarget.id) } as MenuEntry]
               : []),
+          ]
+        : []),
+      // Fork (leojru/redcolumn): as Revu, a polygon's (a Cloud+'s polygon cloud too) corners are added where clicked, or removed.
+      ...(controlTarget && at
+        ? [
+            {
+              label: msg('Control Point'),
+              disabled: ro || !!controlTarget.locked || !store.mayEdit(controlTarget),
+              items: [
+                { label: msg('Add'), onClick: () => c.tools.addControlPoint(controlTarget.id, at) },
+                { label: msg('Delete'), disabled: c.tools.controlPointAt(controlTarget.id, at) < 0, onClick: () => c.tools.deleteControlPoint(controlTarget.id, at) },
+              ],
+            } as MenuEntry,
           ]
         : []),
       ...(one && first.attachment

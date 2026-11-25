@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: a Cloud+ may have a polygon cloud (outlined corner by corner).
 import { DEFAULT_SCALE, effectiveKind, isMeasureKind, measureValue, toDisplayQuantity, type MeasureKind, type Scale } from '@nb/measure';
 import { arr, dict, num, PdfName, PdfRefNum, str, type PdfDictValue, type PdfValue } from './bluebeam';
 import { CLOUD_PLUS_CLOUD_TYPE, CLOUD_PLUS_TYPE, CLOUD_TYPE, cloudPlusGroups, legendKeyOf } from './bluebeamTypes';
@@ -119,7 +120,7 @@ export function bsiLegendValue(
     const row = at(k.type, k.subject);
     if (k.type === CLOUD_PLUS_TYPE) {
       // The callout leads the pair; the cloud only gives the key its sub-key.
-      if (m.type === 'cloud') row.cloud ??= m;
+      if (m.type === 'cloud' || m.type === 'polygonCloud') row.cloud ??= m;
       else {
         row.sample ??= m;
         row.count += 1;

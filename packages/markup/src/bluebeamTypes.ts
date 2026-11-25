@@ -1,3 +1,4 @@
+// Modified in the leojru/redcolumn fork: a Cloud+ may have a polygon cloud (outlined corner by corner).
 import type { Markup, MarkupType } from './model';
 import { TYPE_INFO } from './types';
 import { flowShapeLabel } from './flowchart';
@@ -87,7 +88,7 @@ export function cloudPlusGroups(all: readonly Markup[]): Set<string> {
   const groups = new Map<string, Markup[]>();
   for (const m of all) if (m.groupId) groups.set(m.groupId, [...(groups.get(m.groupId) ?? []), m]);
   const plus = new Set<string>();
-  for (const [id, members] of groups) if (members.length === 2 && members.some((m) => m.type === 'cloud') && members.some((m) => m.type === 'callout')) plus.add(id);
+  for (const [id, members] of groups) if (members.length === 2 && members.some((m) => m.type === 'cloud' || m.type === 'polygonCloud') && members.some((m) => m.type === 'callout')) plus.add(id);
   return plus;
 }
 

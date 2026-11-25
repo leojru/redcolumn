@@ -24,7 +24,7 @@ const TOOLS = lazy((): Record<string, ToolPreview> => ({
   polygon: { gif: 'tool-polygon', hint: msg('Click each corner, then the first corner again to close it.') },
   cloud: { gif: 'tool-cloud', hint: msg('Drag from one corner to the opposite corner.') },
   polygonCloud: { gif: 'tool-polygon-cloud', hint: msg('Click each corner, then the first corner again to close it.') },
-  cloudPlus: { gif: 'tool-cloud-plus', hint: msg('Drag a cloud, then type the note that comes with it.') },
+  cloudPlus: { gif: 'tool-cloud-plus', hint: msg('Drag a cloud or click its corners, then type its note.') },
   pen: { gif: 'tool-pen', hint: msg('Draw freehand with the mouse or a stylus.') },
   highlighter: { gif: 'tool-highlighter', hint: msg('Drag across words to highlight them.') },
   eraser: { gif: 'tool-eraser', hint: msg('Drag over a pen or highlighter stroke to rub it out.') },

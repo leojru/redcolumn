@@ -1976,7 +1976,7 @@ function writeGroups(doc: PDFDocument, made: ReadonlyMap<Markup, { dict: PDFDict
   }
   for (const members of groups.values()) {
     if (members.length < 2) continue;
-    const cloud = members.find((m) => m.type === 'cloud');
+    const cloud = members.find((m) => m.type === 'cloud' || m.type === 'polygonCloud');
     const callout = members.find((m) => m.type === 'callout');
     const cloudPlus = members.length === 2 && !!cloud && !!callout;
     const leader = (cloudPlus ? callout : members[0])!;
