@@ -3,6 +3,7 @@ import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber,
 import { arr, dict, nameOf, num, PdfName, refNum, str, type PdfDictValue, type PdfExtras, type PdfPageExtras, type PdfValue, type SnapshotSheet } from './bluebeam';
 import { snapshotContentSheet } from './vectorSnapshot';
 import { toPdfValue } from './pdfValue';
+import { BROKEN_FONT_KEY } from './brokenFontKey';
 import { AI_REVIEW_KEY, ASSEMBLIES_KEY, ESTIMATING_KEY, PORTALS_KEY, pageMatrix } from './export';
 import { isEmptyAiReview, sanitizeAiReview, type AiReviewData } from './aiReview';
 import { sanitizePortals, type Portal } from './portals';
@@ -46,6 +47,8 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
         const box = apBBox(ctx, entry);
         if (box) a = { ...a, APBBox: box };
       }
+      // Fork (leojru/redcolumn): an appearance whose font lost its glyphs (see BROKEN_FONT_KEY) is drawn again on save.
+      if (a && entry && appearanceHasBrokenFont(ctx, entry)) a = { ...a, [BROKEN_FONT_KEY]: true };
       annots.push(a);
       if (nameOf(a?.IT) === 'StampSnapshot') {
         const sheet = await snapshotContentSheet(doc, pages.length, annots.length - 1).catch(() => null);
@@ -86,6 +89,42 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   const portals = readPortals(str(value(doc.catalog.get(PDFName.of(PORTALS_KEY)), PORTALS_KEY, 0)), pages.length);
   const aiReview = readAiReview(str(value(doc.catalog.get(PDFName.of(AI_REVIEW_KEY)), AI_REVIEW_KEY, 0)), pages.length);
   return { pages, ocgNames, columns, statusDefs, images, ...(snapshotSheets.size ? { snapshotSheets } : {}), ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}), ...(portals.length ? { portals } : {}), ...(aiReview ? { aiReview } : {}) };
+}
+
+/** Whether an annotation's normal appearance (or a form it draws) uses a composite font without its descendant font. */
+export function appearanceHasBrokenFont(ctx: PDFDocument['context'], entry: PDFObject): boolean {
+  try {
+    const annot = entry instanceof PDFRef ? ctx.lookup(entry) : entry;
+    if (!(annot instanceof PDFDict)) return false;
+    const ap = annot.lookup(PDFName.of('AP'));
+    if (!(ap instanceof PDFDict)) return false;
+    const n = ap.lookup(PDFName.of('N'));
+    // /N is a stream, or a dictionary of streams by state.
+    const streams = n instanceof PDFDict && !(n instanceof PDFRawStream) ? n.values().map((v) => ctx.lookup(v)) : [n];
+    const seen = new Set<PDFObject>();
+    const broken = (s: unknown, depth: number): boolean => {
+      if (!(s instanceof PDFRawStream) || seen.has(s) || depth > 3) return false;
+      seen.add(s);
+      const res = s.dict.lookup(PDFName.of('Resources'));
+      if (!(res instanceof PDFDict)) return false;
+      const fonts = res.lookup(PDFName.of('Font'));
+      if (fonts instanceof PDFDict) {
+        for (const v of fonts.values()) {
+          const font = ctx.lookup(v);
+          if (!(font instanceof PDFDict)) return true;
+          if (String(font.get(PDFName.of('Subtype'))) !== '/Type0') continue;
+          const desc = font.lookup(PDFName.of('DescendantFonts'));
+          const first = desc instanceof PDFArray && desc.size() ? ctx.lookup(desc.get(0)) : undefined;
+          if (!(first instanceof PDFDict)) return true;
+        }
+      }
+      const xobjects = res.lookup(PDFName.of('XObject'));
+      return xobjects instanceof PDFDict && xobjects.values().some((v) => broken(ctx.lookup(v), depth + 1));
+    };
+    return streams.some((s) => broken(s, 0));
+  } catch {
+    return false;
+  }
 }
 
 /** The /BBox of an annotation's normal appearance stream, or null. */

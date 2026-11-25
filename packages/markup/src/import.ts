@@ -1,4 +1,5 @@
 // Modified in the leojru/redcolumn fork (revu-layout): cloud borders on FreeText; Revu snapshots' border and fill as settings; text another program changed in /Contents wins over /NBData.
+import { BROKEN_FONT_KEY } from './brokenFontKey';
 import { sanitizeAiOrigin } from './aiReview';
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
@@ -370,6 +371,8 @@ export function importAnnotations(
             Object.assign(m, richSpans(r, a, edited, m.style));
             redraw.add(m);
           }
+          // Fork (leojru/redcolumn): its appearance lost its font (see BROKEN_FONT_KEY): saved afresh, its text drawn again.
+          if (r?.[BROKEN_FONT_KEY] === true) redraw.add(m);
           markups.push(m);
           imported.push(a.index);
           continue;
